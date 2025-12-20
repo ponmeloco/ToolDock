@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+ENV/
+env/
+
+# Bytecode & Cache
+.mypy_cache/
+.pytest_cache/
+.pyre/
+.ruff_cache/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+
+# Docker
+docker-compose.override.yml
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Build Artifacts
+dist/
+build/
+
+# Temporary Files
+tmp/
+.cache/
+
+# Local data (falls später genutzt)
+data/
