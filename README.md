@@ -1,4 +1,6 @@
-# MCP Tool Server
+### VIBE-CODED due to lack of time. Don't hate me.
+
+# MCP Tool Server 
 
 ## Core Documents
 
