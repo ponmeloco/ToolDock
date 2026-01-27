@@ -8,15 +8,18 @@ services:
     container_name: omnimcp-openapi
     environment:
       - SERVER_MODE=openapi
-      - TOOLS_DIR=/app/tools/shared
+      - TOOLS_DIR=/app/tools
+      - EXTERNAL_CONFIG=/app/tools/external/config.yaml
       - OPENAPI_SERVER_NAME=tools-openapi
       - REGISTRY_NAMESPACE=shared
       - BEARER_TOKEN=${BEARER_TOKEN:-change_me_openapi}
       - OPENAPI_PORT=8006
+      # Pass through tokens for external servers
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     ports:
       - "8006:8006"
     volumes:
-      - ./tools:/app/tools:ro
+      - ./tools:/app/tools
     restart: unless-stopped
     networks:
       - tool-network
@@ -35,14 +38,17 @@ services:
     container_name: omnimcp-mcp
     environment:
       - SERVER_MODE=mcp-http
-      - TOOLS_DIR=/app/tools/shared
+      - TOOLS_DIR=/app/tools
+      - EXTERNAL_CONFIG=/app/tools/external/config.yaml
       - MCP_SERVER_NAME=mcp-tools
       - REGISTRY_NAMESPACE=shared
       - MCP_PORT=8007
+      # Pass through tokens for external servers
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     ports:
       - "8007:8007"
     volumes:
-      - ./tools:/app/tools:ro
+      - ./tools:/app/tools
     restart: unless-stopped
     networks:
       - tool-network
@@ -62,18 +68,21 @@ services:
     container_name: omnimcp-both
     environment:
       - SERVER_MODE=both
-      - TOOLS_DIR=/app/tools/shared
+      - TOOLS_DIR=/app/tools
+      - EXTERNAL_CONFIG=/app/tools/external/config.yaml
       - OPENAPI_SERVER_NAME=tools-openapi
       - MCP_SERVER_NAME=mcp-tools
       - REGISTRY_NAMESPACE=shared
       - BEARER_TOKEN=${BEARER_TOKEN:-change_me}
       - OPENAPI_PORT=8006
       - MCP_PORT=8007
+      # Pass through tokens for external servers
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     ports:
       - "8006:8006"
       - "8007:8007"
     volumes:
-      - ./tools:/app/tools:ro
+      - ./tools:/app/tools
     restart: unless-stopped
     networks:
       - tool-network
