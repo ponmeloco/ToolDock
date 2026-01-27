@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Optional, Set
 
+from fastapi import Header, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -15,6 +16,30 @@ def get_bearer_token() -> Optional[str]:
 
 def is_auth_enabled() -> bool:
     return get_bearer_token() is not None
+
+
+async def verify_token(authorization: Optional[str] = Header(None)) -> str:
+    """
+    FastAPI dependency to verify bearer token.
+
+    Returns the token if valid, raises HTTPException if invalid.
+    """
+    if not is_auth_enabled():
+        return ""
+
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+
+    provided = authorization.split(" ", 1)[1].strip()
+    expected = get_bearer_token()
+
+    if not expected or provided != expected:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    return provided
 
 
 def _extract_bearer(header_value: str) -> Optional[str]:

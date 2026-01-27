@@ -24,8 +24,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import sys
 from multiprocessing import Process
+from typing import Optional
 
 import uvicorn
 
@@ -45,14 +47,61 @@ TOOLS_DIR = os.getenv("TOOLS_DIR", os.path.join(os.getcwd(), "tools"))
 OPENAPI_PORT = int(os.getenv("OPENAPI_PORT", "8006"))
 MCP_PORT = int(os.getenv("MCP_PORT", "8007"))
 HOST = os.getenv("HOST", "0.0.0.0")
+EXTERNAL_CONFIG = os.getenv("EXTERNAL_CONFIG", "tools/external/config.yaml")
+
+# Global external server manager for shutdown handling
+_external_manager: Optional["ExternalServerManager"] = None
 
 
 def load_tools_into_registry():
     """Load tools from TOOLS_DIR into the global registry."""
     registry = get_registry()
     load_tools_from_directory(registry, TOOLS_DIR, recursive=True)
-    logger.info(f"Loaded {len(registry.list_tools())} tools from {TOOLS_DIR}")
+    logger.info(f"Loaded {len(registry.list_tools())} native tools from {TOOLS_DIR}")
     return registry
+
+
+async def init_external_servers(registry):
+    """Initialize external MCP servers from config."""
+    global _external_manager
+
+    from app.external.config import ExternalServerConfig
+    from app.external.server_manager import ExternalServerManager
+
+    logger.info("Initializing external MCP servers...")
+
+    _external_manager = ExternalServerManager(registry)
+
+    try:
+        config = ExternalServerConfig(EXTERNAL_CONFIG)
+        result = await config.apply(_external_manager)
+
+        loaded = len(result.get("loaded", []))
+        failed = len(result.get("failed", []))
+
+        if loaded > 0:
+            logger.info(f"Loaded {loaded} external servers")
+        if failed > 0:
+            logger.warning(f"Failed to load {failed} external servers")
+
+        stats = registry.get_stats()
+        logger.info(
+            f"Total tools: {stats['native']} native + {stats['external']} external = {stats['total']}"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to init external servers: {e}")
+        # Continue - external servers are optional
+
+
+async def shutdown_external_servers():
+    """Shutdown all external servers gracefully."""
+    global _external_manager
+
+    if _external_manager:
+        logger.info("Shutting down external servers...")
+        await _external_manager.shutdown_all()
+        _external_manager = None
 
 
 def start_openapi_server():
@@ -61,8 +110,13 @@ def start_openapi_server():
 
     from app.transports.openapi_server import create_openapi_app
 
-    # Load tools and create app
+    # Load native tools
     registry = load_tools_into_registry()
+
+    # Load external servers
+    asyncio.run(init_external_servers(registry))
+
+    # Create app (with admin routes)
     app = create_openapi_app(registry)
 
     # Start server
@@ -80,8 +134,13 @@ def start_mcp_http_server():
 
     from app.transports.mcp_http_server import create_mcp_http_app
 
-    # Load tools and create app
+    # Load native tools
     registry = load_tools_into_registry()
+
+    # Load external servers
+    asyncio.run(init_external_servers(registry))
+
+    # Create app
     app = create_mcp_http_app(registry)
 
     # Start server
@@ -145,8 +204,22 @@ def main():
         sys.exit(1)
 
 
+def setup_signal_handlers():
+    """Setup signal handlers for graceful shutdown."""
+
+    def signal_handler(sig, frame):
+        logger.info(f"Received signal {sig}, shutting down...")
+        asyncio.run(shutdown_external_servers())
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+
 if __name__ == "__main__":
+    setup_signal_handlers()
     try:
         main()
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
+        asyncio.run(shutdown_external_servers())

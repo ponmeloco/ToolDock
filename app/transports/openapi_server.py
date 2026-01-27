@@ -82,24 +82,32 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
 
     @app.get("/health")
     async def health():
+        stats = registry.get_stats()
         return {
             "status": "ok",
             "namespace": REGISTRY_NAMESPACE,
-            "transport": "openapi"
+            "transport": "openapi",
+            "tools": stats,
         }
 
     @app.get("/tools", dependencies=[Depends(bearer_auth_dependency)])
     async def list_tools():
-        tools = app.state.registry.list_tools()
+        # Use list_all() to include both native and external tools
+        all_tools = app.state.registry.list_all()
         return {
             "namespace": REGISTRY_NAMESPACE,
             "tools": [
-                {"name": t.name, "description": t.description, "input_schema": t.input_model.model_json_schema()}
-                for t in tools
+                {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "input_schema": t["inputSchema"],
+                    "type": t.get("type", "native"),
+                }
+                for t in all_tools
             ],
         }
 
-    # Register tool endpoints
+    # Register native tool endpoints
     def make_endpoint(tool_name: str):
         async def endpoint(
             payload: Dict[str, Any] = Body(default={}),
@@ -127,7 +135,23 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
             },
         )
 
-    logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} tools")
+    # Add dynamic endpoint for external tools (and any tool by name)
+    @app.post("/tools/{tool_name}", dependencies=[Depends(bearer_auth_dependency)])
+    async def call_tool_dynamic(
+        tool_name: str,
+        payload: Dict[str, Any] = Body(default={}),
+    ):
+        """Execute any tool by name (supports external tools with prefixed names)."""
+        if not registry.has_tool(tool_name):
+            raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
+        result = await registry.call(tool_name, payload or {})
+        return {"tool": tool_name, "result": result}
+
+    # Include admin router
+    from app.admin.routes import router as admin_router
+    app.include_router(admin_router)
+
+    logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")
     return app
 
 
