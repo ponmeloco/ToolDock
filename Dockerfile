@@ -4,14 +4,22 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+# Install curl for healthchecks
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application code
 COPY . .
 
+# Create non-root user for security
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
-EXPOSE 8000
+# Expose ports for both transports
+EXPOSE 8006 8007
 
-CMD ["python", "main.py", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
+# Default entrypoint
+CMD ["python", "main.py"]

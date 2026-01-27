@@ -9,6 +9,9 @@ from app.errors import ToolNotFoundError, ToolValidationError
 
 ToolHandler = Callable[[BaseModel], Awaitable[Any]]
 
+# Global registry instance (singleton)
+_global_registry: Optional["ToolRegistry"] = None
+
 
 @dataclass(frozen=True)
 class ToolDefinition:
@@ -35,6 +38,26 @@ class ToolRegistry:
             raise ToolNotFoundError(name)
         return tool
 
+    def get_tool_info(self, name: str) -> Dict[str, Any]:
+        """
+        Get tool information in a format suitable for MCP.
+
+        Args:
+            name: The tool name
+
+        Returns:
+            Dictionary with name, description, and input_schema
+
+        Raises:
+            ToolNotFoundError: If the tool doesn't exist
+        """
+        tool = self.get(name)
+        return {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_model.model_json_schema()
+        }
+
     async def call(self, name: str, raw_args: Optional[Dict[str, Any]] = None) -> Any:
         tool = self.get(name)
         raw_args = raw_args or {}
@@ -48,3 +71,32 @@ class ToolRegistry:
             ) from e
 
         return await tool.handler(model)
+
+
+def get_registry(namespace: str = "default") -> ToolRegistry:
+    """
+    Get the global registry singleton.
+
+    This ensures both OpenAPI and MCP transports share the same
+    registry instance with all registered tools.
+
+    Args:
+        namespace: Registry namespace (only used on first call)
+
+    Returns:
+        The global ToolRegistry instance
+    """
+    global _global_registry
+    if _global_registry is None:
+        _global_registry = ToolRegistry(namespace=namespace)
+    return _global_registry
+
+
+def reset_registry() -> None:
+    """
+    Reset the global registry.
+
+    Primarily for testing purposes.
+    """
+    global _global_registry
+    _global_registry = None

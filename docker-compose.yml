@@ -1,30 +1,90 @@
 services:
-  tools_shared_openapi:
+  # ============================================
+  # OpenAPI Server for OpenWebUI
+  # ============================================
+  tool-server-openapi:
     build: .
-    image: mcp-server-base/mcp-tools:latest
-    container_name: tools-shared-openapi
+    image: mcp-server-base/tool-server:latest
+    container_name: tool-server-openapi
     environment:
+      - SERVER_MODE=openapi
       - TOOLS_DIR=/app/tools/shared
-      - OPENAPI_SERVER_NAME=tools-shared-openapi
+      - OPENAPI_SERVER_NAME=tools-openapi
       - REGISTRY_NAMESPACE=shared
-      - BEARER_TOKEN=${BEARER_TOKEN}
+      - BEARER_TOKEN=${BEARER_TOKEN:-change_me_openapi}
+      - OPENAPI_PORT=8006
+    ports:
+      - "8006:8006"
     volumes:
       - ./tools:/app/tools:ro
-    ports:
-      - "8006:8000"
-    command: ["uvicorn", "openapi_app:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    networks:
+      - tool-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Optional: Shared Tools as MCP SSE Server
-  # mcp_shared_sse:
-  #   build: .
-  #   image: mcp-server-base/mcp-tools:latest
-  #   container_name: mcp-shared-sse
-  #   environment:
-  #     - TOOLS_DIR=/app/tools/shared
-  #     - MCP_SERVER_NAME=mcp-tools-shared
-  #     - BEARER_TOKEN=${BEARER_TOKEN}
-  #   volumes:
-  #     - ./tools:/app/tools:ro
-  #   ports:
-  #     - "8005:8000"
-  #   command: ["python", "main.py", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
+  # ============================================
+  # MCP Streamable HTTP Server for MCP Clients
+  # ============================================
+  tool-server-mcp-http:
+    build: .
+    image: mcp-server-base/tool-server:latest
+    container_name: tool-server-mcp-http
+    environment:
+      - SERVER_MODE=mcp-http
+      - TOOLS_DIR=/app/tools/shared
+      - MCP_SERVER_NAME=mcp-tools
+      - REGISTRY_NAMESPACE=shared
+      - MCP_PORT=8007
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./tools:/app/tools:ro
+    restart: unless-stopped
+    networks:
+      - tool-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # Combined: Both servers in one container
+  # Start with: docker compose --profile combined up tool-server-both
+  # ============================================
+  tool-server-both:
+    build: .
+    image: mcp-server-base/tool-server:latest
+    container_name: tool-server-both
+    environment:
+      - SERVER_MODE=both
+      - TOOLS_DIR=/app/tools/shared
+      - OPENAPI_SERVER_NAME=tools-openapi
+      - MCP_SERVER_NAME=mcp-tools
+      - REGISTRY_NAMESPACE=shared
+      - BEARER_TOKEN=${BEARER_TOKEN:-change_me}
+      - OPENAPI_PORT=8006
+      - MCP_PORT=8007
+    ports:
+      - "8006:8006"
+      - "8007:8007"
+    volumes:
+      - ./tools:/app/tools:ro
+    restart: unless-stopped
+    networks:
+      - tool-network
+    profiles:
+      - combined
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health", "&&", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  tool-network:
+    driver: bridge
