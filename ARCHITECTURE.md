@@ -1,8 +1,8 @@
-# Architecture
+# OmniMCP Architecture
 
 ## Purpose
 
-The Tool Server is a capability layer that exposes Python tools in a controlled and machine-readable way.
+OmniMCP is a capability layer that exposes Python tools in a controlled and machine-readable way.
 It separates business logic from transport concerns such as OpenAPI or MCP.
 
 ## Core Components

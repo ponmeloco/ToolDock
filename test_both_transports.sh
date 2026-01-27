@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test script for both OpenAPI and MCP transports
+# OmniMCP - Test script for both OpenAPI and MCP transports
 # Run with: ./test_both_transports.sh
 
 set -e
@@ -10,7 +10,7 @@ MCP_PORT=${MCP_PORT:-8007}
 BEARER_TOKEN=${BEARER_TOKEN:-change_me_openapi}
 
 echo "=============================================="
-echo "  Testing Both Transports"
+echo "  OmniMCP - Testing Both Transports"
 echo "=============================================="
 echo ""
 echo "OpenAPI Port: $OPENAPI_PORT"

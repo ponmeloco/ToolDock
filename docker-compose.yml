@@ -4,8 +4,8 @@ services:
   # ============================================
   tool-server-openapi:
     build: .
-    image: mcp-server-base/tool-server:latest
-    container_name: tool-server-openapi
+    image: omnimcp:latest
+    container_name: omnimcp-openapi
     environment:
       - SERVER_MODE=openapi
       - TOOLS_DIR=/app/tools/shared
@@ -31,8 +31,8 @@ services:
   # ============================================
   tool-server-mcp-http:
     build: .
-    image: mcp-server-base/tool-server:latest
-    container_name: tool-server-mcp-http
+    image: omnimcp:latest
+    container_name: omnimcp-mcp
     environment:
       - SERVER_MODE=mcp-http
       - TOOLS_DIR=/app/tools/shared
@@ -58,8 +58,8 @@ services:
   # ============================================
   tool-server-both:
     build: .
-    image: mcp-server-base/tool-server:latest
-    container_name: tool-server-both
+    image: omnimcp:latest
+    container_name: omnimcp-both
     environment:
       - SERVER_MODE=both
       - TOOLS_DIR=/app/tools/shared

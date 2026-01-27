@@ -30,7 +30,7 @@ from app.errors import ToolError, ToolNotFoundError
 
 logger = logging.getLogger("mcp-http")
 
-SERVER_NAME = os.getenv("MCP_SERVER_NAME", "mcp-tool-server")
+SERVER_NAME = os.getenv("MCP_SERVER_NAME", "omnimcp")
 PROTOCOL_VERSION = "2024-11-05"
 
 

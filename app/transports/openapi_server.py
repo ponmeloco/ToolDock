@@ -27,7 +27,7 @@ from app.errors import ToolError, ToolUnauthorizedError, ToolValidationError
 
 logger = logging.getLogger("openapi")
 
-SERVER_NAME = os.getenv("OPENAPI_SERVER_NAME", "tools-openapi")
+SERVER_NAME = os.getenv("OPENAPI_SERVER_NAME", "omnimcp-openapi")
 REGISTRY_NAMESPACE = os.getenv("REGISTRY_NAMESPACE", "default")
 
 
