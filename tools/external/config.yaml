@@ -8,6 +8,7 @@
 # Environment variables can be referenced with ${VAR_NAME} syntax
 
 servers:
+  {}
   # Example: GitHub MCP Server (uncomment to enable)
   # github:
   #   source: registry
