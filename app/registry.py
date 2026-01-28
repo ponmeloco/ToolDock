@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Type
 
 from pydantic import BaseModel
 
 from app.errors import ToolNotFoundError, ToolValidationError
+
+if TYPE_CHECKING:
+    from app.external.proxy import MCPServerProxy
+
+logger = logging.getLogger(__name__)
 
 ToolHandler = Callable[[BaseModel], Awaitable[Any]]
 
@@ -25,6 +31,7 @@ class ToolRegistry:
     def __init__(self, namespace: str = "default"):
         self.namespace = namespace
         self._tools: Dict[str, ToolDefinition] = {}
+        self._external_tools: Dict[str, Dict[str, Any]] = {}
 
     def register(self, tool: ToolDefinition) -> None:
         self._tools[tool.name] = tool
@@ -51,16 +58,38 @@ class ToolRegistry:
         Raises:
             ToolNotFoundError: If the tool doesn't exist
         """
+        # Check external tools first
+        if name in self._external_tools:
+            ext_tool = self._external_tools[name]
+            return {
+                "name": ext_tool["name"],
+                "description": ext_tool["description"],
+                "input_schema": ext_tool["inputSchema"],
+                "type": "external",
+            }
+
+        # Native tool
         tool = self.get(name)
         return {
             "name": tool.name,
             "description": tool.description,
-            "input_schema": tool.input_model.model_json_schema()
+            "input_schema": tool.input_model.model_json_schema(),
+            "type": "native",
         }
 
+    def has_tool(self, name: str) -> bool:
+        """Check if a tool exists (native or external)."""
+        return name in self._tools or name in self._external_tools
+
     async def call(self, name: str, raw_args: Optional[Dict[str, Any]] = None) -> Any:
-        tool = self.get(name)
         raw_args = raw_args or {}
+
+        # Check external tools first (prefixed names like "github:create_repo")
+        if name in self._external_tools:
+            return await self._call_external_tool(name, raw_args)
+
+        # Native tool
+        tool = self.get(name)
 
         try:
             model = tool.input_model.model_validate(raw_args)
@@ -71,6 +100,110 @@ class ToolRegistry:
             ) from e
 
         return await tool.handler(model)
+
+    async def _call_external_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
+        """Execute an external tool via its proxy."""
+        tool_info = self._external_tools[name]
+        proxy: "MCPServerProxy" = tool_info["proxy"]
+        original_name = tool_info["original_name"]
+
+        logger.debug(f"Calling external tool {name} -> {proxy.server_id}:{original_name}")
+
+        result = await proxy.call_tool(original_name, arguments)
+        return result
+
+    def register_external_tool(
+        self,
+        name: str,
+        description: str,
+        schema: Dict[str, Any],
+        server_id: str,
+        original_name: str,
+        proxy: "MCPServerProxy",
+    ) -> None:
+        """
+        Register a tool from an external MCP server.
+
+        Args:
+            name: Prefixed tool name (e.g., 'github:create_repo')
+            description: Tool description
+            schema: JSON Schema for input
+            server_id: External server identifier
+            original_name: Original tool name on the server
+            proxy: MCPServerProxy instance for execution
+        """
+        self._external_tools[name] = {
+            "name": name,
+            "description": description,
+            "inputSchema": schema,
+            "server_id": server_id,
+            "original_name": original_name,
+            "proxy": proxy,
+            "type": "external",
+        }
+        logger.info(f"Registered external tool: {name}")
+
+    def unregister_tool(self, name: str) -> bool:
+        """
+        Remove a tool from the registry.
+
+        Args:
+            name: Tool name to remove
+
+        Returns:
+            True if removed, False if not found
+        """
+        if name in self._tools:
+            del self._tools[name]
+            logger.info(f"Unregistered native tool: {name}")
+            return True
+        elif name in self._external_tools:
+            del self._external_tools[name]
+            logger.info(f"Unregistered external tool: {name}")
+            return True
+        return False
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        """
+        List all tools (native and external) in a unified format.
+
+        Returns:
+            List of tool info dicts with type field
+        """
+        all_tools: List[Dict[str, Any]] = []
+
+        # Native tools
+        for name, definition in self._tools.items():
+            all_tools.append({
+                "name": name,
+                "description": definition.description,
+                "inputSchema": definition.input_model.model_json_schema(),
+                "type": "native",
+            })
+
+        # External tools
+        for tool_info in self._external_tools.values():
+            all_tools.append({
+                "name": tool_info["name"],
+                "description": tool_info["description"],
+                "inputSchema": tool_info["inputSchema"],
+                "type": "external",
+                "server": tool_info["server_id"],
+            })
+
+        return sorted(all_tools, key=lambda t: t["name"])
+
+    def get_external_tool(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get external tool info by name."""
+        return self._external_tools.get(name)
+
+    def get_stats(self) -> Dict[str, int]:
+        """Get tool statistics."""
+        return {
+            "native": len(self._tools),
+            "external": len(self._external_tools),
+            "total": len(self._tools) + len(self._external_tools),
+        }
 
 
 def get_registry(namespace: str = "default") -> ToolRegistry:

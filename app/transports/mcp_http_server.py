@@ -68,11 +68,13 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
     @app.get("/health")
     async def health():
         """Health check endpoint."""
+        stats = registry.get_stats()
         return {
             "status": "healthy",
             "transport": "mcp-streamable-http",
             "protocol_version": PROTOCOL_VERSION,
-            "server_name": SERVER_NAME
+            "server_name": SERVER_NAME,
+            "tools": stats,
         }
 
     async def handle_initialize(request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,15 +117,18 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         """Handle MCP tools/list request."""
         logger.info("MCP: tools/list called")
 
-        tools_list = []
-        for tool in registry.list_tools():
-            tools_list.append({
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.input_model.model_json_schema()
-            })
+        # Use list_all() to include both native and external tools
+        all_tools = registry.list_all()
+        tools_list = [
+            {
+                "name": tool["name"],
+                "description": tool["description"],
+                "inputSchema": tool["inputSchema"],
+            }
+            for tool in all_tools
+        ]
 
-        logger.info(f"MCP: Returning {len(tools_list)} tools")
+        logger.info(f"MCP: Returning {len(tools_list)} tools (native + external)")
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -348,6 +353,7 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
         This is not part of the MCP spec but useful for discovery.
         """
+        stats = registry.get_stats()
         return {
             "server": SERVER_NAME,
             "protocol": "MCP",
@@ -355,8 +361,12 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
             "transport": "streamable-http",
             "endpoint": "/mcp",
             "methods": list(METHOD_HANDLERS.keys()),
-            "tools_count": len(registry.list_tools())
+            "tools": stats,
         }
 
-    logger.info(f"MCP Streamable HTTP server created with {len(registry.list_tools())} tools")
+    stats = registry.get_stats()
+    logger.info(
+        f"MCP Streamable HTTP server created with "
+        f"{stats['native']} native + {stats['external']} external tools"
+    )
     return app

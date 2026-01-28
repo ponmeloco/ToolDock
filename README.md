@@ -84,9 +84,42 @@ curl http://localhost:8007/health
 | 🧰 **Shared Registry** | Define tools once, expose everywhere |
 | 🔌 **MCP Streamable HTTP** | Modern MCP transport (JSON-RPC 2.0) |
 | 🌐 **OpenAPI/REST** | Full OpenAPI 3.0 spec generation |
+| 🌍 **External MCP Servers** | Integrate 500+ tools from MCP Registry |
 | 🐳 **Docker Ready** | Production-ready containers |
 | 🔐 **Auth Built-in** | Bearer token authentication |
 | ⚡ **Hot Reload** | Add tools without server restart |
+
+---
+
+## 🌍 External MCP Server Integration
+
+Access 500+ community tools from the [MCP Registry](https://registry.modelcontextprotocol.io) with minimal configuration.
+
+**Quick Example:**
+
+```yaml
+# tools/external/config.yaml
+servers:
+  github:
+    source: registry
+    name: "modelcontextprotocol/server-github"
+    enabled: true
+    env:
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+```
+
+Restart OmniMCP and GitHub tools appear as `github:create_repository`, `github:list_repos`, etc.
+
+**Or add via Admin API:**
+
+```bash
+curl -X POST "http://localhost:8006/admin/servers/add" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"server_id": "github", "source": "registry", "name": "modelcontextprotocol/server-github"}'
+```
+
+See [External Servers Guide](./docs/external-servers/QUICKSTART.md) for full documentation
 
 ---
 
@@ -241,8 +274,9 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for LLM-a
 |----------|--------|------|-------------|
 | `/health` | GET | No | Health check |
 | `/openapi.json` | GET | No | OpenAPI specification |
-| `/tools` | GET | Yes | List all tools |
+| `/tools` | GET | Yes | List all tools (native + external) |
 | `/tools/{name}` | POST | Yes | Execute a tool |
+| `/admin/*` | Various | Yes | External server management |
 
 ### MCP Server (Port 8007)
 
@@ -271,6 +305,8 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for LLM-a
 | [LLM_INSTRUCTIONS.md](LLM_INSTRUCTIONS.md) | Instructions for LLM tool usage |
 | [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) | Generate tools with AI |
 | [tools/tool_template.py](tools/tool_template.py) | Template for new tools |
+| [docs/external-servers/](docs/external-servers/) | External MCP server integration |
+| [docs/api/admin.md](docs/api/admin.md) | Admin API reference |
 
 ---
 
