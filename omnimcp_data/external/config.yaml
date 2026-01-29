@@ -1,0 +1,53 @@
+# External MCP Servers Configuration
+# For OmniMCP - Multi-Tenant MCP Server
+#
+# Each server becomes its own namespace accessible via /mcp/{server_id}
+#
+# Server sources:
+#   - registry: Load from MCP Registry (https://registry.modelcontextprotocol.io)
+#   - custom: Custom command/URL configuration
+#
+# Environment variables can be referenced with ${VAR_NAME} syntax
+
+servers:
+  # Example: GitHub MCP Server (uncomment to enable)
+  # github:
+  #   source: registry
+  #   name: "modelcontextprotocol/server-github"
+  #   enabled: true
+  #   env:
+  #     GITHUB_TOKEN: ${GITHUB_TOKEN}
+
+  # Example: MSSQL MCP Server (uncomment to enable)
+  # mssql:
+  #   source: custom
+  #   enabled: true
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@anthropic/mcp-server-mssql"
+  #   env:
+  #     MSSQL_CONNECTION_STRING: ${MSSQL_CONNECTION_STRING}
+
+  # Example: Filesystem MCP Server (uncomment to enable)
+  # filesystem:
+  #   source: custom
+  #   enabled: true
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-filesystem"
+  #     - "/data/workspace"
+
+settings:
+  # Automatically reload config on file change (not yet implemented)
+  auto_reload: false
+
+  # Cache tool schemas for faster startup
+  cache_schemas: true
+
+  # Timeout for server connections (seconds)
+  connection_timeout: 30
+
+  # Timeout for tool calls (seconds)
+  tool_timeout: 60

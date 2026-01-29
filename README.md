@@ -4,7 +4,7 @@
     <strong>One Server. Every Protocol. All Your Tools.</strong>
   </p>
   <p align="center">
-    A dual-transport tool server exposing Python tools via <b>OpenAPI</b> and <b>MCP</b> simultaneously.
+    Multi-tenant MCP server with namespace-based routing, exposing Python tools via <b>OpenAPI</b>, <b>MCP</b>, and <b>Web GUI</b>.
   </p>
 </p>
 
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/MCP-Streamable_HTTP-purple.svg" alt="MCP Streamable HTTP">
   <img src="https://img.shields.io/badge/OpenAPI-3.0-green.svg" alt="OpenAPI 3.0">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
@@ -23,22 +23,21 @@
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Quickstart](#-quickstart)
 - [Features](#-features)
 - [Architecture](#-architecture)
-- [Installation](#-installation)
 - [Configuration](#-configuration)
+- [Namespace Routing](#-namespace-routing)
 - [Connecting Clients](#-connecting-clients)
 - [Adding Tools](#-adding-tools)
 - [API Reference](#-api-reference)
 - [Documentation](#-documentation)
-- [Contributing](#-contributing)
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 **With Docker (recommended):**
 
@@ -47,58 +46,174 @@
 git clone https://github.com/ponmeloco/OmniMCP.git
 cd OmniMCP
 
-# Start both servers
-docker compose up tool-server-openapi tool-server-mcp-http
-```
+# Configure (change BEARER_TOKEN!)
+cp .env.example .env
+nano .env
 
-**Without Docker:**
+# Start all services (MCP + OpenAPI + Web GUI)
+docker compose up -d
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Start both servers
-SERVER_MODE=both python main.py
+# Check logs
+docker compose logs -f
 ```
 
 **Verify it works:**
 
 ```bash
-# OpenAPI Health
-curl http://localhost:8006/health
-
-# MCP Health
-curl http://localhost:8007/health
+# Health checks
+curl http://localhost:8006/health   # OpenAPI
+curl http://localhost:8007/health   # MCP HTTP
+curl http://localhost:8080/health   # Web GUI
 
 # Or run the test script
 ./test_both_transports.sh
 ```
 
+**Access Web GUI:**
+
+Open http://localhost:8080 in your browser.
+- Username: `admin`
+- Password: Your `BEARER_TOKEN` from `.env`
+
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---------|-------------|
-| 🔀 **Dual Transport** | OpenAPI + MCP from the same codebase |
-| 🧰 **Shared Registry** | Define tools once, expose everywhere |
-| 🔌 **MCP Streamable HTTP** | Modern MCP transport (JSON-RPC 2.0) |
-| 🌐 **OpenAPI/REST** | Full OpenAPI 3.0 spec generation |
-| 🌍 **External MCP Servers** | Integrate 500+ tools from MCP Registry |
-| 🐳 **Docker Ready** | Production-ready containers |
-| 🔐 **Auth Built-in** | Bearer token authentication |
-| ⚡ **Hot Reload** | Add tools without server restart |
+| **Multi-Tenant Namespaces** | Organize tools in folders, each becomes a separate MCP endpoint |
+| **Dual Transport** | OpenAPI + MCP from the same codebase |
+| **Web GUI** | Browser-based management interface with HTTP Basic Auth |
+| **Namespace Routing** | `/mcp/shared`, `/mcp/team1`, `/mcp/github` - separate endpoints per namespace |
+| **External MCP Servers** | Integrate tools from MCP Registry (GitHub, MSSQL, Filesystem, etc.) |
+| **Docker Ready** | One container, three servers |
+| **Auth Built-in** | Bearer token + HTTP Basic Auth |
+| **Tool Validation** | AST-based validation for uploaded tools |
 
 ---
 
-## 🌍 External MCP Server Integration
+## Architecture
 
-Access 500+ community tools from the [MCP Registry](https://registry.modelcontextprotocol.io) with minimal configuration.
+```
+                    ┌─────────────────────────────────────┐
+                    │         OmniMCP Container           │
+                    ├─────────────────────────────────────┤
+                    │  Port 8006 → OpenAPI/REST           │
+                    │  Port 8007 → MCP HTTP               │
+                    │  Port 8080 → Web GUI                │
+                    ├─────────────────────────────────────┤
+LiteLLM ──────────→ │  /mcp/shared    → shared/ tools     │
+Claude Desktop ───→ │  /mcp/team1     → team1/ tools      │
+                    │  /mcp/github    → GitHub MCP        │
+                    └─────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │      omnimcp_data/ (Volume)   │
+                    ├───────────────────────────────┤
+                    │  tools/shared/*.py            │
+                    │  tools/team1/*.py             │
+                    │  external/config.yaml         │
+                    │  config/settings.yaml         │
+                    └───────────────────────────────┘
+```
 
-**Quick Example:**
+Both transports share the same tool registry — **define once, use everywhere**.
+
+---
+
+## Configuration
+
+### Environment Variables (.env)
+
+```bash
+# Required
+BEARER_TOKEN=your_secure_token_here
+
+# Optional - Ports (defaults shown)
+#OPENAPI_PORT=8006
+#MCP_PORT=8007
+#WEB_PORT=8080
+
+# Optional - Security
+#ADMIN_USERNAME=admin
+#CORS_ORIGINS=https://myapp.example.com
+
+# Optional - External MCP Servers
+#GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+#MSSQL_CONNECTION_STRING=Server=localhost;Database=mydb;...
+```
+
+### Server Modes
+
+```bash
+# All services in one container (default)
+SERVER_MODE=all docker compose up -d
+
+# Or start specific modes
+SERVER_MODE=both python main.py      # OpenAPI + MCP only
+SERVER_MODE=web-gui python main.py   # Web GUI only
+SERVER_MODE=openapi python main.py   # OpenAPI only
+SERVER_MODE=mcp-http python main.py  # MCP only
+```
+
+### Data Directory Structure
+
+```
+omnimcp_data/
+├── tools/
+│   ├── shared/           # Default namespace
+│   │   └── example.py
+│   ├── team1/            # Custom namespace
+│   │   └── analyzer.py
+│   └── team2/            # Another namespace
+│       └── reporter.py
+├── external/
+│   └── config.yaml       # External MCP server config
+└── config/
+    └── settings.yaml     # Global settings
+```
+
+---
+
+## Namespace Routing
+
+Each folder in `omnimcp_data/tools/` becomes a separate MCP namespace:
+
+| Folder | MCP Endpoint | Use Case |
+|--------|--------------|----------|
+| `tools/shared/` | `/mcp/shared` | Default tools for everyone |
+| `tools/team1/` | `/mcp/team1` | Team 1 specific tools |
+| `tools/finance/` | `/mcp/finance` | Finance department tools |
+
+**LiteLLM Configuration:**
 
 ```yaml
-# tools/external/config.yaml
+mcp_servers:
+  - server_name: "shared"
+    url: "http://omnimcp:8007/mcp/shared"
+    api_key_header: "Authorization"
+    api_key_value: "Bearer ${OMNIMCP_TOKEN}"
+
+  - server_name: "team1"
+    url: "http://omnimcp:8007/mcp/team1"
+    api_key_header: "Authorization"
+    api_key_value: "Bearer ${OMNIMCP_TOKEN}"
+```
+
+**List all namespaces:**
+
+```bash
+curl http://localhost:8007/mcp/namespaces \
+  -H "Authorization: Bearer change_me"
+```
+
+---
+
+## External MCP Server Integration
+
+Add external servers from the MCP Registry in `omnimcp_data/external/config.yaml`:
+
+```yaml
 servers:
   github:
     source: registry
@@ -106,100 +221,51 @@ servers:
     enabled: true
     env:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+
+  mssql:
+    source: custom
+    enabled: true
+    command: npx
+    args:
+      - "-y"
+      - "@anthropic/mcp-server-mssql"
+    env:
+      MSSQL_CONNECTION_STRING: ${MSSQL_CONNECTION_STRING}
 ```
 
-Restart OmniMCP and GitHub tools appear as `github:create_repository`, `github:list_repos`, etc.
-
-**Or add via Admin API:**
-
-```bash
-curl -X POST "http://localhost:8006/admin/servers/add" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"server_id": "github", "source": "registry", "name": "modelcontextprotocol/server-github"}'
-```
-
-See [External Servers Guide](./docs/external-servers/QUICKSTART.md) for full documentation
+Each external server becomes its own namespace:
+- `/mcp/github` → GitHub tools
+- `/mcp/mssql` → MSSQL tools
 
 ---
 
-## 🏗 Architecture
+## Connecting Clients
 
-```
-┌─────────────────────────────────────────────────────────┐
-│              Shared Tool Registry                        │
-│                (app/registry.py)                        │
-│        Tools from tools/shared/*.py loaded              │
-└────────────┬───────────────────┬────────────────────────┘
-             │                   │
-   ┌─────────▼─────────┐   ┌────▼─────────────────┐
-   │   Transport 1:    │   │   Transport 2:       │
-   │   OpenAPI/REST    │   │   MCP Streamable     │
-   │   (FastAPI)       │   │   HTTP               │
-   │                   │   │                      │
-   │   Port: 8006      │   │   Port: 8007         │
-   │                   │   │                      │
-   │   For:            │   │   For:               │
-   │   - OpenWebUI     │   │   - Claude Desktop   │
-   │   - REST APIs     │   │   - n8n              │
-   │   - Web clients   │   │   - MCP Clients      │
-   └───────────────────┘   └──────────────────────┘
+### LiteLLM
+
+```yaml
+# litellm_config.yaml
+mcp_servers:
+  - server_name: "omnimcp-shared"
+    url: "http://localhost:8007/mcp/shared"
+    api_key_header: "Authorization"
+    api_key_value: "Bearer change_me"
 ```
 
-Both transports share the same tool registry — **define once, use everywhere**.
+### Claude Desktop
 
----
+Add to `~/.config/Claude/claude_desktop_config.json`:
 
-## 📦 Installation
-
-### Prerequisites
-
-- Python 3.11+ or Docker
-- (Optional) `jq` for pretty JSON output in tests
-
-### Docker Installation
-
-```bash
-docker compose up tool-server-openapi tool-server-mcp-http
+```json
+{
+  "mcpServers": {
+    "omnimcp": {
+      "url": "http://localhost:8007/mcp/shared",
+      "transport": "http"
+    }
+  }
+}
 ```
-
-### Manual Installation
-
-```bash
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-pip install -r requirements.txt
-```
-
----
-
-## ⚙️ Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVER_MODE` | `openapi` | `openapi`, `mcp-http`, or `both` |
-| `TOOLS_DIR` | `./tools` | Directory containing tool modules |
-| `BEARER_TOKEN` | - | Auth token for OpenAPI endpoints |
-| `OPENAPI_PORT` | `8006` | Port for OpenAPI server |
-| `MCP_PORT` | `8007` | Port for MCP server |
-| `HOST` | `0.0.0.0` | Bind address |
-
-### Server Modes
-
-```bash
-# OpenAPI only (for OpenWebUI)
-SERVER_MODE=openapi python main.py
-
-# MCP only (for Claude Desktop, n8n)
-SERVER_MODE=mcp-http python main.py
-
-# Both servers in parallel
-SERVER_MODE=both python main.py
-```
-
----
-
-## 🔌 Connecting Clients
 
 ### OpenWebUI
 
@@ -207,35 +273,20 @@ SERVER_MODE=both python main.py
 2. Add URL: `http://localhost:8006`
 3. Add Bearer token from your `.env`
 
-### Claude Desktop
-
-Add to your config (`~/.config/Claude/claude_desktop_config.json` on Linux):
-
-```json
-{
-  "mcpServers": {
-    "omnimcp": {
-      "url": "http://localhost:8007/mcp",
-      "transport": "http"
-    }
-  }
-}
-```
-
 ### n8n
 
 Use the **MCP Node** with:
-- URL: `http://localhost:8007/mcp`
+- URL: `http://localhost:8007/mcp/shared`
 - Transport: HTTP
 
 ---
 
-## 🛠 Adding Tools
+## Adding Tools
 
-Create a new file in `tools/shared/`:
+Create a new file in `omnimcp_data/tools/shared/`:
 
 ```python
-# tools/shared/my_tool.py
+# omnimcp_data/tools/shared/my_tool.py
 from pydantic import BaseModel, Field, ConfigDict
 from app.registry import ToolDefinition, ToolRegistry
 
@@ -260,13 +311,19 @@ def register_tools(registry: ToolRegistry) -> None:
     )
 ```
 
-Restart the server and your tool is available on both transports!
+Restart the server and your tool is available!
 
-See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for LLM-assisted tool generation.
+**Or upload via Web GUI API:**
+
+```bash
+curl -X POST "http://localhost:8080/api/folders/shared/tools" \
+  -H "Authorization: Bearer change_me" \
+  -F "file=@my_tool.py"
+```
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 ### OpenAPI Server (Port 8006)
 
@@ -274,17 +331,18 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for LLM-a
 |----------|--------|------|-------------|
 | `/health` | GET | No | Health check |
 | `/openapi.json` | GET | No | OpenAPI specification |
-| `/tools` | GET | Yes | List all tools (native + external) |
+| `/tools` | GET | Yes | List all tools |
 | `/tools/{name}` | POST | Yes | Execute a tool |
-| `/admin/*` | Various | Yes | External server management |
 
 ### MCP Server (Port 8007)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/mcp` | GET | Server info |
-| `/mcp` | POST | JSON-RPC 2.0 endpoint |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/health` | GET | No | Health check |
+| `/mcp/namespaces` | GET | Yes | List all namespaces |
+| `/mcp/{namespace}` | GET | Yes | Namespace info |
+| `/mcp/{namespace}` | POST | Yes | JSON-RPC 2.0 endpoint |
+| `/mcp` | POST | Yes | Global JSON-RPC (all tools) |
 
 **MCP Methods:**
 
@@ -295,22 +353,32 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for LLM-a
 | `tools/call` | Execute a tool |
 | `ping` | Keep-alive ping |
 
+### Web GUI (Port 8080)
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/health` | GET | No | Health check |
+| `/` | GET | Basic | HTML Dashboard |
+| `/api/dashboard` | GET | Basic/Bearer | Dashboard data |
+| `/api/folders` | GET | Basic/Bearer | List namespaces |
+| `/api/folders/{ns}/tools` | GET | Basic/Bearer | List tools in namespace |
+| `/api/folders/{ns}/tools` | POST | Basic/Bearer | Upload tool file |
+| `/api/servers` | GET | Basic/Bearer | List external servers |
+
 ---
 
-## 📚 Documentation
+## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture details |
 | [LLM_INSTRUCTIONS.md](LLM_INSTRUCTIONS.md) | Instructions for LLM tool usage |
 | [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) | Generate tools with AI |
-| [tools/tool_template.py](tools/tool_template.py) | Template for new tools |
 | [docs/external-servers/](docs/external-servers/) | External MCP server integration |
-| [docs/api/admin.md](docs/api/admin.md) | Admin API reference |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 OmniMCP/
@@ -318,40 +386,52 @@ OmniMCP/
 │   ├── transports/
 │   │   ├── openapi_server.py    # OpenAPI transport
 │   │   └── mcp_http_server.py   # MCP transport
+│   ├── web/
+│   │   ├── server.py            # Web GUI server
+│   │   ├── validation.py        # Tool validation
+│   │   └── routes/              # API routes
+│   ├── external/
+│   │   ├── server_manager.py    # External server management
+│   │   └── config.py            # Config loading
 │   ├── auth.py                  # Authentication
-│   ├── errors.py                # Error types
 │   ├── loader.py                # Tool loading
 │   └── registry.py              # Shared registry
-├── tools/
-│   ├── shared/                  # Your tools here
-│   │   └── example.py
-│   └── tool_template.py
+├── omnimcp_data/                # Data volume (mount here)
+│   ├── tools/shared/            # Tool files
+│   ├── external/config.yaml     # External servers
+│   └── config/settings.yaml     # Settings
 ├── main.py                      # Entrypoint
 ├── docker-compose.yml
 ├── Dockerfile
+├── .env                         # Configuration
 └── requirements.txt
 ```
 
 ---
 
-## 🤝 Contributing
+## Testing
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Make your changes
-4. Test with `./test_both_transports.sh`
-5. Commit (`git commit -m 'Add amazing feature'`)
-6. Push (`git push origin feature/amazing`)
-7. Open a Pull Request
+```bash
+# Run all tests
+./test_both_transports.sh
+
+# Test specific endpoints
+curl http://localhost:8007/mcp/namespaces -H "Authorization: Bearer change_me"
+
+curl -X POST http://localhost:8007/mcp/shared \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
 
 ---
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
 <p align="center">
-  <sub>Built with ❤️ for the MCP ecosystem</sub>
+  <sub>Built with care for the MCP ecosystem</sub>
 </p>

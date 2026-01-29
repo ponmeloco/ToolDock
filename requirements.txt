@@ -1,10 +1,27 @@
-fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
-starlette>=0.35.0
-python-dotenv>=1.0.0
-pydantic>=2.6.0
-mcp[cli]>=1.0.0
+# ==================================================
+# OmniMCP Dependencies
+# ==================================================
+# Last updated: 2026-01-29
 
-# External MCP Server Integration
-httpx>=0.27.0
-pyyaml>=6.0.1
+# Core Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+starlette>=0.40.0
+
+# Data Validation
+pydantic>=2.10.0
+
+# MCP SDK (Model Context Protocol)
+mcp[cli]>=1.2.0
+
+# HTTP Client (for external API calls)
+httpx>=0.28.0
+
+# YAML Configuration
+pyyaml>=6.0.2
+
+# Environment Variables (for local development)
+python-dotenv>=1.0.0
+
+# Security (stdlib but listed for documentation)
+# hmac, secrets, base64 - all stdlib, no install needed

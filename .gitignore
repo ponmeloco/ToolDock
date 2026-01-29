@@ -43,5 +43,11 @@ build/
 tmp/
 .cache/
 
-# Local data (falls später genutzt)
+# Local data
 data/
+
+# OmniMCP data directory (user-generated content)
+# Include the structure but not user data
+omnimcp_data/external/cache/
+omnimcp_data/tools/*/
+!omnimcp_data/tools/shared/

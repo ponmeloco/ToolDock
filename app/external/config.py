@@ -56,6 +56,12 @@ class ExternalServerConfig:
         with open(self.config_path, "r") as f:
             self._config = yaml.safe_load(f) or {}
 
+        # Ensure servers and settings are dicts (not None)
+        if self._config.get("servers") is None:
+            self._config["servers"] = {}
+        if self._config.get("settings") is None:
+            self._config["settings"] = {}
+
         # Substitute environment variables
         self._config = self._substitute_env_vars(self._config)
 
@@ -171,13 +177,17 @@ class ExternalServerConfig:
         from app.external.server_manager import ExternalServerManager
 
         config = self.load()
-        servers_config = config.get("servers", {})
+        servers_config = config.get("servers") or {}
 
         results = {
             "loaded": [],
             "failed": [],
             "skipped": [],
         }
+
+        if not servers_config:
+            logger.info("No external servers configured")
+            return results
 
         for server_id, server_def in servers_config.items():
             if not server_def:

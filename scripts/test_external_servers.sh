@@ -1,31 +1,35 @@
 #!/bin/bash
+# ==================================================
 # Test External MCP Server Integration for OmniMCP
+# ==================================================
 #
 # Prerequisites:
-# - OmniMCP running (SERVER_MODE=both python main.py)
-# - BEARER_TOKEN set or using default 'change_me'
+#   - OmniMCP running (docker compose up -d)
+#   - BEARER_TOKEN set or using default 'change_me'
 #
 # Usage: ./scripts/test_external_servers.sh
+# ==================================================
 
 set -e
 
 # Configuration
-OPENAPI_URL="${OPENAPI_URL:-http://localhost:8006}"
 MCP_URL="${MCP_URL:-http://localhost:8007}"
+WEB_URL="${WEB_URL:-http://localhost:8080}"
 TOKEN="${BEARER_TOKEN:-change_me}"
 
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
 echo "========================================"
 echo "  External MCP Server Integration Tests"
 echo "========================================"
 echo ""
-echo "OpenAPI URL: $OPENAPI_URL"
 echo "MCP URL: $MCP_URL"
+echo "Web GUI URL: $WEB_URL"
 echo ""
 
 # Helper functions
@@ -42,16 +46,14 @@ warn() {
     echo -e "${YELLOW}! WARN${NC}: $1"
 }
 
-# Test 1: Health Check
-echo "--- Test 1: Health Checks ---"
+section() {
+    echo ""
+    echo -e "${BLUE}--- $1 ---${NC}"
+}
 
-OPENAPI_HEALTH=$(curl -s "$OPENAPI_URL/health")
-if echo "$OPENAPI_HEALTH" | grep -q '"status"'; then
-    pass "OpenAPI health check"
-    echo "  Response: $OPENAPI_HEALTH"
-else
-    fail "OpenAPI health check failed"
-fi
+# ==================================================
+section "Test 1: Health Checks"
+# ==================================================
 
 MCP_HEALTH=$(curl -s "$MCP_URL/health")
 if echo "$MCP_HEALTH" | grep -q '"status"'; then
@@ -61,135 +63,144 @@ else
     fail "MCP health check failed"
 fi
 
-echo ""
-
-# Test 2: Admin Stats
-echo "--- Test 2: Admin Stats ---"
-
-STATS=$(curl -s "$OPENAPI_URL/admin/stats" -H "Authorization: Bearer $TOKEN")
-if echo "$STATS" | grep -q '"tools"'; then
-    pass "Admin stats endpoint"
-    echo "  Response: $STATS"
+WEB_HEALTH=$(curl -s "$WEB_URL/health")
+if echo "$WEB_HEALTH" | grep -q '"status"'; then
+    pass "Web GUI health check"
+    echo "  Response: $WEB_HEALTH"
 else
-    fail "Admin stats endpoint failed"
+    fail "Web GUI health check failed"
 fi
 
-echo ""
+# ==================================================
+section "Test 2: List Namespaces"
+# ==================================================
 
-# Test 3: Search Registry
-echo "--- Test 3: Search MCP Registry ---"
-
-SEARCH=$(curl -s "$OPENAPI_URL/admin/servers/search?query=filesystem&limit=3" \
-    -H "Authorization: Bearer $TOKEN")
-if echo "$SEARCH" | grep -q 'name'; then
-    pass "Registry search"
-    echo "  Found servers in registry"
+NAMESPACES=$(curl -s "$MCP_URL/mcp/namespaces" -H "Authorization: Bearer $TOKEN")
+if echo "$NAMESPACES" | grep -q '\['; then
+    pass "List namespaces"
+    echo "  Namespaces: $NAMESPACES"
 else
-    warn "Registry search returned no results (might be network issue)"
+    fail "List namespaces failed"
 fi
 
-echo ""
+# ==================================================
+section "Test 3: List External Servers (Web GUI API)"
+# ==================================================
 
-# Test 4: List Installed Servers
-echo "--- Test 4: List Installed Servers ---"
-
-INSTALLED=$(curl -s "$OPENAPI_URL/admin/servers/installed" \
-    -H "Authorization: Bearer $TOKEN")
-if echo "$INSTALLED" | grep -q '\['; then
-    pass "List installed servers"
-    echo "  Response: $INSTALLED"
+SERVERS=$(curl -s "$WEB_URL/api/servers" -H "Authorization: Bearer $TOKEN")
+if echo "$SERVERS" | grep -q '"servers"'; then
+    pass "List external servers"
+    echo "  Response: $SERVERS"
 else
-    fail "List installed servers failed"
+    fail "List external servers failed"
 fi
 
-echo ""
+# ==================================================
+section "Test 4: List Tools via MCP"
+# ==================================================
 
-# Test 5: List All Tools (via Admin API)
-echo "--- Test 5: List All Tools ---"
-
-TOOLS=$(curl -s "$OPENAPI_URL/admin/tools" -H "Authorization: Bearer $TOKEN")
-if echo "$TOOLS" | grep -q '"native"'; then
-    pass "List all tools"
-    NATIVE=$(echo "$TOOLS" | grep -o '"native"[^}]*"count":[0-9]*' | grep -o '[0-9]*$')
-    EXTERNAL=$(echo "$TOOLS" | grep -o '"external"[^}]*"count":[0-9]*' | grep -o '[0-9]*$')
-    TOTAL=$(echo "$TOOLS" | grep -o '"total":[0-9]*' | grep -o '[0-9]*$')
-    echo "  Native: ${NATIVE:-0}, External: ${EXTERNAL:-0}, Total: ${TOTAL:-0}"
-else
-    fail "List all tools failed"
-fi
-
-echo ""
-
-# Test 6: Tools via OpenAPI
-echo "--- Test 6: Tools via OpenAPI /tools ---"
-
-OPENAPI_TOOLS=$(curl -s "$OPENAPI_URL/tools" -H "Authorization: Bearer $TOKEN")
-if echo "$OPENAPI_TOOLS" | grep -q '"tools"'; then
-    pass "OpenAPI /tools endpoint"
-    TOOL_COUNT=$(echo "$OPENAPI_TOOLS" | grep -o '"name"' | wc -l)
-    echo "  Tool count: $TOOL_COUNT"
-else
-    fail "OpenAPI /tools endpoint failed"
-fi
-
-echo ""
-
-# Test 7: Tools via MCP
-echo "--- Test 7: Tools via MCP ---"
-
-MCP_TOOLS=$(curl -s -X POST "$MCP_URL/mcp" \
+MCP_TOOLS=$(curl -s -X POST "$MCP_URL/mcp/shared" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $TOKEN" \
     -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}')
 if echo "$MCP_TOOLS" | grep -q '"tools"'; then
-    pass "MCP tools/list"
+    pass "MCP tools/list (shared namespace)"
     TOOL_COUNT=$(echo "$MCP_TOOLS" | grep -o '"name"' | wc -l)
     echo "  Tool count: $TOOL_COUNT"
 else
     fail "MCP tools/list failed"
 fi
 
-echo ""
+# ==================================================
+section "Test 5: Global MCP tools/list"
+# ==================================================
 
-# Test 8: Add Server (Optional - only if npx available)
-echo "--- Test 8: Add External Server (Optional) ---"
-
-if command -v npx &> /dev/null; then
-    # Try to add a simple test server
-    ADD_RESULT=$(curl -s -X POST "$OPENAPI_URL/admin/servers/add" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "server_id": "test-fs",
-            "source": "custom",
-            "command": "npx",
-            "args": ["-y", "@anthropic/mcp-server-filesystem", "/tmp"],
-            "save_to_config": false
-        }' 2>/dev/null || echo '{"error": "failed"}')
-
-    if echo "$ADD_RESULT" | grep -q '"status".*"connected"'; then
-        pass "Add external server"
-        echo "  Server 'test-fs' added successfully"
-
-        # Test 9: Remove Server
-        echo ""
-        echo "--- Test 9: Remove External Server ---"
-
-        REMOVE_RESULT=$(curl -s -X DELETE "$OPENAPI_URL/admin/servers/test-fs?remove_from_config=false" \
-            -H "Authorization: Bearer $TOKEN")
-        if echo "$REMOVE_RESULT" | grep -q '"removed"'; then
-            pass "Remove external server"
-        else
-            warn "Remove server returned unexpected result"
-        fi
-    else
-        warn "Could not add external server (might need npm/npx)"
-        echo "  Result: $ADD_RESULT"
-    fi
+GLOBAL_TOOLS=$(curl -s -X POST "$MCP_URL/mcp" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $TOKEN" \
+    -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}')
+if echo "$GLOBAL_TOOLS" | grep -q '"tools"'; then
+    pass "MCP tools/list (global)"
+    TOOL_COUNT=$(echo "$GLOBAL_TOOLS" | grep -o '"name"' | wc -l)
+    echo "  Tool count: $TOOL_COUNT"
 else
-    warn "npx not available, skipping add/remove server tests"
+    fail "MCP tools/list (global) failed"
 fi
 
+# ==================================================
+section "Test 6: List Folders (Web GUI API)"
+# ==================================================
+
+FOLDERS=$(curl -s "$WEB_URL/api/folders" -H "Authorization: Bearer $TOKEN")
+if echo "$FOLDERS" | grep -q '"folders"'; then
+    pass "List folders"
+    echo "  Response: $FOLDERS"
+else
+    fail "List folders failed"
+fi
+
+# ==================================================
+section "Test 7: List Tools in Folder (Web GUI API)"
+# ==================================================
+
+FOLDER_TOOLS=$(curl -s "$WEB_URL/api/folders/shared/tools" -H "Authorization: Bearer $TOKEN")
+if echo "$FOLDER_TOOLS" | grep -q '"tools"'; then
+    pass "List tools in shared folder"
+    echo "  Response: $FOLDER_TOOLS"
+else
+    fail "List tools in shared folder failed"
+fi
+
+# ==================================================
+section "Test 8: Namespace Info"
+# ==================================================
+
+NS_INFO=$(curl -s "$MCP_URL/mcp/shared" -H "Authorization: Bearer $TOKEN")
+if echo "$NS_INFO" | grep -q 'shared'; then
+    pass "Namespace info"
+    echo "  Response: $NS_INFO"
+else
+    fail "Namespace info failed"
+fi
+
+# ==================================================
+section "Test 9: Invalid Namespace (should fail)"
+# ==================================================
+
+INVALID=$(curl -s -X POST "$MCP_URL/mcp/nonexistent" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $TOKEN" \
+    -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}')
+if echo "$INVALID" | grep -q 'error\|Unknown namespace'; then
+    pass "Invalid namespace returns error"
+    echo "  Response: $INVALID"
+else
+    warn "Invalid namespace did not return expected error"
+    echo "  Response: $INVALID"
+fi
+
+# ==================================================
+section "Test 10: Auth Required Check"
+# ==================================================
+
+NO_AUTH=$(curl -s "$MCP_URL/mcp/namespaces")
+if echo "$NO_AUTH" | grep -q '401\|Unauthorized\|Authorization'; then
+    pass "Auth required for namespaces endpoint"
+else
+    warn "Endpoint may not require auth (check BEARER_TOKEN config)"
+fi
+
+# ==================================================
 echo ""
 echo "========================================"
-echo "  Tests Complete"
+echo "  All Tests Complete"
 echo "========================================"
+echo ""
+echo "Summary:"
+echo "  - MCP Namespaces: $NAMESPACES"
+echo "  - External Servers: configured via omnimcp_data/external/config.yaml"
+echo ""
+echo "To add an external server, edit the config file and restart:"
+echo "  nano omnimcp_data/external/config.yaml"
+echo "  docker compose restart"
+echo ""

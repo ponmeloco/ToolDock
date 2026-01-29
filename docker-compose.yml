@@ -1,98 +1,107 @@
+# ==================================================
+# OmniMCP Docker Compose
+# ==================================================
+#
+# Nutzung:
+#   docker compose up -d                    → Alles in einem Container
+#   docker compose --profile split up -d    → Getrennte Container
+#
+# Ports (konfigurierbar in .env):
+#   - 8006: OpenAPI/REST
+#   - 8007: MCP HTTP
+#   - 8080: Web GUI
+#
+# ==================================================
+
 services:
   # ============================================
-  # OpenAPI Server for OpenWebUI
+  # All-in-One: MCP + OpenAPI + Web GUI
   # ============================================
-  tool-server-openapi:
+  omnimcp:
     build: .
     image: omnimcp:latest
-    container_name: omnimcp-openapi
+    container_name: omnimcp
+    env_file:
+      - .env
     environment:
-      - SERVER_MODE=openapi
-      - TOOLS_DIR=/app/tools
-      - EXTERNAL_CONFIG=/app/tools/external/config.yaml
-      - OPENAPI_SERVER_NAME=tools-openapi
-      - REGISTRY_NAMESPACE=shared
-      - BEARER_TOKEN=${BEARER_TOKEN:-change_me_openapi}
-      - OPENAPI_PORT=8006
-      # Pass through tokens for external servers
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SERVER_MODE=all
+      - DATA_DIR=/data
+      - HOST=0.0.0.0
     ports:
-      - "8006:8006"
+      - "${OPENAPI_PORT:-8006}:${OPENAPI_PORT:-8006}"
+      - "${MCP_PORT:-8007}:${MCP_PORT:-8007}"
+      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     volumes:
-      - ./tools:/app/tools
+      - ./omnimcp_data:/data
     restart: unless-stopped
     networks:
       - tool-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${MCP_PORT:-8007}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # ============================================
-  # MCP Streamable HTTP Server for MCP Clients
+  # Getrennte Container (Optional)
+  # Start: docker compose --profile split up -d
   # ============================================
-  tool-server-mcp-http:
+  omnimcp-server:
     build: .
     image: omnimcp:latest
-    container_name: omnimcp-mcp
-    environment:
-      - SERVER_MODE=mcp-http
-      - TOOLS_DIR=/app/tools
-      - EXTERNAL_CONFIG=/app/tools/external/config.yaml
-      - MCP_SERVER_NAME=mcp-tools
-      - REGISTRY_NAMESPACE=shared
-      - MCP_PORT=8007
-      # Pass through tokens for external servers
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-    ports:
-      - "8007:8007"
-    volumes:
-      - ./tools:/app/tools
-    restart: unless-stopped
-    networks:
-      - tool-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # ============================================
-  # Combined: Both servers in one container
-  # Start with: docker compose --profile combined up tool-server-both
-  # ============================================
-  tool-server-both:
-    build: .
-    image: omnimcp:latest
-    container_name: omnimcp-both
+    container_name: omnimcp-server
+    env_file:
+      - .env
     environment:
       - SERVER_MODE=both
-      - TOOLS_DIR=/app/tools
-      - EXTERNAL_CONFIG=/app/tools/external/config.yaml
-      - OPENAPI_SERVER_NAME=tools-openapi
-      - MCP_SERVER_NAME=mcp-tools
-      - REGISTRY_NAMESPACE=shared
-      - BEARER_TOKEN=${BEARER_TOKEN:-change_me}
-      - OPENAPI_PORT=8006
-      - MCP_PORT=8007
-      # Pass through tokens for external servers
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - DATA_DIR=/data
+      - HOST=0.0.0.0
     ports:
-      - "8006:8006"
-      - "8007:8007"
+      - "${OPENAPI_PORT:-8006}:${OPENAPI_PORT:-8006}"
+      - "${MCP_PORT:-8007}:${MCP_PORT:-8007}"
     volumes:
-      - ./tools:/app/tools
+      - ./omnimcp_data:/data
+    restart: unless-stopped
+    networks:
+      - tool-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - split
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${MCP_PORT:-8007}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  omnimcp-web:
+    build: .
+    image: omnimcp:latest
+    container_name: omnimcp-web
+    env_file:
+      - .env
+    environment:
+      - SERVER_MODE=web-gui
+      - DATA_DIR=/data
+      - HOST=0.0.0.0
+    ports:
+      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
+    volumes:
+      - ./omnimcp_data:/data
     restart: unless-stopped
     networks:
       - tool-network
     profiles:
-      - combined
+      - split
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8006/health", "&&", "curl", "-f", "http://localhost:8007/health"]
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${WEB_PORT:-8080}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    depends_on:
+      - omnimcp-server
 
 networks:
   tool-network:

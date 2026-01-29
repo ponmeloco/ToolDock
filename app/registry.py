@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Set, Type
 
 from pydantic import BaseModel
 
@@ -28,13 +28,110 @@ class ToolDefinition:
 
 
 class ToolRegistry:
+    """
+    Central registry for all tools (native and external).
+
+    Supports namespace-based organization:
+    - Native tools are organized by folder (shared/, team1/, etc.)
+    - External MCP servers each get their own namespace (github, mssql, etc.)
+    """
+
     def __init__(self, namespace: str = "default"):
         self.namespace = namespace
         self._tools: Dict[str, ToolDefinition] = {}
         self._external_tools: Dict[str, Dict[str, Any]] = {}
+        # Namespace support: maps namespace -> set of tool names
+        self._namespaces: Dict[str, Set[str]] = {}
+        # Track which namespace each tool belongs to
+        self._tool_namespaces: Dict[str, str] = {}
 
-    def register(self, tool: ToolDefinition) -> None:
+    def register(self, tool: ToolDefinition, namespace: Optional[str] = None) -> None:
+        """
+        Register a native tool.
+
+        Args:
+            tool: The tool definition to register
+            namespace: Optional namespace (defaults to 'shared')
+        """
+        ns = namespace or "shared"
         self._tools[tool.name] = tool
+        self._add_to_namespace(tool.name, ns)
+        logger.debug(f"Registered native tool: {tool.name} in namespace: {ns}")
+
+    def _add_to_namespace(self, tool_name: str, namespace: str) -> None:
+        """Add a tool to a namespace."""
+        if namespace not in self._namespaces:
+            self._namespaces[namespace] = set()
+        self._namespaces[namespace].add(tool_name)
+        self._tool_namespaces[tool_name] = namespace
+
+    def _remove_from_namespace(self, tool_name: str) -> None:
+        """Remove a tool from its namespace."""
+        if tool_name in self._tool_namespaces:
+            ns = self._tool_namespaces[tool_name]
+            if ns in self._namespaces:
+                self._namespaces[ns].discard(tool_name)
+                # Clean up empty namespaces
+                if not self._namespaces[ns]:
+                    del self._namespaces[ns]
+            del self._tool_namespaces[tool_name]
+
+    # ==================== Namespace Methods ====================
+
+    def has_namespace(self, namespace: str) -> bool:
+        """Check if a namespace exists (native or external)."""
+        return namespace in self._namespaces
+
+    def list_namespaces(self) -> List[str]:
+        """List all available namespaces."""
+        return sorted(self._namespaces.keys())
+
+    def list_tools_for_namespace(self, namespace: str) -> List[Dict[str, Any]]:
+        """
+        Get all tools for a specific namespace in MCP format.
+
+        Args:
+            namespace: The namespace to filter by
+
+        Returns:
+            List of tool info dicts formatted for MCP
+        """
+        if namespace not in self._namespaces:
+            return []
+
+        tool_names = self._namespaces[namespace]
+        tools: List[Dict[str, Any]] = []
+
+        for name in tool_names:
+            if name in self._tools:
+                definition = self._tools[name]
+                tools.append({
+                    "name": name,
+                    "description": definition.description,
+                    "inputSchema": definition.input_model.model_json_schema(),
+                })
+            elif name in self._external_tools:
+                ext_tool = self._external_tools[name]
+                tools.append({
+                    "name": name,
+                    "description": ext_tool["description"],
+                    "inputSchema": ext_tool["inputSchema"],
+                })
+
+        return sorted(tools, key=lambda t: t["name"])
+
+    def tool_in_namespace(self, tool_name: str, namespace: str) -> bool:
+        """Check if a tool belongs to a specific namespace."""
+        return (
+            namespace in self._namespaces
+            and tool_name in self._namespaces[namespace]
+        )
+
+    def get_tool_namespace(self, tool_name: str) -> Optional[str]:
+        """Get the namespace a tool belongs to."""
+        return self._tool_namespaces.get(tool_name)
+
+    # ==================== Original Methods ====================
 
     def list_tools(self) -> List[ToolDefinition]:
         return sorted(self._tools.values(), key=lambda t: t.name)
@@ -120,18 +217,21 @@ class ToolRegistry:
         server_id: str,
         original_name: str,
         proxy: "MCPServerProxy",
+        namespace: Optional[str] = None,
     ) -> None:
         """
         Register a tool from an external MCP server.
 
         Args:
-            name: Prefixed tool name (e.g., 'github:create_repo')
+            name: Tool name (can be original name if using namespace routing)
             description: Tool description
             schema: JSON Schema for input
             server_id: External server identifier
             original_name: Original tool name on the server
             proxy: MCPServerProxy instance for execution
+            namespace: Namespace for this tool (defaults to server_id)
         """
+        ns = namespace or server_id
         self._external_tools[name] = {
             "name": name,
             "description": description,
@@ -141,7 +241,8 @@ class ToolRegistry:
             "proxy": proxy,
             "type": "external",
         }
-        logger.info(f"Registered external tool: {name}")
+        self._add_to_namespace(name, ns)
+        logger.info(f"Registered external tool: {name} in namespace: {ns}")
 
     def unregister_tool(self, name: str) -> bool:
         """
@@ -155,10 +256,12 @@ class ToolRegistry:
         """
         if name in self._tools:
             del self._tools[name]
+            self._remove_from_namespace(name)
             logger.info(f"Unregistered native tool: {name}")
             return True
         elif name in self._external_tools:
             del self._external_tools[name]
+            self._remove_from_namespace(name)
             logger.info(f"Unregistered external tool: {name}")
             return True
         return False
@@ -179,16 +282,19 @@ class ToolRegistry:
                 "description": definition.description,
                 "inputSchema": definition.input_model.model_json_schema(),
                 "type": "native",
+                "namespace": self._tool_namespaces.get(name, "shared"),
             })
 
         # External tools
         for tool_info in self._external_tools.values():
+            name = tool_info["name"]
             all_tools.append({
-                "name": tool_info["name"],
+                "name": name,
                 "description": tool_info["description"],
                 "inputSchema": tool_info["inputSchema"],
                 "type": "external",
                 "server": tool_info["server_id"],
+                "namespace": self._tool_namespaces.get(name, tool_info["server_id"]),
             })
 
         return sorted(all_tools, key=lambda t: t["name"])
@@ -197,12 +303,17 @@ class ToolRegistry:
         """Get external tool info by name."""
         return self._external_tools.get(name)
 
-    def get_stats(self) -> Dict[str, int]:
-        """Get tool statistics."""
+    def get_stats(self) -> Dict[str, Any]:
+        """Get tool statistics including namespace information."""
+        namespace_stats = {
+            ns: len(tools) for ns, tools in self._namespaces.items()
+        }
         return {
             "native": len(self._tools),
             "external": len(self._external_tools),
             "total": len(self._tools) + len(self._external_tools),
+            "namespaces": len(self._namespaces),
+            "namespace_breakdown": namespace_stats,
         }
 
 
