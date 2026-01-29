@@ -45,14 +45,17 @@
 # Clone the repo
 git clone https://github.com/ponmeloco/OmniMCP.git
 cd OmniMCP
-
+```
+```
 # Configure (change BEARER_TOKEN!)
 cp .env.example .env
 nano .env
-
+```
+```
 # Start all services (MCP + OpenAPI + Web GUI)
 docker compose up -d
-
+```
+```
 # Check logs
 docker compose logs -f
 ```
@@ -64,7 +67,8 @@ docker compose logs -f
 curl http://localhost:8006/health   # OpenAPI
 curl http://localhost:8007/health   # MCP HTTP
 curl http://localhost:8080/health   # Web GUI
-
+```
+```
 # Or run the test script
 ./test_both_transports.sh
 ```
