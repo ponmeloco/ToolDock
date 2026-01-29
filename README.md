@@ -265,7 +265,9 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "omnimcp": {
       "url": "http://localhost:8007/mcp/shared",
-      "transport": "http"
+      "headers": {
+        "Authorization": "Bearer change_me"
+      }
     }
   }
 }
