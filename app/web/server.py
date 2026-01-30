@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.auth import is_auth_enabled, verify_token
-from app.middleware import TrailingNewlineMiddleware
+from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router
 from app.web.routes.admin import setup_log_buffer
 
@@ -91,6 +91,9 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
 
     # Setup log buffer for log viewing
     setup_log_buffer()
+
+    # Add request logging middleware (after log buffer is set up)
+    app.add_middleware(RequestLoggingMiddleware)
 
     # Include API routes
     app.include_router(folders_router)

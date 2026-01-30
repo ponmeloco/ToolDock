@@ -102,7 +102,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <Wrench className="w-5 h-5" />
-            Environment
+            Configuration
           </h2>
 
           {infoQuery.isLoading ? (
@@ -110,21 +110,34 @@ export default function Dashboard() {
           ) : infoQuery.error ? (
             <div className="text-red-500">Failed to load</div>
           ) : (
-            <div className="space-y-2 text-sm">
+            <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Version:</span>
                 <span className="font-mono">{infoQuery.data?.version}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Data Dir:</span>
-                <span className="font-mono">{infoQuery.data?.data_dir}</span>
+                <span className="text-gray-500">Data Volume:</span>
+                <span className="font-mono">./omnimcp_data</span>
               </div>
-              {Object.entries(infoQuery.data?.environment || {}).map(([key, value]) => (
-                <div key={key} className="flex justify-between">
-                  <span className="text-gray-500">{key}:</span>
-                  <span className="font-mono">{value}</span>
-                </div>
-              ))}
+
+              <div className="border-t border-gray-100 pt-3 mt-3">
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Ports</div>
+                {Object.entries(infoQuery.data?.environment || {})
+                  .filter(([key]) => key.includes('port'))
+                  .map(([key, value]) => (
+                    <div key={key} className="flex justify-between">
+                      <span className="text-gray-500">{key.replace('_', ' ')}:</span>
+                      <span className="font-mono">{value}</span>
+                    </div>
+                  ))}
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-3 mt-3">
+                <p className="text-xs text-gray-500">
+                  To change ports, edit <code className="bg-gray-200 px-1 rounded">.env</code> and restart with{' '}
+                  <code className="bg-gray-200 px-1 rounded">docker compose restart</code>
+                </p>
+              </div>
             </div>
           )}
         </div>

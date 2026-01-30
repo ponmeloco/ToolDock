@@ -105,16 +105,37 @@ class BufferingLogHandler(logging.Handler):
 
 
 def setup_log_buffer():
-    """Setup the log buffer handler on the root logger."""
+    """Setup the log buffer handler on relevant loggers."""
     handler = BufferingLogHandler(_log_buffer)
-    handler.setLevel(logging.INFO)
+    handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter("%(message)s"))
 
     # Add to root logger
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
 
+    # Add to all app-specific loggers
+    for logger_name in [
+        "backend-api", "mcp", "openapi", "httpx",
+        "uvicorn", "uvicorn.access", "uvicorn.error",
+        "app", "app.web", "app.auth", "app.reload",
+    ]:
+        app_logger = logging.getLogger(logger_name)
+        app_logger.addHandler(handler)
+        app_logger.setLevel(logging.DEBUG)
+
     logger.info("Log buffer initialized")
+
+
+def log_request(method: str, path: str, status_code: int, duration_ms: float):
+    """Log an HTTP request to the buffer."""
+    entry = LogEntry(
+        timestamp=datetime.now().isoformat(),
+        level="INFO",
+        logger="http.access",
+        message=f"{method} {path} {status_code} ({duration_ms:.1f}ms)",
+    )
+    _log_buffer.append(entry)
 
 
 @router.get("/health", response_model=SystemHealthResponse)

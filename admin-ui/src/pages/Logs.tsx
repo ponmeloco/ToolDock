@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getLogs } from '../api/client'
-import { RefreshCw, Filter } from 'lucide-react'
+import { RefreshCw, Filter, Clock } from 'lucide-react'
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const
 
@@ -22,12 +22,20 @@ export default function Logs() {
   const [limit, setLimit] = useState(100)
   const [level, setLevel] = useState<string>('')
   const [loggerFilter, setLoggerFilter] = useState('')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const logsQuery = useQuery({
     queryKey: ['logs', limit, level, loggerFilter],
     queryFn: () => getLogs(limit, level || undefined, loggerFilter || undefined),
     refetchInterval: 5000, // Refresh every 5 seconds
   })
+
+  // Track when data was last updated
+  useEffect(() => {
+    if (logsQuery.dataUpdatedAt) {
+      setLastUpdated(new Date(logsQuery.dataUpdatedAt))
+    }
+  }, [logsQuery.dataUpdatedAt])
 
   const logs = logsQuery.data?.logs || []
 
@@ -36,14 +44,23 @@ export default function Logs() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900">Logs</h1>
 
-        <button
-          onClick={() => logsQuery.refetch()}
-          disabled={logsQuery.isFetching}
-          className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${logsQuery.isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-4">
+          {lastUpdated && (
+            <div className="flex items-center gap-1.5 text-sm text-gray-500">
+              <Clock className="w-4 h-4" />
+              <span>Updated: {lastUpdated.toLocaleTimeString()}</span>
+              {logsQuery.isFetching && <span className="text-primary-600">(refreshing...)</span>}
+            </div>
+          )}
+          <button
+            onClick={() => logsQuery.refetch()}
+            disabled={logsQuery.isFetching}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${logsQuery.isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
