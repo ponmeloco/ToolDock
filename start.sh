@@ -146,68 +146,94 @@ fi
 
 print_header "Running Health Checks"
 
-# Wait for services to be ready
-print_info "Waiting for services to start..."
-sleep 3
+# Configuration
+MAX_RETRIES=60
+SLEEP_INTERVAL=1
+HEALTH_FAILURES=0
 
-# Backend health check
-BACKEND_PORT="${WEB_PORT:-8080}"
-MAX_RETRIES=30
-RETRY_COUNT=0
+# Helper function for health checks with retry
+wait_for_health() {
+    local name="$1"
+    local url="$2"
+    local check_type="$3"  # "json" for JSON health endpoint, "http" for just HTTP 200
+    local retry_count=0
 
-print_info "Checking backend health (port $BACKEND_PORT)..."
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s "http://localhost:$BACKEND_PORT/health" > /dev/null 2>&1; then
-        HEALTH_RESPONSE=$(curl -s "http://localhost:$BACKEND_PORT/health")
-        STATUS=$(echo "$HEALTH_RESPONSE" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-        if [ "$STATUS" = "healthy" ]; then
-            print_success "Backend is healthy"
-            break
+    print_info "Waiting for $name..."
+
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+        if [ "$check_type" = "json" ]; then
+            # Check for JSON health response with "healthy" status
+            if curl -s "$url" 2>/dev/null | grep -q '"status".*"healthy"'; then
+                print_success "$name is healthy"
+                return 0
+            fi
+        else
+            # Just check for HTTP 200
+            if curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null | grep -q "200"; then
+                print_success "$name is accessible"
+                return 0
+            fi
         fi
-    fi
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    sleep 1
-done
 
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    print_error "Backend health check failed after $MAX_RETRIES seconds"
-    docker compose logs omnimcp-backend --tail=20
-    exit 1
-fi
+        retry_count=$((retry_count + 1))
+        printf "\r  Waiting... %d/%d seconds" "$retry_count" "$MAX_RETRIES"
+        sleep $SLEEP_INTERVAL
+    done
 
-# OpenAPI health check
+    echo ""  # New line after progress
+    print_error "$name failed to start after $MAX_RETRIES seconds"
+    return 1
+}
+
+# Wait a moment for containers to initialize
+print_info "Giving containers time to initialize..."
+sleep 2
+
+# Check each service
+BACKEND_PORT="${WEB_PORT:-8080}"
 OPENAPI_PORT="${OPENAPI_PORT:-8006}"
-print_info "Checking OpenAPI health (port $OPENAPI_PORT)..."
-if curl -s "http://localhost:$OPENAPI_PORT/health" | grep -q "healthy"; then
-    print_success "OpenAPI server is healthy"
-else
-    print_warning "OpenAPI server not responding (may still be starting)"
-fi
-
-# MCP health check
 MCP_PORT="${MCP_PORT:-8007}"
-print_info "Checking MCP health (port $MCP_PORT)..."
-if curl -s "http://localhost:$MCP_PORT/health" | grep -q "healthy"; then
-    print_success "MCP server is healthy"
-else
-    print_warning "MCP server not responding (may still be starting)"
+ADMIN_PORT="${ADMIN_PORT:-3000}"
+
+echo ""
+
+# Backend API (must succeed)
+if ! wait_for_health "Backend API (port $BACKEND_PORT)" "http://localhost:$BACKEND_PORT/health" "json"; then
+    HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+    print_info "Backend logs:"
+    docker compose logs omnimcp-backend --tail=10 2>/dev/null
 fi
 
-# Admin UI health check
-ADMIN_PORT="${ADMIN_PORT:-3000}"
-print_info "Checking Admin UI (port $ADMIN_PORT)..."
-RETRY_COUNT=0
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s "http://localhost:$ADMIN_PORT" > /dev/null 2>&1; then
-        print_success "Admin UI is accessible"
-        break
-    fi
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    sleep 1
-done
+echo ""
 
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    print_warning "Admin UI not responding (container may still be starting)"
+# OpenAPI Server
+if ! wait_for_health "OpenAPI Server (port $OPENAPI_PORT)" "http://localhost:$OPENAPI_PORT/health" "json"; then
+    HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+fi
+
+echo ""
+
+# MCP Server
+if ! wait_for_health "MCP Server (port $MCP_PORT)" "http://localhost:$MCP_PORT/health" "json"; then
+    HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+fi
+
+echo ""
+
+# Admin UI
+if ! wait_for_health "Admin UI (port $ADMIN_PORT)" "http://localhost:$ADMIN_PORT" "http"; then
+    HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+    print_info "Admin UI logs:"
+    docker compose logs omnimcp-admin --tail=10 2>/dev/null
+fi
+
+echo ""
+
+# Summary of health checks
+if [ $HEALTH_FAILURES -gt 0 ]; then
+    print_error "$HEALTH_FAILURES service(s) failed to start"
+else
+    print_success "All services are healthy"
 fi
 
 # ==================================================
@@ -258,9 +284,12 @@ print_info "View logs with: docker compose logs -f"
 print_info "Stop with: docker compose down"
 echo ""
 
-if [ $TEST_EXIT_CODE -eq 0 ]; then
+if [ $TEST_EXIT_CODE -eq 0 ] && [ $HEALTH_FAILURES -eq 0 ]; then
     print_success "OmniMCP is ready!"
     exit 0
+elif [ $HEALTH_FAILURES -gt 0 ]; then
+    print_error "OmniMCP started with $HEALTH_FAILURES failed service(s)"
+    exit 1
 else
     print_warning "OmniMCP started with test failures"
     exit 1
