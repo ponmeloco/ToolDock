@@ -15,7 +15,6 @@ import {
 import {
   ArrowLeft,
   File,
-  Plus,
   Trash2,
   Save,
   Check,
