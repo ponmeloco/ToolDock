@@ -7,7 +7,7 @@ This file is intentionally minimal for humans and exhaustive for language models
 **Purpose:**
 - This repository exposes Python-based tools to LLMs and agents.
 - To add a new tool, you instruct a language model using the prompt below.
-- The language model will generate **exactly one Python file** that can be dropped into the `tools/` directory.
+- The language model will generate **exactly one Python file** that can be dropped into the `omnimcp_data/tools/` directory.
 
 **How to use this file:**
 1. Read this short section to understand the intent.
@@ -48,7 +48,7 @@ MENTAL MODEL (CRITICAL)
 ========================================
 
 - A tool is a pure capability, NOT an API
-- Tools are auto-discovered from the tools/ directory
+- Tools are auto-discovered from the omnimcp_data/tools/ directory
 - Each tool consists of EXACTLY:
   1. One Pydantic input schema
   2. One async handler function
@@ -61,7 +61,7 @@ FILE LOCATION
 
 You MUST create the file at:
 
-tools/<domain>/<tool_name>.py
+omnimcp_data/tools/<domain>/<tool_name>.py
 
 Rules:
 - <domain> groups tools by responsibility (e.g. shared, security, infra, tickets, etc.)
@@ -69,7 +69,7 @@ Rules:
 - The file name MUST EXACTLY match the tool name
 
 Example:
-tools/shared/hello_user.py
+omnimcp_data/tools/shared/hello_user.py
 
 ========================================
 CRITICAL: SPEC COMPLIANCE (MUST ENFORCE)

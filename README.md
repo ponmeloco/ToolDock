@@ -90,6 +90,7 @@ Open http://localhost:8080 in your browser.
 | **Web GUI** | Browser-based management interface with HTTP Basic Auth |
 | **Namespace Routing** | `/mcp/shared`, `/mcp/team1`, `/mcp/github` - separate endpoints per namespace |
 | **External MCP Servers** | Integrate tools from MCP Registry (GitHub, MSSQL, Filesystem, etc.) |
+| **Hot Reload** | Reload tools at runtime without server restart via `/api/reload` |
 | **Docker Ready** | One container, three servers |
 | **Auth Built-in** | Bearer token + HTTP Basic Auth |
 | **Tool Validation** | AST-based validation for uploaded tools |
@@ -165,12 +166,11 @@ SERVER_MODE=mcp-http python main.py  # MCP only
 ```
 omnimcp_data/
 ├── tools/
+│   ├── tool_template.py  # Template for new tools
 │   ├── shared/           # Default namespace
 │   │   └── example.py
-│   ├── team1/            # Custom namespace
-│   │   └── analyzer.py
-│   └── team2/            # Another namespace
-│       └── reporter.py
+│   └── {namespace}/      # Add more namespaces as folders
+│       └── *.py
 ├── external/
 │   └── config.yaml       # External MCP server config
 └── config/
@@ -370,6 +370,9 @@ curl -X POST "http://localhost:8080/api/folders/shared/tools" \
 | `/api/folders/{ns}/tools` | GET | Basic/Bearer | List tools in namespace |
 | `/api/folders/{ns}/tools` | POST | Basic/Bearer | Upload tool file |
 | `/api/servers` | GET | Basic/Bearer | List external servers |
+| `/api/reload` | POST | Basic/Bearer | Hot reload all namespaces |
+| `/api/reload/{ns}` | POST | Basic/Bearer | Hot reload specific namespace |
+| `/api/reload/status` | GET | Basic/Bearer | Reload status info |
 
 ---
 
@@ -395,18 +398,34 @@ OmniMCP/
 │   ├── web/
 │   │   ├── server.py            # Web GUI server
 │   │   ├── validation.py        # Tool validation
-│   │   └── routes/              # API routes
+│   │   └── routes/              # API routes (incl. reload)
 │   ├── external/
 │   │   ├── server_manager.py    # External server management
 │   │   └── config.py            # Config loading
+│   ├── admin/
+│   │   └── routes.py            # Admin API routes
 │   ├── auth.py                  # Authentication
 │   ├── loader.py                # Tool loading
+│   ├── reload.py                # Hot reload functionality
+│   ├── middleware.py            # Custom middleware
+│   ├── errors.py                # Custom exceptions
 │   └── registry.py              # Shared registry
-├── omnimcp_data/                # Data volume (mount here)
-│   ├── tools/shared/            # Tool files
-│   ├── external/config.yaml     # External servers
-│   └── config/settings.yaml     # Settings
+├── tests/
+│   ├── unit/                    # Unit tests
+│   ├── integration/             # Integration tests
+│   └── fixtures/                # Test fixtures
+├── docs/
+│   ├── api/                     # API documentation
+│   └── external-servers/        # External MCP docs
+├── scripts/                     # Utility scripts
+├── omnimcp_data/                # Data volume
+│   ├── tools/                   # Tool namespaces
+│   │   ├── tool_template.py     # Template for new tools
+│   │   └── shared/              # Default namespace
+│   ├── external/config.yaml     # External server config
+│   └── config/settings.yaml     # Global settings
 ├── main.py                      # Entrypoint
+├── pytest.ini                   # Pytest configuration
 ├── docker-compose.yml
 ├── Dockerfile
 ├── .env                         # Configuration
@@ -417,8 +436,29 @@ OmniMCP/
 
 ## Testing
 
+### Unit & Integration Tests (pytest)
+
 ```bash
+# Install test dependencies
+pip install pytest pytest-asyncio pytest-cov
+
 # Run all tests
+pytest tests/ -v
+
+# Run only unit tests
+pytest tests/unit/ -v
+
+# Run only integration tests
+pytest tests/integration/ -v
+
+# Run with coverage report
+pytest tests/ --cov=app --cov-report=html
+```
+
+### Manual Testing
+
+```bash
+# Run bash integration tests
 ./test_both_transports.sh
 
 # Test specific endpoints
@@ -428,6 +468,10 @@ curl -X POST http://localhost:8007/mcp/shared \
   -H "Authorization: Bearer change_me" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+# Hot reload tools (no server restart needed)
+curl -X POST http://localhost:8080/api/reload \
+  -H "Authorization: Bearer change_me"
 ```
 
 ---

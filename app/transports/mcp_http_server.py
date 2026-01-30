@@ -34,6 +34,7 @@ from fastapi import FastAPI, Request, Response, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.middleware import TrailingNewlineMiddleware
 from app.registry import ToolRegistry
 from app.errors import ToolError, ToolNotFoundError
 from app.auth import verify_token, is_auth_enabled
@@ -87,6 +88,9 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
+
+    # Add trailing newline to JSON responses for better CLI output
+    app.add_middleware(TrailingNewlineMiddleware)
 
     # Store registry in app state
     app.state.registry = registry

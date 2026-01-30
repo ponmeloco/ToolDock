@@ -1,37 +1,59 @@
-# MCP Server Base - Claude Code Instructions
+# OmniMCP - Claude Code Instructions
 
 ## Project Overview
 
-This is a **Universal Tool Server** that exposes tools via both OpenAPI (REST) and MCP (Model Context Protocol) transports. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
+**OmniMCP** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **OpenAPI**, **MCP**, and **Web GUI**. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
 
 ## Current Architecture
 
 ```
-┌─────────────────────────────────────┐
-│      Tool Registry (Central)        │
-│   tools/shared/*.py → Registry      │
-└────────────┬────────────────────────┘
-             │
-    ┌────────▼─────────┐
-    │   Dual Transport │
-    │                  │
-    │ OpenAPI (8006)   │  → OpenWebUI, REST clients
-    │ MCP HTTP (8007)  │  → Claude Desktop, n8n
-    └──────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │         OmniMCP Container           │
+                    ├─────────────────────────────────────┤
+                    │  Port 8006 → OpenAPI/REST           │
+                    │  Port 8007 → MCP HTTP               │
+                    │  Port 8080 → Web GUI                │
+                    ├─────────────────────────────────────┤
+LiteLLM ──────────→ │  /mcp/shared    → shared/ tools     │
+Claude Desktop ───→ │  /mcp/team1     → team1/ tools      │
+                    │  /mcp/github    → GitHub MCP        │
+                    └─────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │      omnimcp_data/ (Volume)   │
+                    ├───────────────────────────────┤
+                    │  tools/shared/*.py            │
+                    │  tools/team1/*.py             │
+                    │  external/config.yaml         │
+                    │  config/settings.yaml         │
+                    └───────────────────────────────┘
 ```
+
+All three transports share the same tool registry — **define once, use everywhere**.
 
 ## Key Files & Directories
 
 ### Core Application
 - `app/registry.py` - **Central tool registry** (DO NOT BREAK!)
-- `app/loader.py` - Loads tools from `tools/shared/`
+- `app/loader.py` - Loads tools from `omnimcp_data/tools/`
+- `app/reload.py` - Hot reload functionality
+- `app/middleware.py` - Custom middleware (trailing newlines)
+- `app/auth.py` - Authentication (Bearer + Basic Auth)
 - `app/transports/` - Transport implementations
+- `app/web/` - Web GUI server and routes
+- `app/external/` - External MCP server integration
 - `main.py` - Server entrypoint with mode selection
 
 ### Tools
-- `tools/shared/*.py` - **Native tool definitions** (DO NOT MODIFY structure!)
+- `omnimcp_data/tools/{namespace}/*.py` - **Native tool definitions**
   - Each tool: Pydantic schema + async handler + registration
-  - Template: `tool_template.py`
+  - Each folder becomes a separate MCP namespace
+
+### Tests
+- `tests/unit/` - Unit tests for core components
+- `tests/integration/` - Integration tests for endpoints
+- `tests/fixtures/` - Sample tools for testing
+- `conftest.py` - Shared pytest fixtures
 
 ### Documentation
 - `README.md` - User-facing overview
@@ -44,26 +66,30 @@ This is a **Universal Tool Server** that exposes tools via both OpenAPI (REST) a
 ```python
 # Every tool follows this pattern:
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from app.registry import ToolDefinition, ToolRegistry
 
 class ToolInput(BaseModel):
     """Input schema with strict validation"""
-    field: str = Field(..., description="...")
-    
-    class Config:
-        extra = "forbid"  # ← CRITICAL! Rejects unexpected fields
+    model_config = ConfigDict(extra="forbid")  # ← CRITICAL! Rejects unexpected fields
 
-async def handler(input: ToolInput) -> dict:
+    field: str = Field(..., description="...")
+
+async def handler(payload: ToolInput) -> dict:
     """Async handler - must be async!"""
     return {"result": "..."}
 
-def register_tools(registry):
-    """Registration function"""
-    registry.register_tool(
-        name="tool_name",
-        description="Clear description",
-        input_schema=ToolInput,
-        handler=handler
+def register_tools(registry: ToolRegistry) -> None:
+    """Registration function - called by loader"""
+    ToolInput.model_rebuild(force=True)  # ← Required for hot reload
+
+    registry.register(
+        ToolDefinition(
+            name="tool_name",
+            description="Clear description",
+            input_model=ToolInput,
+            handler=handler,
+        )
     )
 ```
 
@@ -71,6 +97,7 @@ def register_tools(registry):
 - **Type hints everywhere** - `def func(arg: str) -> dict:`
 - **Async for I/O** - All handlers, all external calls
 - **Pydantic validation** - Never manual dict parsing
+- **ConfigDict** - Use `model_config = ConfigDict(...)` not `class Config:`
 - **Descriptive names** - `create_github_repository` not `create_repo`
 - **Docstrings** - Classes and non-trivial functions
 - **Logging** - Use `logger.info/error/debug`, not `print()`
@@ -83,11 +110,11 @@ import os
 
 # 2. Third-party
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # 3. Local
-from app.registry import registry
-from app.loader import load_tools
+from app.registry import ToolRegistry, ToolDefinition
+from app.loader import load_tools_from_directory
 ```
 
 ## Environment & Deployment
@@ -97,81 +124,108 @@ from app.loader import load_tools
 # Build
 docker compose build
 
-# Start OpenAPI only
-SERVER_MODE=openapi docker compose up tool-server-openapi
+# Start all services (default)
+docker compose up -d
 
-# Start MCP only
-SERVER_MODE=mcp-http docker compose up tool-server-mcp-http
-
-# Start both
-SERVER_MODE=both docker compose up
+# Or use SERVER_MODE
+SERVER_MODE=all docker compose up -d      # All 3 servers
+SERVER_MODE=both docker compose up -d     # OpenAPI + MCP only
+SERVER_MODE=openapi docker compose up -d  # OpenAPI only
+SERVER_MODE=mcp-http docker compose up -d # MCP only
+SERVER_MODE=web-gui docker compose up -d  # Web GUI only
 ```
 
 ### Environment Variables
-- `SERVER_MODE` - openapi | mcp-http | both
-- `BEARER_TOKEN` - API authentication
-- `OPENAPI_PORT` - Default 8006
-- `MCP_PORT` - Default 8007
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVER_MODE` | `all` | openapi, mcp-http, web-gui, both, all |
+| `BEARER_TOKEN` | (required) | API authentication token |
+| `OPENAPI_PORT` | `8006` | OpenAPI server port |
+| `MCP_PORT` | `8007` | MCP HTTP server port |
+| `WEB_PORT` | `8080` | Web GUI server port |
+| `ADMIN_USERNAME` | `admin` | Basic auth username for Web GUI |
+| `CORS_ORIGINS` | `*` | Allowed CORS origins |
+| `DATA_DIR` | `omnimcp_data` | Data directory path |
 
-## Testing Commands
+## Testing
 
-### Health Check
+### Pytest (Recommended)
 ```bash
-curl http://localhost:8006/health
+# Install test dependencies
+pip install pytest pytest-asyncio pytest-cov httpx
+
+# Run all tests
+pytest tests/ -v
+
+# Run unit tests only
+pytest tests/unit/ -v
+
+# Run integration tests only
+pytest tests/integration/ -v
+
+# Run with coverage
+pytest tests/ --cov=app --cov-report=html
 ```
 
-### List Tools
+### Manual Testing
 ```bash
+# Health checks
+curl http://localhost:8006/health   # OpenAPI
+curl http://localhost:8007/health   # MCP
+curl http://localhost:8080/health   # Web GUI
+
+# List tools (OpenAPI)
 curl http://localhost:8006/tools \
   -H "Authorization: Bearer change_me"
-```
 
-### Execute Tool
-```bash
+# List namespaces (MCP)
+curl http://localhost:8007/mcp/namespaces \
+  -H "Authorization: Bearer change_me"
+
+# Execute tool
 curl -X POST http://localhost:8006/tools/tool_name \
   -H "Authorization: Bearer change_me" \
   -H "Content-Type: application/json" \
   -d '{"field": "value"}'
+
+# Hot reload all namespaces
+curl -X POST http://localhost:8080/api/reload \
+  -H "Authorization: Bearer change_me"
 ```
 
-## Current Task: External MCP Integration
+## Features
 
-You're implementing the ability to integrate external MCP servers from the official registry.
+### Multi-Tenant Namespaces
+Each folder in `omnimcp_data/tools/` becomes a separate MCP endpoint:
+- `tools/shared/` → `/mcp/shared`
+- `tools/team1/` → `/mcp/team1`
+- `tools/finance/` → `/mcp/finance`
 
-### What Already Exists
-- ✅ Dual-transport architecture
-- ✅ Native tool system
-- ✅ Tool registry pattern
-- ✅ Docker deployment
+### Hot Reload
+Reload tools at runtime without server restart:
+```bash
+# Reload all namespaces
+curl -X POST http://localhost:8080/api/reload \
+  -H "Authorization: Bearer change_me"
 
-### What You're Adding
-- 🔨 MCP Registry client
-- 🔨 External server proxy
-- 🔨 Config-based loading
-- 🔨 Admin API
-- 🔨 Comprehensive docs
+# Reload specific namespace
+curl -X POST http://localhost:8080/api/reload/shared \
+  -H "Authorization: Bearer change_me"
+```
 
-### Critical Constraints
+### External MCP Servers
+Integrate tools from MCP Registry via `omnimcp_data/external/config.yaml`:
+```yaml
+servers:
+  github:
+    source: registry
+    name: "modelcontextprotocol/server-github"
+    enabled: true
+    env:
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+```
 
-#### DO NOT BREAK
-- Native tool structure in `tools/shared/`
-- Existing tool registration in `app/registry.py`
-- OpenAPI endpoints (backward compatibility)
-- Docker deployment flow
-
-#### MUST PRESERVE
-- Type safety (Pydantic validation)
-- Async handlers
-- Bearer token auth
-- Tool naming: native vs external distinction
-
-#### MUST ADD
-- Tool namespacing: `server_id:tool_name` for external
-- Process isolation for external servers
-- Graceful shutdown handling
-- Error logging (not just raising)
-
-## Architecture Patterns to Follow
+## Architecture Patterns
 
 ### Separation of Concerns
 ```
@@ -210,79 +264,68 @@ def blocking_operation():
 
 ## Common Pitfalls to Avoid
 
-### ❌ Breaking Changes
+### Breaking Changes
 - Don't change existing tool names
 - Don't modify `ToolRegistry` API used by native tools
 - Don't require config for native tools
 
-### ❌ Security Issues
+### Security Issues
 - Never commit secrets/tokens
 - Always validate external inputs
-- Don't use `eval()` or `exec()`
 - Prefix external tools to avoid injection
 
-### ❌ Performance Issues
+### Performance Issues
 - Don't block event loop (use async!)
 - Don't load all external servers on every request
 - Cache when possible (but invalidate correctly)
 
-### ❌ Bad Practices
+### Bad Practices
 - Don't use `print()` - use `logger`
 - Don't use bare `except:` - catch specific errors
 - Don't ignore errors silently
 - Don't hardcode paths/URLs
+- Don't use `class Config:` - use `model_config = ConfigDict(...)`
 
 ## Git Workflow
 
 ### Branch Naming
-- Feature: `feature/external-mcp-integration`
+- Feature: `feature/description`
 - Fix: `fix/description`
 - Docs: `docs/description`
 
 ### Commit Messages
 ```
-feat: Add external MCP server integration
+feat: Add hot reload functionality
 
-- Component 1
-- Component 2
+- ToolReloader class with namespace support
+- API endpoints for reload
+- Module cache clearing
 
 Breaking changes: None
 ```
 
 ### Before Committing
-1. Test manually (curl commands)
-2. Check logs for errors
-3. Verify Docker build
-4. Review diff (`git diff`)
-5. No debug code left
-
-## Documentation Standards
-
-### User-Facing Docs
-- **Audience**: Non-technical users
-- **Tone**: Friendly, clear, example-heavy
-- **Structure**: Quick start → Details → Advanced
-- **Examples**: Real, working code snippets
-
-### Developer Docs
-- **Audience**: Contributors, maintainers
-- **Tone**: Technical, precise
-- **Structure**: Architecture → Implementation → Debugging
-- **Diagrams**: Use ASCII art or mermaid
-
-### API Docs
-- **Format**: Endpoint, method, params, response, example
-- **Completeness**: All fields documented
-- **Errors**: All error codes explained
+1. Run `pytest tests/ -v`
+2. Test manually (curl commands)
+3. Check logs for errors
+4. Verify Docker build
+5. Review diff (`git diff`)
+6. No debug code left
 
 ## Dependencies
 
 ### Current Stack
-- **Python**: 3.11+
+- **Python**: 3.12+
 - **FastAPI**: 0.115.0 - Web framework
 - **Pydantic**: 2.9.0 - Validation
 - **uvicorn**: 0.32.0 - ASGI server
-- **mcp**: 1.1.0 - MCP SDK (NEW for your work!)
+- **mcp**: 1.1.0+ - MCP SDK
+- **httpx**: 0.28.0 - Async HTTP client
+
+### Test Dependencies
+- **pytest**: 8.0.0+ - Test framework
+- **pytest-asyncio**: 0.23.0+ - Async test support
+- **pytest-cov**: 4.1.0+ - Coverage reporting
 
 ### Adding Dependencies
 1. Add to `requirements.txt`
@@ -294,14 +337,15 @@ Breaking changes: None
 
 ### Check Logs
 ```bash
-docker compose logs -f tool-server-openapi
+docker compose logs -f
 ```
 
 ### Interactive Shell
 ```bash
-docker compose exec tool-server-openapi bash
+docker compose exec omnimcp bash
 python
->>> from app.registry import registry
+>>> from app.registry import ToolRegistry
+>>> registry = ToolRegistry()
 >>> registry.list_tools()
 ```
 
@@ -309,6 +353,51 @@ python
 ```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
+```
+
+## Project Structure
+
+```
+OmniMCP/
+├── app/
+│   ├── transports/
+│   │   ├── openapi_server.py    # OpenAPI transport
+│   │   └── mcp_http_server.py   # MCP transport
+│   ├── web/
+│   │   ├── server.py            # Web GUI server
+│   │   ├── validation.py        # Tool validation
+│   │   └── routes/              # API routes (incl. reload)
+│   ├── external/
+│   │   ├── server_manager.py    # External server management
+│   │   └── config.py            # Config loading
+│   ├── admin/
+│   │   └── routes.py            # Admin API routes
+│   ├── auth.py                  # Authentication
+│   ├── loader.py                # Tool loading
+│   ├── reload.py                # Hot reload
+│   ├── middleware.py            # Custom middleware
+│   ├── errors.py                # Custom exceptions
+│   └── registry.py              # Shared registry
+├── tests/
+│   ├── unit/                    # Unit tests
+│   ├── integration/             # Integration tests
+│   └── fixtures/                # Test fixtures
+├── docs/
+│   ├── api/                     # API documentation
+│   └── external-servers/        # External MCP docs
+├── scripts/                     # Utility scripts
+├── omnimcp_data/                # Data volume
+│   ├── tools/                   # Tool namespaces
+│   │   ├── tool_template.py     # Template for new tools
+│   │   └── shared/              # Default namespace
+│   ├── external/config.yaml     # External server config
+│   └── config/settings.yaml     # Global settings
+├── main.py                      # Entrypoint
+├── pytest.ini                   # Pytest config
+├── docker-compose.yml
+├── Dockerfile
+├── .env                         # Configuration
+└── requirements.txt
 ```
 
 ## Resources
@@ -321,41 +410,16 @@ logging.basicConfig(level=logging.DEBUG)
 
 ### Internal References
 - Check `docs/` for detailed guides
-- Check `tool_template.py` for tool pattern
 - Check `LLM_INSTRUCTIONS.md` for behavioral rules
+- Check existing tools in `omnimcp_data/tools/shared/` for patterns
 
 ## Questions to Ask Yourself
 
 Before implementing:
-- ✅ Is this backward compatible?
-- ✅ Does it follow existing patterns?
-- ✅ Is error handling comprehensive?
-- ✅ Are types annotated?
-- ✅ Is it async where needed?
-- ✅ Will it work in Docker?
-- ✅ Is it documented?
-- ✅ Can I test it easily?
-
-## Success Metrics
-
-Your implementation is successful if:
-1. ✅ Existing native tools still work
-2. ✅ External servers can be added via config
-3. ✅ External tools appear in both transports
-4. ✅ Documentation is complete and clear
-5. ✅ No errors in logs during normal operation
-6. ✅ Graceful shutdown works
-7. ✅ Code is maintainable (types, docs, structure)
-
-## Final Notes
-
-- **Think before coding** - Plan the architecture
-- **Follow patterns** - Don't reinvent wheels
-- **Test incrementally** - Don't write everything then test
-- **Document as you go** - Not at the end
-- **Ask questions** - Better than wrong assumptions
-- **Have fun!** - This is cool technology 🚀
-
----
-
-Good luck! You've got this! 💪
+- Does it follow existing patterns?
+- Is error handling comprehensive?
+- Are types annotated?
+- Is it async where needed?
+- Will it work in Docker?
+- Is it documented?
+- Do tests pass?

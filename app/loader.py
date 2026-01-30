@@ -12,15 +12,48 @@ logger = logging.getLogger("loader")
 
 
 def _import_module_from_path(py_file: Path):
-    """Import a Python module from its file path."""
+    """
+    Import a Python module from its file path.
+
+    Uses compile+exec to ensure fresh file content is loaded,
+    avoiding importlib's source caching which prevents hot reload.
+
+    Adds the module to sys.modules to support module introspection.
+    """
+    import sys
+    import types
+
     module_name = py_file.stem
     # Create unique module name to avoid collisions
     unique_name = f"tools_{py_file.parent.name}_{module_name}"
-    spec = importlib.util.spec_from_file_location(unique_name, py_file)
-    if not spec or not spec.loader:
-        raise RuntimeError(f"Cannot import tool module: {py_file}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+
+    # Remove from sys.modules if already exists (for hot reload)
+    if unique_name in sys.modules:
+        del sys.modules[unique_name]
+
+    # Read file content directly to avoid caching
+    try:
+        source_code = py_file.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(f"Cannot read tool module: {py_file}") from e
+
+    # Create module and compile/exec the code
+    module = types.ModuleType(unique_name)
+    module.__file__ = str(py_file)
+    module.__loader__ = None
+    module.__package__ = ""
+
+    # Add to sys.modules BEFORE exec (required for submodule imports)
+    sys.modules[unique_name] = module
+
+    try:
+        code = compile(source_code, str(py_file), "exec")
+        exec(code, module.__dict__)
+    except Exception:
+        # Remove from sys.modules if exec fails
+        del sys.modules[unique_name]
+        raise
+
     return module
 
 

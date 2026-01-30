@@ -56,8 +56,7 @@ logger = logging.getLogger("main")
 
 # DATA_DIR is the base directory for all data (tools, config, external)
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.getcwd(), "omnimcp_data"))
-# Legacy TOOLS_DIR support - if set, use it; otherwise use DATA_DIR/tools
-TOOLS_DIR = os.getenv("TOOLS_DIR", os.path.join(DATA_DIR, "tools"))
+TOOLS_DIR = os.path.join(DATA_DIR, "tools")
 EXTERNAL_CONFIG = os.getenv("EXTERNAL_CONFIG", os.path.join(DATA_DIR, "external", "config.yaml"))
 
 # Ports

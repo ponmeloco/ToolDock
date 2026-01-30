@@ -23,7 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from app.auth import verify_basic_auth, verify_token_or_basic, is_auth_enabled, BasicAuthMiddleware, ADMIN_USERNAME
-from app.web.routes import folders_router, tools_router, servers_router
+from app.middleware import TrailingNewlineMiddleware
+from app.web.routes import folders_router, tools_router, servers_router, reload_router
 
 if TYPE_CHECKING:
     from app.registry import ToolRegistry
@@ -82,6 +83,9 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
         public_paths={"/health"},
     )
 
+    # Add trailing newline to JSON responses for better CLI output
+    app.add_middleware(TrailingNewlineMiddleware)
+
     # Store registry in app state
     app.state.registry = registry
 
@@ -90,6 +94,7 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     app.include_router(folders_router)
     app.include_router(tools_router)
     app.include_router(servers_router)
+    app.include_router(reload_router)
 
     # Health check (no auth required - excluded in middleware)
     @app.get("/health")
