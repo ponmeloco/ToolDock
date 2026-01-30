@@ -45,17 +45,21 @@
 # Clone the repo
 git clone https://github.com/ponmeloco/OmniMCP.git
 cd OmniMCP
+
+# Quick start (creates .env, builds, starts, runs tests)
+./start.sh
 ```
-```
+
+**Or manual setup:**
+
+```bash
 # Configure (change BEARER_TOKEN!)
 cp .env.example .env
 nano .env
-```
-```
-# Start all services (MCP + OpenAPI + Web GUI)
+
+# Start all services
 docker compose up -d
-```
-```
+
 # Check logs
 docker compose logs -f
 ```
@@ -66,18 +70,14 @@ docker compose logs -f
 # Health checks
 curl http://localhost:8006/health   # OpenAPI
 curl http://localhost:8007/health   # MCP HTTP
-curl http://localhost:8080/health   # Web GUI
-```
-```
-# Or run the test script
-./test_both_transports.sh
+curl http://localhost:8080/health   # Backend API
+curl http://localhost:3000          # Admin UI
 ```
 
-**Access Web GUI:**
+**Access Admin UI:**
 
-Open http://localhost:8080 in your browser.
-- Username: `admin`
-- Password: Your `BEARER_TOKEN` from `.env`
+Open http://localhost:3000 in your browser.
+Enter your `BEARER_TOKEN` from `.env` when prompted.
 
 ---
 
@@ -85,14 +85,16 @@ Open http://localhost:8080 in your browser.
 
 | Feature | Description |
 |---------|-------------|
+| **Admin UI** | React-based dashboard with code editor, tool playground, and log viewer |
 | **Multi-Tenant Namespaces** | Organize tools in folders, each becomes a separate MCP endpoint |
 | **Dual Transport** | OpenAPI + MCP from the same codebase |
-| **Web GUI** | Browser-based management interface with HTTP Basic Auth |
 | **Namespace Routing** | `/mcp/shared`, `/mcp/team1`, `/mcp/github` - separate endpoints per namespace |
 | **External MCP Servers** | Integrate tools from MCP Registry (GitHub, MSSQL, Filesystem, etc.) |
-| **Hot Reload** | Reload tools at runtime without server restart via `/api/reload` |
-| **Docker Ready** | One container, three servers |
-| **Auth Built-in** | Bearer token + HTTP Basic Auth |
+| **Hot Reload** | Reload tools at runtime without server restart |
+| **Tool Playground** | Test tools directly in the browser with JSON input/output |
+| **Code Editor** | Edit Python tools with syntax highlighting (CodeMirror) |
+| **Docker Ready** | Multi-container setup with configurable ports |
+| **Auth Built-in** | Bearer token authentication |
 | **Tool Validation** | AST-based validation for uploaded tools |
 
 ---
@@ -100,29 +102,28 @@ Open http://localhost:8080 in your browser.
 ## Architecture
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │         OmniMCP Container           │
-                    ├─────────────────────────────────────┤
-                    │  Port 8006 → OpenAPI/REST           │
-                    │  Port 8007 → MCP HTTP               │
-                    │  Port 8080 → Web GUI                │
-                    ├─────────────────────────────────────┤
-LiteLLM ──────────→ │  /mcp/shared    → shared/ tools     │
-Claude Desktop ───→ │  /mcp/team1     → team1/ tools      │
-                    │  /mcp/github    → GitHub MCP        │
-                    └─────────────────────────────────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │      omnimcp_data/ (Volume)   │
-                    ├───────────────────────────────┤
-                    │  tools/shared/*.py            │
-                    │  tools/team1/*.py             │
-                    │  external/config.yaml         │
-                    │  config/settings.yaml         │
-                    └───────────────────────────────┘
+┌──────────────────┐     ┌─────────────────────────────────────┐
+│   Admin UI       │     │         OmniMCP Backend             │
+│   (React)        │     ├─────────────────────────────────────┤
+│                  │     │  Port 8006 → OpenAPI/REST           │
+│  Port 3000       │────→│  Port 8007 → MCP HTTP               │
+│                  │     │  Port 8080 → Backend API            │
+└──────────────────┘     ├─────────────────────────────────────┤
+                         │  /mcp/shared    → shared/ tools     │
+LiteLLM ────────────────→│  /mcp/team1     → team1/ tools      │
+Claude Desktop ─────────→│  /mcp/github    → GitHub MCP        │
+                         └─────────────────────────────────────┘
+                                         │
+                         ┌───────────────┴───────────────┐
+                         │      omnimcp_data/ (Volume)   │
+                         ├───────────────────────────────┤
+                         │  tools/shared/*.py            │
+                         │  tools/team1/*.py             │
+                         │  external/config.yaml         │
+                         └───────────────────────────────┘
 ```
 
-Both transports share the same tool registry — **define once, use everywhere**.
+All transports share the same tool registry — **define once, use everywhere**.
 
 ---
 
@@ -138,9 +139,9 @@ BEARER_TOKEN=your_secure_token_here
 #OPENAPI_PORT=8006
 #MCP_PORT=8007
 #WEB_PORT=8080
+#ADMIN_PORT=3000
 
 # Optional - Security
-#ADMIN_USERNAME=admin
 #CORS_ORIGINS=https://myapp.example.com
 
 # Optional - External MCP Servers
@@ -359,20 +360,25 @@ curl -X POST "http://localhost:8080/api/folders/shared/tools" \
 | `tools/call` | Execute a tool |
 | `ping` | Keep-alive ping |
 
-### Web GUI (Port 8080)
+### Backend API (Port 8080)
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/health` | GET | No | Health check |
-| `/` | GET | Basic | HTML Dashboard |
-| `/api/dashboard` | GET | Basic/Bearer | Dashboard data |
-| `/api/folders` | GET | Basic/Bearer | List namespaces |
-| `/api/folders/{ns}/tools` | GET | Basic/Bearer | List tools in namespace |
-| `/api/folders/{ns}/tools` | POST | Basic/Bearer | Upload tool file |
-| `/api/servers` | GET | Basic/Bearer | List external servers |
-| `/api/reload` | POST | Basic/Bearer | Hot reload all namespaces |
-| `/api/reload/{ns}` | POST | Basic/Bearer | Hot reload specific namespace |
-| `/api/reload/status` | GET | Basic/Bearer | Reload status info |
+| `/` | GET | No | Redirect to /docs |
+| `/docs` | GET | No | OpenAPI documentation |
+| `/api/dashboard` | GET | Bearer | Dashboard data |
+| `/api/folders` | GET | Bearer | List namespaces |
+| `/api/folders/{ns}/tools` | GET | Bearer | List tools in namespace |
+| `/api/folders/{ns}/tools` | POST | Bearer | Upload tool file |
+| `/api/folders/{ns}/tools/{file}` | PUT | Bearer | Update tool content |
+| `/api/servers` | GET | Bearer | List external servers |
+| `/api/reload` | POST | Bearer | Hot reload all namespaces |
+| `/api/reload/{ns}` | POST | Bearer | Hot reload specific namespace |
+| `/api/reload/status` | GET | Bearer | Reload status info |
+| `/api/admin/health` | GET | Bearer | System health status |
+| `/api/admin/logs` | GET | Bearer | View system logs |
+| `/api/admin/info` | GET | Bearer | System information |
 
 ---
 
@@ -391,45 +397,41 @@ curl -X POST "http://localhost:8080/api/folders/shared/tools" \
 
 ```
 OmniMCP/
+├── admin-ui/                    # React Admin Frontend
+│   ├── src/
+│   │   ├── components/          # React components
+│   │   ├── pages/               # Dashboard, Tools, Playground, Logs
+│   │   └── api/                 # API client
+│   ├── Dockerfile               # Nginx-based production build
+│   └── package.json
 ├── app/
 │   ├── transports/
 │   │   ├── openapi_server.py    # OpenAPI transport
 │   │   └── mcp_http_server.py   # MCP transport
 │   ├── web/
-│   │   ├── server.py            # Web GUI server
+│   │   ├── server.py            # Backend API server
 │   │   ├── validation.py        # Tool validation
-│   │   └── routes/              # API routes (incl. reload)
+│   │   └── routes/              # API routes
 │   ├── external/
 │   │   ├── server_manager.py    # External server management
 │   │   └── config.py            # Config loading
-│   ├── admin/
-│   │   └── routes.py            # Admin API routes
 │   ├── auth.py                  # Authentication
 │   ├── loader.py                # Tool loading
-│   ├── reload.py                # Hot reload functionality
+│   ├── reload.py                # Hot reload
 │   ├── middleware.py            # Custom middleware
-│   ├── errors.py                # Custom exceptions
 │   └── registry.py              # Shared registry
 ├── tests/
 │   ├── unit/                    # Unit tests
 │   ├── integration/             # Integration tests
 │   └── fixtures/                # Test fixtures
-├── docs/
-│   ├── api/                     # API documentation
-│   └── external-servers/        # External MCP docs
-├── scripts/                     # Utility scripts
 ├── omnimcp_data/                # Data volume
 │   ├── tools/                   # Tool namespaces
-│   │   ├── tool_template.py     # Template for new tools
+│   │   ├── tool_template.py     # Template
 │   │   └── shared/              # Default namespace
-│   ├── external/config.yaml     # External server config
-│   └── config/settings.yaml     # Global settings
-├── main.py                      # Entrypoint
-├── pytest.ini                   # Pytest configuration
-├── docker-compose.yml
-├── Dockerfile
-├── .env                         # Configuration
-└── requirements.txt
+│   └── external/config.yaml     # External servers
+├── main.py                      # Backend entrypoint
+├── docker-compose.yml           # Multi-container setup
+└── Dockerfile                   # Backend container
 ```
 
 ---

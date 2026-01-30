@@ -4,7 +4,7 @@
 # OmniMCP - Test Script for All Transports
 # ==================================================
 #
-# Tests all three servers: OpenAPI, MCP HTTP, and Web GUI
+# Tests all three servers: OpenAPI, MCP HTTP, and Backend API
 #
 # Usage: ./test_both_transports.sh
 #
@@ -19,8 +19,8 @@ set -e
 OPENAPI_PORT=${OPENAPI_PORT:-8006}
 MCP_PORT=${MCP_PORT:-8007}
 WEB_PORT=${WEB_PORT:-8080}
+ADMIN_PORT=${ADMIN_PORT:-3000}
 BEARER_TOKEN=${BEARER_TOKEN:-change_me}
-ADMIN_USER=${ADMIN_USERNAME:-admin}
 
 # Colors
 RED='\033[0;31m'
@@ -33,9 +33,10 @@ echo "=============================================="
 echo "  OmniMCP - Testing All Transports"
 echo "=============================================="
 echo ""
-echo "OpenAPI Port: $OPENAPI_PORT"
-echo "MCP Port:     $MCP_PORT"
-echo "Web GUI Port: $WEB_PORT"
+echo "OpenAPI Port:    $OPENAPI_PORT"
+echo "MCP Port:        $MCP_PORT"
+echo "Backend API:     $WEB_PORT"
+echo "Admin UI Port:   $ADMIN_PORT"
 echo ""
 
 # Check if jq is available
@@ -88,13 +89,13 @@ else
 fi
 echo ""
 
-echo ">>> Web GUI Health:"
+echo ">>> Backend API Health:"
 WEB_HEALTH=$(curl -s "http://localhost:$WEB_PORT/health")
 echo "$WEB_HEALTH" | $JQ
 if echo "$WEB_HEALTH" | grep -q '"status"'; then
-    pass "Web GUI health check"
+    pass "Backend API health check"
 else
-    fail "Web GUI health check"
+    fail "Backend API health check"
 fi
 
 # ==================================================
@@ -234,26 +235,16 @@ else
 fi
 
 # ==================================================
-section "4. Web GUI (Port $WEB_PORT)"
+section "4. Backend API (Port $WEB_PORT)"
 # ==================================================
 
-echo ">>> Dashboard API (Basic Auth):"
-DASHBOARD=$(curl -s -u "$ADMIN_USER:$BEARER_TOKEN" "http://localhost:$WEB_PORT/api/dashboard")
+echo ">>> Dashboard API:"
+DASHBOARD=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/dashboard")
 echo "$DASHBOARD" | $JQ
 if echo "$DASHBOARD" | grep -q '"server_name"'; then
-    pass "Web GUI dashboard API (Basic Auth)"
+    pass "Backend API dashboard"
 else
-    fail "Web GUI dashboard API (Basic Auth)"
-fi
-echo ""
-
-echo ">>> Dashboard API (Bearer Token):"
-DASHBOARD2=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/dashboard")
-echo "$DASHBOARD2" | $JQ
-if echo "$DASHBOARD2" | grep -q '"server_name"'; then
-    pass "Web GUI dashboard API (Bearer Token)"
-else
-    fail "Web GUI dashboard API (Bearer Token)"
+    fail "Backend API dashboard"
 fi
 echo ""
 
@@ -261,9 +252,9 @@ echo ">>> List Folders:"
 FOLDERS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/folders")
 echo "$FOLDERS" | $JQ
 if echo "$FOLDERS" | grep -q '"folders"'; then
-    pass "Web GUI list folders"
+    pass "Backend API list folders"
 else
-    fail "Web GUI list folders"
+    fail "Backend API list folders"
 fi
 echo ""
 
@@ -271,9 +262,9 @@ echo ">>> List Tools in 'shared' folder:"
 FOLDER_TOOLS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/folders/shared/tools")
 echo "$FOLDER_TOOLS" | $JQ
 if echo "$FOLDER_TOOLS" | grep -q '"tools"'; then
-    pass "Web GUI list tools in shared"
+    pass "Backend API list tools in shared"
 else
-    fail "Web GUI list tools in shared"
+    fail "Backend API list tools in shared"
 fi
 echo ""
 
@@ -281,9 +272,19 @@ echo ">>> List External Servers:"
 SERVERS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/servers")
 echo "$SERVERS" | $JQ
 if echo "$SERVERS" | grep -q '"servers"'; then
-    pass "Web GUI list servers"
+    pass "Backend API list servers"
 else
-    fail "Web GUI list servers"
+    fail "Backend API list servers"
+fi
+echo ""
+
+echo ">>> Reload Status:"
+RELOAD_STATUS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/reload/status")
+echo "$RELOAD_STATUS" | $JQ
+if echo "$RELOAD_STATUS" | grep -q '"enabled"'; then
+    pass "Backend API reload status"
+else
+    fail "Backend API reload status"
 fi
 
 # ==================================================
@@ -294,9 +295,10 @@ echo ""
 echo "All tests completed!"
 echo ""
 echo "Access points:"
-echo "  - OpenAPI:  http://localhost:$OPENAPI_PORT"
-echo "  - MCP HTTP: http://localhost:$MCP_PORT"
-echo "  - Web GUI:  http://localhost:$WEB_PORT (user: $ADMIN_USER)"
+echo "  - OpenAPI:     http://localhost:$OPENAPI_PORT"
+echo "  - MCP HTTP:    http://localhost:$MCP_PORT"
+echo "  - Backend API: http://localhost:$WEB_PORT"
+echo "  - Admin UI:    http://localhost:$ADMIN_PORT"
 echo ""
 echo "MCP Endpoints for LiteLLM:"
 echo "  - http://localhost:$MCP_PORT/mcp/shared"

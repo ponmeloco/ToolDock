@@ -11,9 +11,10 @@ import os
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.auth import verify_token
 from app.reload import get_reloader, ReloadResult
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ def _result_to_response(result: ReloadResult) -> ReloadResultResponse:
 
 @router.post("", response_model=ReloadAllResponse)
 @router.post("/", response_model=ReloadAllResponse, include_in_schema=False)
-async def reload_all_tools(request: Request) -> ReloadAllResponse:
+async def reload_all_tools(request: Request, _: str = Depends(verify_token)) -> ReloadAllResponse:
     """
     Reload all native tool namespaces.
 
@@ -146,7 +147,7 @@ async def reload_all_tools(request: Request) -> ReloadAllResponse:
 
 
 @router.post("/{namespace}", response_model=ReloadNamespaceResponse)
-async def reload_namespace(request: Request, namespace: str) -> ReloadNamespaceResponse:
+async def reload_namespace(request: Request, namespace: str, _: str = Depends(verify_token)) -> ReloadNamespaceResponse:
     """
     Reload tools in a specific namespace.
 
@@ -195,7 +196,7 @@ async def reload_namespace(request: Request, namespace: str) -> ReloadNamespaceR
 
 
 @router.get("/status")
-async def reload_status(request: Request) -> dict:
+async def reload_status(request: Request, _: str = Depends(verify_token)) -> dict:
     """
     Get the current status of the reloader.
 

@@ -2,25 +2,33 @@
 # OmniMCP Docker Compose
 # ==================================================
 #
-# Nutzung:
-#   docker compose up -d                    → Alles in einem Container
-#   docker compose --profile split up -d    → Getrennte Container
+# Zwei separate Container - immer getrennt:
+#   - omnimcp-backend: Python Backend (OpenAPI, MCP, API)
+#   - omnimcp-admin: React Frontend (Admin UI)
 #
 # Ports (konfigurierbar in .env):
 #   - 8006: OpenAPI/REST
 #   - 8007: MCP HTTP
-#   - 8080: Web GUI
+#   - 8080: Backend API
+#   - 3000: Admin UI
+#
+# Nutzung:
+#   docker compose up -d
+#   docker compose logs -f
 #
 # ==================================================
 
 services:
   # ============================================
-  # All-in-One: MCP + OpenAPI + Web GUI
+  # Backend: Python (FastAPI)
+  # Separate Image: omnimcp-backend:latest
   # ============================================
-  omnimcp:
-    build: .
-    image: omnimcp:latest
-    container_name: omnimcp
+  omnimcp-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: omnimcp-backend:latest
+    container_name: omnimcp-backend
     env_file:
       - .env
     environment:
@@ -32,77 +40,43 @@ services:
       - "${MCP_PORT:-8007}:${MCP_PORT:-8007}"
       - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     volumes:
-      - ./omnimcp_data:/data
+      - ./omnimcp_data:/data:rw
     restart: unless-stopped
     networks:
-      - tool-network
+      - omnimcp-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${MCP_PORT:-8007}/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   # ============================================
-  # Getrennte Container (Optional)
-  # Start: docker compose --profile split up -d
+  # Admin UI: React (Nginx)
+  # Separate Image: omnimcp-admin:latest
   # ============================================
-  omnimcp-server:
-    build: .
-    image: omnimcp:latest
-    container_name: omnimcp-server
-    env_file:
-      - .env
-    environment:
-      - SERVER_MODE=both
-      - DATA_DIR=/data
-      - HOST=0.0.0.0
+  omnimcp-admin:
+    build:
+      context: ./admin-ui
+      dockerfile: Dockerfile
+    image: omnimcp-admin:latest
+    container_name: omnimcp-admin
     ports:
-      - "${OPENAPI_PORT:-8006}:${OPENAPI_PORT:-8006}"
-      - "${MCP_PORT:-8007}:${MCP_PORT:-8007}"
-    volumes:
-      - ./omnimcp_data:/data
+      - "${ADMIN_PORT:-3000}:80"
     restart: unless-stopped
     networks:
-      - tool-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    profiles:
-      - split
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${MCP_PORT:-8007}/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  omnimcp-web:
-    build: .
-    image: omnimcp:latest
-    container_name: omnimcp-web
-    env_file:
-      - .env
-    environment:
-      - SERVER_MODE=web-gui
-      - DATA_DIR=/data
-      - HOST=0.0.0.0
-    ports:
-      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
-    volumes:
-      - ./omnimcp_data:/data
-    restart: unless-stopped
-    networks:
-      - tool-network
-    profiles:
-      - split
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${WEB_PORT:-8080}/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - omnimcp-network
     depends_on:
-      - omnimcp-server
+      omnimcp-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
-  tool-network:
+  omnimcp-network:
     driver: bridge

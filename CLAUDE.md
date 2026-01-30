@@ -7,27 +7,30 @@
 ## Current Architecture
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │         OmniMCP Container           │
-                    ├─────────────────────────────────────┤
-                    │  Port 8006 → OpenAPI/REST           │
-                    │  Port 8007 → MCP HTTP               │
-                    │  Port 8080 → Web GUI                │
-                    ├─────────────────────────────────────┤
-LiteLLM ──────────→ │  /mcp/shared    → shared/ tools     │
-Claude Desktop ───→ │  /mcp/team1     → team1/ tools      │
-                    │  /mcp/github    → GitHub MCP        │
-                    └─────────────────────────────────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │      omnimcp_data/ (Volume)   │
-                    ├───────────────────────────────┤
-                    │  tools/shared/*.py            │
-                    │  tools/team1/*.py             │
-                    │  external/config.yaml         │
-                    │  config/settings.yaml         │
-                    └───────────────────────────────┘
+┌──────────────────┐     ┌─────────────────────────────────────┐
+│   Admin UI       │     │         OmniMCP Backend             │
+│   (React/nginx)  │     ├─────────────────────────────────────┤
+│                  │     │  Port 8006 → OpenAPI/REST           │
+│  Port 3000       │────→│  Port 8007 → MCP HTTP               │
+│                  │     │  Port 8080 → Backend API            │
+└──────────────────┘     ├─────────────────────────────────────┤
+                         │  /mcp/shared    → shared/ tools     │
+LiteLLM ────────────────→│  /mcp/team1     → team1/ tools      │
+Claude Desktop ─────────→│  /mcp/github    → GitHub MCP        │
+                         └─────────────────────────────────────┘
+                                         │
+                         ┌───────────────┴───────────────┐
+                         │      omnimcp_data/ (Volume)   │
+                         ├───────────────────────────────┤
+                         │  tools/shared/*.py            │
+                         │  tools/team1/*.py             │
+                         │  external/config.yaml         │
+                         └───────────────────────────────┘
 ```
+
+**Two-Container Architecture:**
+- `omnimcp-backend`: Python FastAPI (all APIs)
+- `omnimcp-admin`: React + nginx (Admin UI)
 
 All three transports share the same tool registry — **define once, use everywhere**.
 
@@ -38,7 +41,7 @@ All three transports share the same tool registry — **define once, use everywh
 - `app/loader.py` - Loads tools from `omnimcp_data/tools/`
 - `app/reload.py` - Hot reload functionality
 - `app/middleware.py` - Custom middleware (trailing newlines)
-- `app/auth.py` - Authentication (Bearer + Basic Auth)
+- `app/auth.py` - Authentication (Bearer token)
 - `app/transports/` - Transport implementations
 - `app/web/` - Web GUI server and routes
 - `app/external/` - External MCP server integration
@@ -142,8 +145,8 @@ SERVER_MODE=web-gui docker compose up -d  # Web GUI only
 | `BEARER_TOKEN` | (required) | API authentication token |
 | `OPENAPI_PORT` | `8006` | OpenAPI server port |
 | `MCP_PORT` | `8007` | MCP HTTP server port |
-| `WEB_PORT` | `8080` | Web GUI server port |
-| `ADMIN_USERNAME` | `admin` | Basic auth username for Web GUI |
+| `WEB_PORT` | `8080` | Backend API server port |
+| `ADMIN_PORT` | `3000` | Admin UI port (nginx) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `omnimcp_data` | Data directory path |
 
@@ -359,20 +362,28 @@ logging.basicConfig(level=logging.DEBUG)
 
 ```
 OmniMCP/
+├── admin-ui/                    # React Admin Frontend (separate container)
+│   ├── src/
+│   │   ├── components/          # React components
+│   │   ├── pages/               # Dashboard, Tools, Playground, Logs
+│   │   └── api/                 # API client
+│   ├── Dockerfile               # Nginx-based production build
+│   ├── nginx.conf               # Nginx config with security headers
+│   └── package.json
 ├── app/
 │   ├── transports/
 │   │   ├── openapi_server.py    # OpenAPI transport
 │   │   └── mcp_http_server.py   # MCP transport
 │   ├── web/
-│   │   ├── server.py            # Web GUI server
+│   │   ├── server.py            # Backend API server
 │   │   ├── validation.py        # Tool validation
-│   │   └── routes/              # API routes (incl. reload)
+│   │   └── routes/              # API routes (folders, tools, reload, admin)
 │   ├── external/
 │   │   ├── server_manager.py    # External server management
 │   │   └── config.py            # Config loading
 │   ├── admin/
-│   │   └── routes.py            # Admin API routes
-│   ├── auth.py                  # Authentication
+│   │   └── routes.py            # OpenAPI admin routes (external servers)
+│   ├── auth.py                  # Authentication (Bearer token)
 │   ├── loader.py                # Tool loading
 │   ├── reload.py                # Hot reload
 │   ├── middleware.py            # Custom middleware
@@ -382,20 +393,16 @@ OmniMCP/
 │   ├── unit/                    # Unit tests
 │   ├── integration/             # Integration tests
 │   └── fixtures/                # Test fixtures
-├── docs/
-│   ├── api/                     # API documentation
-│   └── external-servers/        # External MCP docs
-├── scripts/                     # Utility scripts
 ├── omnimcp_data/                # Data volume
 │   ├── tools/                   # Tool namespaces
 │   │   ├── tool_template.py     # Template for new tools
 │   │   └── shared/              # Default namespace
-│   ├── external/config.yaml     # External server config
-│   └── config/settings.yaml     # Global settings
-├── main.py                      # Entrypoint
+│   └── external/config.yaml     # External server config
+├── main.py                      # Backend entrypoint
+├── start.sh                     # Startup script
 ├── pytest.ini                   # Pytest config
-├── docker-compose.yml
-├── Dockerfile
+├── docker-compose.yml           # Two-container setup
+├── Dockerfile                   # Backend container
 ├── .env                         # Configuration
 └── requirements.txt
 ```

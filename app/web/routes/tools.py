@@ -63,6 +63,15 @@ class ToolUploadResponse(BaseModel):
     path: Optional[str] = None
 
 
+class ToolUpdateRequest(BaseModel):
+    """Request body for updating a tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+    skip_validation: bool = False
+
+
 class ToolListResponse(BaseModel):
     """Response for listing tools in a namespace."""
 
@@ -224,6 +233,76 @@ async def get_tool(
         raise HTTPException(
             status_code=500,
             detail="Failed to read tool file",
+        )
+
+
+@router.put("/{filename}")
+async def update_tool(
+    namespace: str,
+    filename: str,
+    request: ToolUpdateRequest,
+    _: str = Depends(verify_token),
+) -> dict:
+    """
+    Update a tool file's content.
+
+    Args:
+        namespace: The namespace/folder name
+        filename: The tool filename (e.g., 'my_tool.py')
+        request: The update request with new content
+    """
+    tools_dir = _get_tools_dir(namespace)
+    file_path = _safe_file_path(tools_dir, filename)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool not found: {namespace}/{filename}",
+        )
+
+    # Limit content size (1MB max)
+    if len(request.content.encode("utf-8")) > 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="Content too large. Maximum size is 1MB.",
+        )
+
+    # Validate the new content
+    validation = validate_tool_file(request.content, filename)
+
+    if not validation.is_valid and not request.skip_validation:
+        return {
+            "success": False,
+            "message": "Validation failed. Fix errors or set skip_validation=true.",
+            "validation": {
+                "is_valid": validation.is_valid,
+                "errors": validation.errors,
+                "warnings": validation.warnings,
+                "info": validation.info,
+            },
+        }
+
+    # Save the updated content
+    try:
+        file_path.write_text(request.content, encoding="utf-8")
+        logger.info(f"Updated tool: {namespace}/{filename}")
+
+        return {
+            "success": True,
+            "message": f"Tool updated: {namespace}/{filename}",
+            "validation": {
+                "is_valid": validation.is_valid,
+                "errors": validation.errors,
+                "warnings": validation.warnings,
+                "info": validation.info,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to update tool {namespace}/{filename}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update tool file",
         )
 
 
