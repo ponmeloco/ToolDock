@@ -47,6 +47,7 @@ git clone https://github.com/ponmeloco/OmniMCP.git
 cd OmniMCP
 
 # Quick start (creates .env, builds, starts, runs tests)
+chmod +x start.sh
 ./start.sh
 ```
 
