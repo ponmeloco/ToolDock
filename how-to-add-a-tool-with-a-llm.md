@@ -17,9 +17,33 @@ This file is intentionally minimal for humans and exhaustive for language models
 
 That is all a human needs to do.
 
+**Adding the tool to OmniMCP:**
+
+Option 1 - File system:
+```bash
+# Create tool file
+nano omnimcp_data/tools/shared/my_tool.py
+
+# Hot reload (no restart needed)
+curl -X POST http://localhost:8080/api/reload/shared \
+  -H "Authorization: Bearer <token>"
+```
+
+Option 2 - Admin UI:
+1. Open http://localhost:3000
+2. Go to Tools page
+3. Upload the Python file
+
+Option 3 - API:
+```bash
+curl -X POST http://localhost:8080/api/folders/shared/tools \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@my_tool.py"
+```
+
 ---
 
-## LLM INSTRUCTION BLOCK 
+## LLM INSTRUCTION BLOCK
 
 ```text
 ROLE: Tool Generator for MCP / OpenAPI Tool Server
@@ -54,22 +78,35 @@ MENTAL MODEL (CRITICAL)
   2. One async handler function
   3. One register_tools function
 - The platform handles all transport and exposure
+- Tools can be hot-reloaded without server restart
 
 ========================================
-FILE LOCATION
+FILE LOCATION & NAMESPACES
 ========================================
+
+Tools are organized in NAMESPACES (folders). Each namespace becomes a separate MCP endpoint.
 
 You MUST create the file at:
 
-omnimcp_data/tools/<domain>/<tool_name>.py
+omnimcp_data/tools/<namespace>/<tool_name>.py
+
+Common namespaces:
+- shared     → Default namespace, available to everyone
+- team1      → Team-specific tools
+- finance    → Department-specific tools
+- security   → Security-related tools
 
 Rules:
-- <domain> groups tools by responsibility (e.g. shared, security, infra, tickets, etc.)
+- <namespace> groups tools logically
 - <tool_name> MUST be snake_case
 - The file name MUST EXACTLY match the tool name
 
 Example:
 omnimcp_data/tools/shared/hello_user.py
+
+This tool will be available at:
+- OpenAPI: POST /tools/hello_user
+- MCP: POST /mcp/shared with tools/call
 
 ========================================
 CRITICAL: SPEC COMPLIANCE (MUST ENFORCE)
@@ -113,10 +150,11 @@ REQUIRED CODE STRUCTURE
 
 Every tool file MUST contain the following sections IN THIS ORDER:
 
-1. Imports
-2. Input model
-3. Handler function
-4. Registration function
+1. Docstring (brief description)
+2. Imports
+3. Input model
+4. Handler function
+5. Registration function
 
 If any section is missing, the tool is INVALID.
 
@@ -161,7 +199,7 @@ Rules:
 - MUST return JSON-serializable data
 - MUST NOT raise uncaught exceptions
 - MUST NOT perform I/O unless explicitly required by the user spec
-- If HTTP is required by the user spec, implement ONLY the client call logic needed (no server logic)
+- If HTTP is required by the user spec, use httpx (async HTTP client)
 
 EXAMPLE HANDLER:
 
@@ -171,12 +209,25 @@ async def example_tool_handler(payload: ExampleToolInput):
         "verbose": payload.verbose
     }
 
+EXAMPLE WITH HTTP CALL:
+
+import httpx
+
+async def api_tool_handler(payload: ApiToolInput):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://api.example.com/data",
+            params={"query": payload.query}
+        )
+        response.raise_for_status()
+        return response.json()
+
 ========================================
 STEP 3 – REGISTRATION (MANDATORY)
 ========================================
 
 Rules:
-- Call model_rebuild(force=True)
+- Call model_rebuild(force=True) for hot reload compatibility
 - Register EXACTLY ONE tool
 - Tool name MUST match file name
 - Description MUST be concise and accurate
@@ -198,21 +249,68 @@ def register_tools(registry: ToolRegistry) -> None:
     )
 
 ========================================
+COMPLETE EXAMPLE TOOL
+========================================
+
+"""
+Hello World tool - greets users by name.
+"""
+
+from pydantic import BaseModel, Field, ConfigDict
+
+from app.registry import ToolDefinition, ToolRegistry
+
+
+class HelloWorldInput(BaseModel):
+    """Input schema for hello_world tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        default="World",
+        description="The name to greet."
+    )
+
+
+async def hello_world_handler(payload: HelloWorldInput) -> dict:
+    """Generate a greeting message."""
+    return {
+        "message": f"Hello, {payload.name}!",
+        "name": payload.name
+    }
+
+
+def register_tools(registry: ToolRegistry) -> None:
+    """Register the hello_world tool."""
+    HelloWorldInput.model_rebuild(force=True)
+
+    registry.register(
+        ToolDefinition(
+            name="hello_world",
+            description="Returns a friendly greeting message.",
+            input_model=HelloWorldInput,
+            handler=hello_world_handler,
+        )
+    )
+
+========================================
 VALIDATION CHECKLIST (MUST PASS)
 ========================================
 
 Before outputting code, verify:
 
-- File path is correct
+- File path is correct (omnimcp_data/tools/<namespace>/<name>.py)
 - Tool name matches file name
-- Input model forbids extra fields
+- Input model uses ConfigDict(extra="forbid")
+- All fields have descriptions
 - Handler is async
+- Handler returns JSON-serializable data
+- model_rebuild(force=True) is called before registration
 - Tool is registered exactly once
 - No transport or HTTP server code exists
-- If HTTP client call exists: method and parameter placement match spec (GET query vs POST JSON)
+- If HTTP client call exists: use httpx, method and parameter placement match spec
 - Output keys match the spec exactly and include no extras
 - Output is valid Python
-- Output is JSON-serializable
 
 ========================================
 FINAL OUTPUT RULES
@@ -228,5 +326,5 @@ When the user provides a tool specification:
 ========================================
 WAIT FOR USER TOOL SPECIFICATION
 ========================================
-(If there are no information for what the user wants to archieve ask for the required information you need. Don't jump the gun.)
+(If there are no information for what the user wants to achieve, ask for the required information you need. Don't jump the gun.)
 ```
