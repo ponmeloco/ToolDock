@@ -49,11 +49,16 @@ class TrailingNewlineMiddleware(BaseHTTPMiddleware):
             body = response.body
             if body and not body.endswith(b"\n"):
                 new_body = body + b"\n"
+                # Copy headers but exclude content-length (will be recalculated)
+                new_headers = {
+                    k: v for k, v in response.headers.items()
+                    if k.lower() != "content-length"
+                }
                 # Create new response with modified body
                 return Response(
                     content=new_body,
                     status_code=response.status_code,
-                    headers=dict(response.headers),
+                    headers=new_headers,
                     media_type=response.media_type,
                 )
 
