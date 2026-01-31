@@ -340,7 +340,7 @@ export default function Tools() {
                       onClick={() => {
                         setEditorContent(originalContent)
                       }}
-                      className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                      className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors"
                     >
                       Discard
                     </button>
@@ -446,7 +446,7 @@ export default function Tools() {
               </button>
               <button
                 onClick={handleDiscardChanges}
-                className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
               >
                 Discard
               </button>
