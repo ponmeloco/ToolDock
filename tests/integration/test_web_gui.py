@@ -303,3 +303,116 @@ class TestSecurity:
         )
 
         assert response.status_code == 401
+
+
+# ==================== Create Tool From Template Tests ====================
+
+
+class TestCreateToolFromTemplate:
+    """Tests for create-from-template API endpoint."""
+
+    def test_create_tool_from_template(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test creating a new tool from template."""
+        # Ensure shared directory exists
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        response = client.post(
+            "/api/folders/shared/tools/create-from-template",
+            headers=auth_headers,
+            json={"name": "my_new_tool"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["filename"] == "my_new_tool.py"
+        assert "my_new_tool.py" in data["path"]
+
+        # Verify file was created
+        tool_file = tools_dir / "shared" / "my_new_tool.py"
+        assert tool_file.exists()
+
+        # Verify content has correct class name
+        content = tool_file.read_text()
+        assert "class MyNewToolInput" in content
+        assert "async def my_new_tool_handler" in content
+        assert 'name="my_new_tool"' in content
+
+    def test_create_tool_requires_snake_case(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test tool name must be snake_case."""
+        response = client.post(
+            "/api/folders/shared/tools/create-from-template",
+            headers=auth_headers,
+            json={"name": "MyTool"},  # PascalCase not allowed
+        )
+
+        assert response.status_code == 400
+        assert "snake_case" in response.json()["detail"]
+
+    def test_create_tool_rejects_invalid_chars(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test tool name rejects invalid characters."""
+        response = client.post(
+            "/api/folders/shared/tools/create-from-template",
+            headers=auth_headers,
+            json={"name": "my-tool"},  # Hyphens not allowed
+        )
+
+        assert response.status_code == 400
+
+    def test_create_tool_rejects_existing(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test cannot create tool with existing name."""
+        # Create existing file
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+        (shared_dir / "existing_tool.py").write_text("# existing")
+
+        response = client.post(
+            "/api/folders/shared/tools/create-from-template",
+            headers=auth_headers,
+            json={"name": "existing_tool"},
+        )
+
+        assert response.status_code == 400
+        assert "already exists" in response.json()["detail"]
+
+    def test_create_tool_requires_auth(self, client: TestClient):
+        """Test create-from-template requires authentication."""
+        response = client.post(
+            "/api/folders/shared/tools/create-from-template",
+            json={"name": "test_tool"},
+        )
+
+        assert response.status_code == 401
+
+    def test_create_tool_nonexistent_namespace(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test creating tool in nonexistent namespace."""
+        response = client.post(
+            "/api/folders/nonexistent/tools/create-from-template",
+            headers=auth_headers,
+            json={"name": "test_tool"},
+        )
+
+        assert response.status_code == 404

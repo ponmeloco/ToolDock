@@ -291,6 +291,18 @@ Use the **MCP Node** with:
 
 ## Adding Tools
 
+### Via Admin UI (Recommended)
+
+1. Open http://localhost:3000
+2. Navigate to **Tools** → select a namespace (e.g., `shared`)
+3. Click **"New Tool"** button
+4. Enter a snake_case name (e.g., `my_new_tool`)
+5. Edit the generated template in the code editor
+6. Click **Save**
+7. Click **Reload** to load the new tool
+
+### Via File System
+
 Create a new file in `omnimcp_data/tools/shared/`:
 
 ```python
@@ -319,9 +331,25 @@ def register_tools(registry: ToolRegistry) -> None:
     )
 ```
 
-Restart the server and your tool is available!
+Then reload tools (or restart the server):
 
-**Or upload via Web GUI API:**
+```bash
+curl -X POST http://localhost:8080/api/reload/shared \
+  -H "Authorization: Bearer change_me"
+```
+
+### Via API
+
+**Create from template:**
+
+```bash
+curl -X POST "http://localhost:8080/api/folders/shared/tools/create-from-template" \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my_new_tool"}'
+```
+
+**Or upload existing file:**
 
 ```bash
 curl -X POST "http://localhost:8080/api/folders/shared/tools" \
@@ -372,7 +400,10 @@ curl -X POST "http://localhost:8080/api/folders/shared/tools" \
 | `/api/folders` | GET | Bearer | List namespaces |
 | `/api/folders/{ns}/tools` | GET | Bearer | List tools in namespace |
 | `/api/folders/{ns}/tools` | POST | Bearer | Upload tool file |
+| `/api/folders/{ns}/tools/create-from-template` | POST | Bearer | Create new tool from template |
+| `/api/folders/{ns}/tools/{file}` | GET | Bearer | Get tool content |
 | `/api/folders/{ns}/tools/{file}` | PUT | Bearer | Update tool content |
+| `/api/folders/{ns}/tools/{file}` | DELETE | Bearer | Delete tool |
 | `/api/servers` | GET | Bearer | List external servers |
 | `/api/reload` | POST | Bearer | Hot reload all namespaces |
 | `/api/reload/{ns}` | POST | Bearer | Hot reload specific namespace |

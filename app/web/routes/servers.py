@@ -26,9 +26,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
-# Get data directory from environment
-DATA_DIR = os.getenv("DATA_DIR", "omnimcp_data")
-
 # Patterns for sensitive keys that should be masked
 SENSITIVE_PATTERNS = [
     re.compile(r".*token.*", re.IGNORECASE),
@@ -148,7 +145,8 @@ def _mask_sensitive_data(data: Any, parent_key: str = "") -> Any:
 
 def _get_config_path() -> Path:
     """Get the external servers config file path."""
-    return Path(DATA_DIR) / "external" / "config.yaml"
+    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    return Path(data_dir) / "external" / "config.yaml"
 
 
 def _load_config() -> Dict[str, Any]:

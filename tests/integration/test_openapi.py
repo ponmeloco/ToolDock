@@ -88,7 +88,7 @@ class TestHealthEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "ok"
+        assert data["status"] == "healthy"
         assert data["transport"] == "openapi"
 
     def test_health_includes_stats(self, client: TestClient):

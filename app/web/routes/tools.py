@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/folders/{namespace}/tools", tags=["tools"])
 
-# Get data directory from environment
-DATA_DIR = os.getenv("DATA_DIR", "omnimcp_data")
-
 # Allowed filename pattern: alphanumeric, underscores, hyphens, must end in .py
 FILENAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*\.py$")
 
@@ -82,7 +79,8 @@ class ToolListResponse(BaseModel):
 
 def _get_base_tools_dir() -> Path:
     """Get the base tools directory path."""
-    return Path(DATA_DIR).resolve() / "tools"
+    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    return Path(data_dir).resolve() / "tools"
 
 
 def _get_tools_dir(namespace: str) -> Path:

@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
-# Get data directory from environment
-DATA_DIR = os.getenv("DATA_DIR", "omnimcp_data")
-
 # Namespace name pattern: lowercase letter start, then lowercase/numbers/underscore/hyphen
 # Minimum 2 chars, maximum 50 chars
 NAMESPACE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{1,49}$")
@@ -70,7 +67,8 @@ class FolderListResponse(BaseModel):
 
 def _get_base_tools_dir() -> Path:
     """Get the base tools directory path."""
-    return Path(DATA_DIR).resolve() / "tools"
+    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    return Path(data_dir).resolve() / "tools"
 
 
 def _validate_namespace(namespace: str) -> None:

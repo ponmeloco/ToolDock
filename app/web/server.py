@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("backend-api")
 
 SERVER_NAME = os.getenv("WEB_SERVER_NAME", "omnimcp-backend")
-DATA_DIR = os.getenv("DATA_DIR", "omnimcp_data")
 
 
 def _get_cors_origins() -> List[str]:
@@ -94,7 +93,8 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     setup_log_buffer()
 
     # Initialize hot reload
-    tools_dir = f"{DATA_DIR}/tools"
+    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    tools_dir = f"{data_dir}/tools"
     init_reloader(registry, tools_dir)
     logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")
 

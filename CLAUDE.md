@@ -216,6 +216,18 @@ curl -X POST http://localhost:8080/api/reload/shared \
   -H "Authorization: Bearer change_me"
 ```
 
+### Create Tools from Template
+Create new tools via API or Admin UI:
+```bash
+# Create tool from template (auto-generates boilerplate)
+curl -X POST "http://localhost:8080/api/folders/shared/tools/create-from-template" \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my_new_tool"}'
+```
+
+Or use the Admin UI: **Tools** → **New Tool** button.
+
 ### External MCP Servers
 Integrate tools from MCP Registry via `omnimcp_data/external/config.yaml`:
 ```yaml
