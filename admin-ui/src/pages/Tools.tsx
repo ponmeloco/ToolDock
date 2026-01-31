@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
@@ -11,6 +11,7 @@ import {
   deleteTool,
   validateTool,
   reloadNamespace,
+  createToolFromTemplate,
 } from '../api/client'
 import {
   ArrowLeft,
@@ -22,6 +23,7 @@ import {
   AlertCircle,
   RefreshCw,
   Upload,
+  Plus,
 } from 'lucide-react'
 
 export default function Tools() {
@@ -30,6 +32,8 @@ export default function Tools() {
   const [editorContent, setEditorContent] = useState('')
   const [hasChanges, setHasChanges] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [showNewToolModal, setShowNewToolModal] = useState(false)
+  const [newToolName, setNewToolName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -44,6 +48,19 @@ export default function Tools() {
     queryFn: () => getTool(namespace!, selectedFile!),
     enabled: !!namespace && !!selectedFile,
   })
+
+  // Load editor content when tool data is fetched
+  useEffect(() => {
+    if (toolContentQuery.data?.content && !hasChanges) {
+      setEditorContent(toolContentQuery.data.content)
+    }
+  }, [toolContentQuery.data?.content, hasChanges])
+
+  // Reset editor when selecting a different file
+  useEffect(() => {
+    setEditorContent('')
+    setHasChanges(false)
+  }, [selectedFile])
 
   const updateMutation = useMutation({
     mutationFn: ({ content }: { content: string }) =>
@@ -86,10 +103,16 @@ export default function Tools() {
     mutationFn: () => validateTool(namespace!, editorContent, selectedFile || 'tool.py'),
   })
 
-  // When tool content loads, set editor content
-  if (toolContentQuery.data && editorContent !== toolContentQuery.data.content && !hasChanges) {
-    setEditorContent(toolContentQuery.data.content)
-  }
+  const createToolMutation = useMutation({
+    mutationFn: (name: string) => createToolFromTemplate(namespace!, name),
+    onSuccess: (_, name) => {
+      queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
+      setShowNewToolModal(false)
+      setNewToolName('')
+      // Select the new file
+      setSelectedFile(`${name}.py`)
+    },
+  })
 
   const handleEditorChange = (value: string) => {
     setEditorContent(value)
@@ -108,7 +131,13 @@ export default function Tools() {
     }
   }
 
-  const validation = updateMutation.data?.validation || toolContentQuery.data?.validation
+  const handleCreateTool = () => {
+    if (newToolName.trim()) {
+      createToolMutation.mutate(newToolName.trim().replace(/\.py$/, ''))
+    }
+  }
+
+  const validation = updateMutation.data?.validation || validateMutation.data || toolContentQuery.data?.validation
 
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
@@ -134,6 +163,14 @@ export default function Tools() {
             Reload
           </button>
 
+          <button
+            onClick={() => setShowNewToolModal(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Tool
+          </button>
+
           <input
             ref={fileInputRef}
             type="file"
@@ -147,7 +184,7 @@ export default function Tools() {
             className="flex items-center gap-2 px-3 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors"
           >
             <Upload className="w-4 h-4" />
-            Upload Tool
+            Upload
           </button>
         </div>
       </div>
@@ -157,18 +194,18 @@ export default function Tools() {
         {/* File List */}
         <div className="w-64 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
           <div className="p-3 border-b border-gray-200 font-medium text-gray-900">
-            Tools
+            Tools ({toolsQuery.data?.length || 0})
           </div>
 
           <div className="flex-1 overflow-auto">
             {toolsQuery.isLoading ? (
               <div className="p-3 text-gray-500 text-sm">Loading...</div>
             ) : toolsQuery.data?.length === 0 ? (
-              <div className="p-3 text-gray-500 text-sm">No tools yet</div>
+              <div className="p-3 text-gray-500 text-sm">No tools yet. Create one!</div>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {toolsQuery.data?.map((tool) => (
-                  <li key={tool.filename}>
+                  <li key={tool.filename} className="group">
                     <div
                       className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
                         selectedFile === tool.filename
@@ -180,7 +217,6 @@ export default function Tools() {
                         onClick={() => {
                           if (hasChanges && !confirm('Discard changes?')) return
                           setSelectedFile(tool.filename)
-                          setHasChanges(false)
                         }}
                         className="flex items-center gap-2 flex-1 text-left"
                       >
@@ -193,22 +229,28 @@ export default function Tools() {
                           <button
                             onClick={() => deleteMutation.mutate(tool.filename)}
                             className="p-1 text-red-600 hover:bg-red-100 rounded"
+                            title="Confirm delete"
                           >
-                            <Check className="w-3 h-3" />
+                            <Check className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => setDeleteConfirm(null)}
                             className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+                            title="Cancel"
                           >
-                            <X className="w-3 h-3" />
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
                         <button
-                          onClick={() => setDeleteConfirm(tool.filename)}
-                          className="p-1 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteConfirm(tool.filename)
+                          }}
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Delete tool"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
@@ -270,16 +312,16 @@ export default function Tools() {
                       {validation.is_valid ? 'Valid' : 'Validation Errors'}
                     </span>
                   </div>
-                  {validation.errors.length > 0 && (
+                  {validation.errors && validation.errors.length > 0 && (
                     <ul className="mt-1 ml-6 list-disc">
-                      {validation.errors.map((err, i) => (
+                      {validation.errors.map((err: string, i: number) => (
                         <li key={i}>{err}</li>
                       ))}
                     </ul>
                   )}
-                  {validation.warnings.length > 0 && (
+                  {validation.warnings && validation.warnings.length > 0 && (
                     <ul className="mt-1 ml-6 list-disc text-yellow-700">
-                      {validation.warnings.map((warn, i) => (
+                      {validation.warnings.map((warn: string, i: number) => (
                         <li key={i}>{warn}</li>
                       ))}
                     </ul>
@@ -291,13 +333,15 @@ export default function Tools() {
               <div className="flex-1 overflow-auto">
                 {toolContentQuery.isLoading ? (
                   <div className="p-4 text-gray-500">Loading...</div>
+                ) : toolContentQuery.isError ? (
+                  <div className="p-4 text-red-500">Failed to load tool content</div>
                 ) : (
                   <CodeMirror
                     value={editorContent}
                     onChange={handleEditorChange}
                     extensions={[python()]}
                     theme="light"
-                    className="h-full"
+                    className="h-full text-sm"
                     basicSetup={{
                       lineNumbers: true,
                       highlightActiveLineGutter: true,
@@ -310,11 +354,66 @@ export default function Tools() {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-500">
-              Select a tool to edit or upload a new one
+              Select a tool to edit or create a new one
             </div>
           )}
         </div>
       </div>
+
+      {/* New Tool Modal */}
+      {showNewToolModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Create New Tool</h2>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Tool Name
+              </label>
+              <input
+                type="text"
+                value={newToolName}
+                onChange={(e) => setNewToolName(e.target.value)}
+                placeholder="my_tool"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateTool()
+                  if (e.key === 'Escape') setShowNewToolModal(false)
+                }}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Use snake_case (e.g., my_tool, fetch_data)
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowNewToolModal(false)
+                  setNewToolName('')
+                }}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateTool}
+                disabled={!newToolName.trim() || createToolMutation.isPending}
+                className="px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                {createToolMutation.isPending ? 'Creating...' : 'Create'}
+              </button>
+            </div>
+
+            {createToolMutation.isError && (
+              <p className="mt-3 text-sm text-red-600">
+                Failed to create tool. Please try again.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

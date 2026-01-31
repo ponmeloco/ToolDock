@@ -88,7 +88,7 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
     async def health():
         stats = registry.get_stats()
         return {
-            "status": "ok",
+            "status": "healthy",
             "namespace": REGISTRY_NAMESPACE,
             "transport": "openapi",
             "tools": stats,

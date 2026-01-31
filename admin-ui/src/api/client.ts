@@ -188,6 +188,21 @@ export async function deleteTool(namespace: string, filename: string): Promise<v
   }
 }
 
+export async function createToolFromTemplate(
+  namespace: string,
+  name: string
+): Promise<{ success: boolean; message: string; filename: string; path: string }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/create-from-template`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to create tool')
+  }
+  return res.json()
+}
+
 export async function validateTool(
   namespace: string,
   content: string,

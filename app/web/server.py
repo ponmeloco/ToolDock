@@ -26,6 +26,7 @@ from app.auth import is_auth_enabled, verify_token
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router
 from app.web.routes.admin import setup_log_buffer
+from app.reload import init_reloader
 
 if TYPE_CHECKING:
     from app.registry import ToolRegistry
@@ -91,6 +92,11 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
 
     # Setup log buffer for log viewing
     setup_log_buffer()
+
+    # Initialize hot reload
+    tools_dir = f"{DATA_DIR}/tools"
+    init_reloader(registry, tools_dir)
+    logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")
 
     # Add request logging middleware (after log buffer is set up)
     app.add_middleware(RequestLoggingMiddleware)

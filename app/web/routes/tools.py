@@ -182,6 +182,122 @@ async def list_tools(
     )
 
 
+class CreateToolRequest(BaseModel):
+    """Request body for creating a new tool from template."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+
+# Tool template content
+TOOL_TEMPLATE = '''"""
+{name} Tool
+
+Description of what this tool does.
+"""
+
+from pydantic import BaseModel, Field, ConfigDict
+from app.registry import ToolDefinition, ToolRegistry
+
+
+class {class_name}Input(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    example_param: str = Field(
+        ...,
+        description="Example parameter. Adjust fields and descriptions."
+    )
+
+
+async def {handler_name}_handler(payload: {class_name}Input):
+    return {{
+        "ok": True,
+        "echo": payload.example_param,
+    }}
+
+
+def register_tools(registry: ToolRegistry) -> None:
+    {class_name}Input.model_rebuild(force=True)
+
+    registry.register(
+        ToolDefinition(
+            name="{name}",
+            description="Short description of the tool.",
+            input_model={class_name}Input,
+            handler={handler_name}_handler,
+        )
+    )
+'''
+
+
+@router.post("/create-from-template")
+async def create_tool_from_template(
+    namespace: str,
+    request: CreateToolRequest,
+    _: str = Depends(verify_token),
+) -> dict:
+    """
+    Create a new tool from the template.
+
+    Args:
+        namespace: The namespace/folder name
+        request: The tool name
+    """
+    tools_dir = _get_tools_dir(namespace)
+
+    if not tools_dir.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Namespace not found: {namespace}",
+        )
+
+    # Validate the name (should be snake_case)
+    name = request.name.strip()
+    if not re.match(r"^[a-z][a-z0-9_]*$", name):
+        raise HTTPException(
+            status_code=400,
+            detail="Tool name must be snake_case (lowercase letters, numbers, underscores, start with letter)",
+        )
+
+    filename = f"{name}.py"
+    file_path = tools_dir / filename
+
+    if file_path.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool already exists: {filename}",
+        )
+
+    # Generate class name from snake_case (e.g., my_tool -> MyTool)
+    class_name = "".join(word.capitalize() for word in name.split("_"))
+
+    # Generate content from template
+    content = TOOL_TEMPLATE.format(
+        name=name,
+        class_name=class_name,
+        handler_name=name,
+    )
+
+    try:
+        file_path.write_text(content, encoding="utf-8")
+        logger.info(f"Created tool from template: {namespace}/{filename}")
+
+        return {
+            "success": True,
+            "message": f"Tool created: {namespace}/{filename}",
+            "filename": filename,
+            "path": f"/api/folders/{namespace}/tools/{filename}",
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to create tool {namespace}/{filename}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create tool file",
+        )
+
+
 @router.get("/{filename}")
 async def get_tool(
     namespace: str,
