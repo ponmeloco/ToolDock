@@ -90,6 +90,7 @@ export default function Tools() {
     mutationFn: (file: File) => uploadTool(namespace!, file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
+      queryClient.invalidateQueries({ queryKey: ['namespaces'] })
     },
   })
 
@@ -97,6 +98,7 @@ export default function Tools() {
     mutationFn: (filename: string) => deleteTool(namespace!, filename),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
+      queryClient.invalidateQueries({ queryKey: ['namespaces'] })
       if (selectedFile === deleteConfirm) {
         setSelectedFile(null)
         setEditorContent('')
@@ -121,6 +123,7 @@ export default function Tools() {
     mutationFn: (name: string) => createToolFromTemplate(namespace!, name),
     onSuccess: (_, name) => {
       queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
+      queryClient.invalidateQueries({ queryKey: ['namespaces'] })
       setShowNewToolModal(false)
       setNewToolName('')
       // Select the new file
