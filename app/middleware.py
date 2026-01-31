@@ -15,54 +15,79 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 
-class TrailingNewlineMiddleware(BaseHTTPMiddleware):
+class TrailingNewlineMiddleware:
     """
     Middleware that adds a trailing newline to JSON responses.
 
     This improves the terminal experience when using curl or other CLI tools,
     as the response won't run into the next shell prompt.
+
+    Note: Uses raw ASGI interface instead of BaseHTTPMiddleware to avoid
+    Content-Length issues with response body modification.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
+    def __init__(self, app):
+        self.app = app
 
-        # Only modify JSON responses
-        content_type = response.headers.get("content-type", "")
-        if "application/json" not in content_type:
-            return response
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        # For streaming responses, we can't modify them easily
-        if hasattr(response, "body_iterator"):
-            # StreamingResponse - wrap the iterator to add newline at end
-            original_body_iterator = response.body_iterator
+        # Collect response parts
+        response_started = False
+        initial_message = None
+        body_parts = []
 
-            async def body_with_newline():
-                async for chunk in original_body_iterator:
-                    yield chunk
-                yield b"\n"
+        async def send_wrapper(message):
+            nonlocal response_started, initial_message, body_parts
 
-            response.body_iterator = body_with_newline()
-            return response
+            if message["type"] == "http.response.start":
+                initial_message = message
+                response_started = True
+            elif message["type"] == "http.response.body":
+                body = message.get("body", b"")
+                more_body = message.get("more_body", False)
 
-        # For regular responses, read body and add newline
-        if hasattr(response, "body"):
-            body = response.body
-            if body and not body.endswith(b"\n"):
-                new_body = body + b"\n"
-                # Copy headers but exclude content-length (will be recalculated)
-                new_headers = {
-                    k: v for k, v in response.headers.items()
-                    if k.lower() != "content-length"
-                }
-                # Create new response with modified body
-                return Response(
-                    content=new_body,
-                    status_code=response.status_code,
-                    headers=new_headers,
-                    media_type=response.media_type,
-                )
+                if more_body:
+                    # Streaming response - pass through without modification
+                    if initial_message:
+                        await send(initial_message)
+                        initial_message = None
+                    await send(message)
+                else:
+                    # Final chunk - collect and modify if JSON
+                    body_parts.append(body)
 
-        return response
+        await self.app(scope, receive, send_wrapper)
+
+        # If we collected body parts, send them now with modification
+        if initial_message and body_parts:
+            headers = dict(initial_message.get("headers", []))
+            content_type = headers.get(b"content-type", b"").decode("utf-8", errors="ignore")
+
+            full_body = b"".join(body_parts)
+
+            # Add newline to JSON responses
+            if "application/json" in content_type and full_body and not full_body.endswith(b"\n"):
+                full_body = full_body + b"\n"
+
+            # Update content-length header
+            new_headers = [
+                (k, v) for k, v in initial_message.get("headers", [])
+                if k.lower() != b"content-length"
+            ]
+            new_headers.append((b"content-length", str(len(full_body)).encode()))
+
+            await send({
+                "type": "http.response.start",
+                "status": initial_message["status"],
+                "headers": new_headers,
+            })
+            await send({
+                "type": "http.response.body",
+                "body": full_body,
+            })
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
