@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
@@ -30,12 +30,17 @@ export default function Tools() {
   const { namespace } = useParams<{ namespace: string }>()
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [editorContent, setEditorContent] = useState('')
-  const [hasChanges, setHasChanges] = useState(false)
+  const [originalContent, setOriginalContent] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [showNewToolModal, setShowNewToolModal] = useState(false)
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false)
+  const [pendingFileSelect, setPendingFileSelect] = useState<string | null>(null)
   const [newToolName, setNewToolName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
+
+  // Calculate hasChanges from content comparison
+  const hasChanges = editorContent !== originalContent && originalContent !== ''
 
   const toolsQuery = useQuery({
     queryKey: ['tools', namespace],
@@ -47,28 +52,36 @@ export default function Tools() {
     queryKey: ['tool', namespace, selectedFile],
     queryFn: () => getTool(namespace!, selectedFile!),
     enabled: !!namespace && !!selectedFile,
+    staleTime: 0, // Always refetch when selected
   })
 
   // Load editor content when tool data is fetched
   useEffect(() => {
-    if (toolContentQuery.data?.content && !hasChanges) {
+    if (toolContentQuery.data?.content !== undefined) {
       setEditorContent(toolContentQuery.data.content)
+      setOriginalContent(toolContentQuery.data.content)
     }
-  }, [toolContentQuery.data?.content, hasChanges])
+  }, [toolContentQuery.data?.content, selectedFile])
 
-  // Reset editor when selecting a different file
+  // Warn before leaving page with unsaved changes
   useEffect(() => {
-    setEditorContent('')
-    setHasChanges(false)
-  }, [selectedFile])
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasChanges) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasChanges])
 
   const updateMutation = useMutation({
     mutationFn: ({ content }: { content: string }) =>
       updateTool(namespace!, selectedFile!, content),
     onSuccess: (data) => {
       if (data.success) {
+        setOriginalContent(editorContent)
         queryClient.invalidateQueries({ queryKey: ['tool', namespace, selectedFile] })
-        setHasChanges(false)
       }
     },
   })
@@ -87,6 +100,7 @@ export default function Tools() {
       if (selectedFile === deleteConfirm) {
         setSelectedFile(null)
         setEditorContent('')
+        setOriginalContent('')
       }
       setDeleteConfirm(null)
     },
@@ -110,18 +124,50 @@ export default function Tools() {
       setShowNewToolModal(false)
       setNewToolName('')
       // Select the new file
-      setSelectedFile(`${name}.py`)
+      handleSelectFile(`${name}.py`)
     },
   })
 
-  const handleEditorChange = (value: string) => {
+  const handleEditorChange = useCallback((value: string) => {
     setEditorContent(value)
-    setHasChanges(value !== toolContentQuery.data?.content)
-  }
+  }, [])
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     updateMutation.mutate({ content: editorContent })
-  }
+  }, [editorContent, updateMutation])
+
+  const handleSelectFile = useCallback((filename: string) => {
+    if (filename === selectedFile) return
+
+    if (hasChanges) {
+      setPendingFileSelect(filename)
+      setShowUnsavedModal(true)
+    } else {
+      setSelectedFile(filename)
+    }
+  }, [hasChanges, selectedFile])
+
+  const handleDiscardChanges = useCallback(() => {
+    setShowUnsavedModal(false)
+    if (pendingFileSelect) {
+      setSelectedFile(pendingFileSelect)
+      setPendingFileSelect(null)
+    }
+  }, [pendingFileSelect])
+
+  const handleSaveAndSwitch = useCallback(async () => {
+    await updateMutation.mutateAsync({ content: editorContent })
+    setShowUnsavedModal(false)
+    if (pendingFileSelect) {
+      setSelectedFile(pendingFileSelect)
+      setPendingFileSelect(null)
+    }
+  }, [editorContent, pendingFileSelect, updateMutation])
+
+  const handleCancelSwitch = useCallback(() => {
+    setShowUnsavedModal(false)
+    setPendingFileSelect(null)
+  }, [])
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -137,6 +183,14 @@ export default function Tools() {
     }
   }
 
+  const handleBackClick = (e: React.MouseEvent) => {
+    if (hasChanges) {
+      e.preventDefault()
+      setPendingFileSelect(null)
+      setShowUnsavedModal(true)
+    }
+  }
+
   const validation = updateMutation.data?.validation || validateMutation.data || toolContentQuery.data?.validation
 
   return (
@@ -146,6 +200,7 @@ export default function Tools() {
         <div className="flex items-center gap-3">
           <Link
             to="/namespaces"
+            onClick={handleBackClick}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -214,14 +269,14 @@ export default function Tools() {
                       }`}
                     >
                       <button
-                        onClick={() => {
-                          if (hasChanges && !confirm('Discard changes?')) return
-                          setSelectedFile(tool.filename)
-                        }}
+                        onClick={() => handleSelectFile(tool.filename)}
                         className="flex items-center gap-2 flex-1 text-left"
                       >
                         <File className="w-4 h-4 text-gray-400" />
                         <span className="text-sm truncate">{tool.filename}</span>
+                        {selectedFile === tool.filename && hasChanges && (
+                          <span className="w-2 h-2 bg-yellow-500 rounded-full" title="Unsaved changes" />
+                        )}
                       </button>
 
                       {deleteConfirm === tool.filename ? (
@@ -277,6 +332,16 @@ export default function Tools() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {hasChanges && (
+                    <button
+                      onClick={() => {
+                        setEditorContent(originalContent)
+                      }}
+                      className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                    >
+                      Discard
+                    </button>
+                  )}
                   <button
                     onClick={() => validateMutation.mutate()}
                     disabled={validateMutation.isPending}
@@ -290,7 +355,7 @@ export default function Tools() {
                     className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded transition-colors"
                   >
                     <Save className="w-4 h-4" />
-                    Save
+                    {updateMutation.isPending ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               </div>
@@ -359,6 +424,40 @@ export default function Tools() {
           )}
         </div>
       </div>
+
+      {/* Unsaved Changes Modal */}
+      {showUnsavedModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">Unsaved Changes</h2>
+            <p className="text-gray-600 mb-4">
+              You have unsaved changes in <strong>{selectedFile}</strong>. What would you like to do?
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={handleCancelSwitch}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDiscardChanges}
+                className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                Discard
+              </button>
+              <button
+                onClick={handleSaveAndSwitch}
+                disabled={updateMutation.isPending}
+                className="px-4 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                {updateMutation.isPending ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Tool Modal */}
       {showNewToolModal && (
