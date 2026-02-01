@@ -286,10 +286,19 @@ export async function executeTool(
   return res.json()
 }
 
+// Tool info returned by getAllTools
+export interface PlaygroundTool {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  type: string
+  namespace: string
+}
+
 // Get all tools (for playground)
 export async function getAllTools(): Promise<{
   namespace: string
-  tools: { name: string; description: string; input_schema: Record<string, unknown> }[]
+  tools: PlaygroundTool[]
 }> {
   const res = await fetchWithAuth(`${TOOLS_BASE}`)
   return res.json()

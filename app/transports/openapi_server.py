@@ -146,6 +146,7 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
                     "description": t["description"],
                     "input_schema": t["inputSchema"],
                     "type": t.get("type", "native"),
+                    "namespace": t.get("namespace", "shared"),
                 }
                 for t in all_tools
             ],
