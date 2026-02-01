@@ -5,14 +5,21 @@ Provides endpoints for system administration:
 - Aggregated health check
 - Log viewing
 - System information
+
+Logging:
+- In-memory circular buffer for live viewing (last 1000 entries)
+- Persistent JSON Lines files with daily rotation
+- Automatic cleanup of logs older than LOG_RETENTION_DAYS (default: 30)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -27,6 +34,12 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 # In-memory log buffer (circular buffer for last N log entries)
 LOG_BUFFER_SIZE = 1000
 _log_buffer: deque = deque(maxlen=LOG_BUFFER_SIZE)
+
+# Persistent log settings
+LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
+_log_dir: Optional[Path] = None
+_current_log_date: Optional[str] = None
+_current_log_file = None
 
 
 class LogEntry(BaseModel):
@@ -92,12 +105,82 @@ class SystemInfoResponse(BaseModel):
     environment: dict
 
 
-class BufferingLogHandler(logging.Handler):
-    """Custom log handler that buffers log entries."""
+def _get_log_dir() -> Path:
+    """Get the logs directory, creating it if necessary."""
+    global _log_dir
+    if _log_dir is None:
+        data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+        _log_dir = Path(data_dir) / "logs"
+        _log_dir.mkdir(parents=True, exist_ok=True)
+    return _log_dir
 
-    def __init__(self, buffer: deque):
+
+def _get_log_file():
+    """Get the current log file handle, rotating daily."""
+    global _current_log_date, _current_log_file
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if _current_log_date != today:
+        # Close old file if open
+        if _current_log_file is not None:
+            try:
+                _current_log_file.close()
+            except Exception:
+                pass
+
+        # Open new daily log file
+        log_dir = _get_log_dir()
+        log_path = log_dir / f"{today}.jsonl"
+        _current_log_file = open(log_path, "a", encoding="utf-8")
+        _current_log_date = today
+
+        # Run cleanup in background (non-blocking)
+        _cleanup_old_logs()
+
+    return _current_log_file
+
+
+def _cleanup_old_logs():
+    """Remove log files older than LOG_RETENTION_DAYS."""
+    try:
+        log_dir = _get_log_dir()
+        cutoff = datetime.now() - timedelta(days=LOG_RETENTION_DAYS)
+
+        for log_file in log_dir.glob("*.jsonl"):
+            try:
+                # Parse date from filename (YYYY-MM-DD.jsonl)
+                file_date_str = log_file.stem
+                file_date = datetime.strptime(file_date_str, "%Y-%m-%d")
+
+                if file_date < cutoff:
+                    log_file.unlink()
+                    logger.info(f"Deleted old log file: {log_file.name}")
+            except (ValueError, OSError) as e:
+                # Skip files that don't match the expected format
+                logger.debug(f"Skipping log file {log_file.name}: {e}")
+    except Exception as e:
+        logger.warning(f"Error during log cleanup: {e}")
+
+
+def _write_log_to_file(entry: LogEntry):
+    """Write a log entry to the daily log file."""
+    try:
+        log_file = _get_log_file()
+        log_file.write(entry.model_dump_json() + "\n")
+        log_file.flush()
+    except Exception as e:
+        # Don't let file logging errors break the app
+        logger.debug(f"Failed to write log to file: {e}")
+
+
+class BufferingLogHandler(logging.Handler):
+    """Custom log handler that buffers log entries and writes to file."""
+
+    def __init__(self, buffer: deque, persist_to_file: bool = True):
         super().__init__()
         self.buffer = buffer
+        self.persist_to_file = persist_to_file
 
     def emit(self, record: logging.LogRecord):
         try:
@@ -108,13 +191,17 @@ class BufferingLogHandler(logging.Handler):
                 message=self.format(record),
             )
             self.buffer.append(entry)
+
+            # Also write to file for persistence
+            if self.persist_to_file:
+                _write_log_to_file(entry)
         except Exception:
             pass  # Don't let logging errors break the app
 
 
 def setup_log_buffer():
     """Setup the log buffer handler on relevant loggers."""
-    handler = BufferingLogHandler(_log_buffer)
+    handler = BufferingLogHandler(_log_buffer, persist_to_file=True)
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter("%(message)s"))
 
@@ -132,7 +219,8 @@ def setup_log_buffer():
         app_logger.addHandler(handler)
         app_logger.setLevel(logging.DEBUG)
 
-    logger.info("Log buffer initialized")
+    log_dir = _get_log_dir()
+    logger.info(f"Log buffer initialized (persistent logs: {log_dir}, retention: {LOG_RETENTION_DAYS} days)")
 
 
 def log_request(
@@ -144,7 +232,7 @@ def log_request(
     request_id: Optional[str] = None,
     error_detail: Optional[str] = None,
 ):
-    """Log an HTTP request to the buffer."""
+    """Log an HTTP request to the buffer and file."""
     # Determine log level based on status code
     if status_code >= 500:
         level = "ERROR"
@@ -173,6 +261,9 @@ def log_request(
         error_detail=error_detail,
     )
     _log_buffer.append(entry)
+
+    # Also write to persistent log file
+    _write_log_to_file(entry)
 
 
 @router.get("/health", response_model=SystemHealthResponse)
@@ -288,6 +379,117 @@ async def get_logs(
         logs=logs,
         total=total,
         has_more=total > limit,
+    )
+
+
+class LogFileInfo(BaseModel):
+    """Information about a log file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    date: str
+    filename: str
+    size_bytes: int
+    entry_count: int
+
+
+class LogFilesResponse(BaseModel):
+    """Response for log files listing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: List[LogFileInfo]
+    total_size_bytes: int
+    retention_days: int
+    log_dir: str
+
+
+@router.get("/logs/files", response_model=LogFilesResponse)
+async def get_log_files(
+    _: str = Depends(verify_token),
+) -> LogFilesResponse:
+    """
+    Get list of all log files with their sizes and entry counts.
+
+    Returns information about daily log files stored in DATA_DIR/logs/.
+    """
+    log_dir = _get_log_dir()
+    files = []
+    total_size = 0
+
+    for log_file in sorted(log_dir.glob("*.jsonl"), reverse=True):
+        try:
+            size = log_file.stat().st_size
+            total_size += size
+
+            # Count entries (lines) in file
+            entry_count = 0
+            with open(log_file, "r", encoding="utf-8") as f:
+                entry_count = sum(1 for _ in f)
+
+            files.append(LogFileInfo(
+                date=log_file.stem,
+                filename=log_file.name,
+                size_bytes=size,
+                entry_count=entry_count,
+            ))
+        except Exception as e:
+            logger.warning(f"Error reading log file {log_file}: {e}")
+
+    return LogFilesResponse(
+        files=files,
+        total_size_bytes=total_size,
+        retention_days=LOG_RETENTION_DAYS,
+        log_dir=str(log_dir),
+    )
+
+
+@router.get("/logs/files/{date}")
+async def get_log_file_content(
+    date: str,
+    limit: int = Query(default=1000, ge=1, le=10000),
+    offset: int = Query(default=0, ge=0),
+    _: str = Depends(verify_token),
+) -> LogsResponse:
+    """
+    Get log entries from a specific date's log file.
+
+    Args:
+        date: Date in YYYY-MM-DD format
+        limit: Maximum number of entries to return
+        offset: Number of entries to skip (for pagination)
+    """
+    log_dir = _get_log_dir()
+    log_file = log_dir / f"{date}.jsonl"
+
+    if not log_file.exists():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Log file for {date} not found")
+
+    logs = []
+    total = 0
+
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                total += 1
+                if i < offset:
+                    continue
+                if len(logs) >= limit:
+                    continue  # Keep counting total but don't add more
+
+                try:
+                    data = json.loads(line.strip())
+                    logs.append(LogEntry(**data))
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Skip malformed entries
+    except Exception as e:
+        logger.warning(f"Error reading log file {log_file}: {e}")
+
+    return LogsResponse(
+        logs=logs,
+        total=total,
+        has_more=total > offset + limit,
     )
 
 

@@ -51,6 +51,7 @@ data/
 omnimcp_data/external/cache/
 omnimcp_data/tools/*/
 !omnimcp_data/tools/shared/
+omnimcp_data/logs/
 
 # Coverage
 .coverage

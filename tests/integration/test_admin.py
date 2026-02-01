@@ -176,6 +176,44 @@ class TestToolUpdate:
         assert response.status_code in [400, 422]
 
 
+class TestLogFiles:
+    """Tests for /api/admin/logs/files endpoints."""
+
+    def test_list_log_files_requires_auth(self, web_client: TestClient):
+        """Log files listing requires authentication."""
+        response = web_client.get("/api/admin/logs/files")
+        assert response.status_code == 401
+
+    def test_list_log_files_returns_info(
+        self, web_client: TestClient, auth_headers: dict
+    ):
+        """Log files listing returns file information."""
+        response = web_client.get("/api/admin/logs/files", headers=auth_headers)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "files" in data
+        assert "total_size_bytes" in data
+        assert "retention_days" in data
+        assert "log_dir" in data
+        assert isinstance(data["files"], list)
+        assert data["retention_days"] > 0
+
+    def test_get_log_file_content_requires_auth(self, web_client: TestClient):
+        """Log file content requires authentication."""
+        response = web_client.get("/api/admin/logs/files/2024-01-01")
+        assert response.status_code == 401
+
+    def test_get_log_file_not_found(
+        self, web_client: TestClient, auth_headers: dict
+    ):
+        """Nonexistent log file returns 404."""
+        response = web_client.get(
+            "/api/admin/logs/files/1999-01-01", headers=auth_headers
+        )
+        assert response.status_code == 404
+
+
 class TestSecurityHeaders:
     """Tests for security-related behavior."""
 
