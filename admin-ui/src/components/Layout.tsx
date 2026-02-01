@@ -6,6 +6,7 @@ import {
   ScrollText,
   RefreshCw,
   LogOut,
+  BookOpen,
 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reloadAll, clearAuthToken } from '../api/client'
@@ -15,6 +16,7 @@ const navigation = [
   { name: 'Namespaces', href: '/namespaces', icon: FolderTree },
   { name: 'Playground', href: '/playground', icon: Play },
   { name: 'Logs', href: '/logs', icon: ScrollText },
+  { name: 'API Docs', href: '/docs', icon: BookOpen },
 ]
 
 export default function Layout() {

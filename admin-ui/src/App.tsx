@@ -5,6 +5,7 @@ import Namespaces from './pages/Namespaces'
 import Tools from './pages/Tools'
 import Playground from './pages/Playground'
 import Logs from './pages/Logs'
+import Docs from './pages/Docs'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Route path="namespaces/:namespace" element={<Tools />} />
         <Route path="playground" element={<Playground />} />
         <Route path="logs" element={<Logs />} />
+        <Route path="docs" element={<Docs />} />
       </Route>
     </Routes>
   )
