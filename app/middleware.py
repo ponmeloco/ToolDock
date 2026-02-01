@@ -109,11 +109,19 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if request.url.path != "/health":
             try:
                 from app.web.routes.admin import log_request
+
+                # Extract tool name from path if it's a tool call
+                tool_name = None
+                path = request.url.path
+                if path.startswith("/tools/") and request.method == "POST":
+                    tool_name = path.split("/tools/", 1)[1].split("/")[0]
+
                 log_request(
                     method=request.method,
-                    path=request.url.path,
+                    path=path,
                     status_code=response.status_code,
                     duration_ms=duration_ms,
+                    tool_name=tool_name,
                 )
             except ImportError:
                 pass  # Log buffer not available

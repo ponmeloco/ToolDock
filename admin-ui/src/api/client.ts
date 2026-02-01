@@ -92,6 +92,12 @@ export interface LogEntry {
   level: string
   logger: string
   message: string
+  // Optional HTTP request fields
+  http_method?: string
+  http_path?: string
+  http_status?: number
+  http_duration_ms?: number
+  tool_name?: string
 }
 
 export interface ToolExecutionResult {

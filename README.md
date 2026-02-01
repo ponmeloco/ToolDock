@@ -86,7 +86,7 @@ Enter your `BEARER_TOKEN` from `.env` when prompted.
 
 | Feature | Description |
 |---------|-------------|
-| **Admin UI** | React-based dashboard with code editor, tool playground, and log viewer |
+| **Admin UI** | React dashboard with code editor, tool playground, and HTTP request logs with colored status codes |
 | **Multi-Tenant Namespaces** | Organize tools in folders, each becomes a separate MCP endpoint |
 | **Dual Transport** | OpenAPI + MCP from the same codebase |
 | **Namespace Routing** | `/mcp/shared`, `/mcp/team1`, `/mcp/github` - separate endpoints per namespace |

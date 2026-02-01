@@ -38,6 +38,12 @@ class LogEntry(BaseModel):
     level: str
     logger: str
     message: str
+    # Optional HTTP request fields
+    http_method: Optional[str] = None
+    http_path: Optional[str] = None
+    http_status: Optional[int] = None
+    http_duration_ms: Optional[float] = None
+    tool_name: Optional[str] = None
 
 
 class LogsResponse(BaseModel):
@@ -127,13 +133,37 @@ def setup_log_buffer():
     logger.info("Log buffer initialized")
 
 
-def log_request(method: str, path: str, status_code: int, duration_ms: float):
+def log_request(
+    method: str,
+    path: str,
+    status_code: int,
+    duration_ms: float,
+    tool_name: Optional[str] = None,
+):
     """Log an HTTP request to the buffer."""
+    # Determine log level based on status code
+    if status_code >= 500:
+        level = "ERROR"
+    elif status_code >= 400:
+        level = "WARNING"
+    else:
+        level = "INFO"
+
+    # Build message
+    message = f"{method} {path} {status_code} ({duration_ms:.1f}ms)"
+    if tool_name:
+        message = f"{message} [tool: {tool_name}]"
+
     entry = LogEntry(
         timestamp=datetime.now().isoformat(),
-        level="INFO",
+        level=level,
         logger="http.access",
-        message=f"{method} {path} {status_code} ({duration_ms:.1f}ms)",
+        message=message,
+        http_method=method,
+        http_path=path,
+        http_status=status_code,
+        http_duration_ms=round(duration_ms, 1),
+        tool_name=tool_name,
     )
     _log_buffer.append(entry)
 

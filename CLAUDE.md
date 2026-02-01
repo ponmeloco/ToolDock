@@ -216,6 +216,14 @@ curl -X POST http://localhost:8080/api/reload/shared \
   -H "Authorization: Bearer change_me"
 ```
 
+**Note:** When running in multi-process mode (`SERVER_MODE=all`), reload requests are automatically forwarded from the Web GUI to the OpenAPI server to keep all registries in sync.
+
+### Admin UI Features
+- **Dashboard**: Overview of namespaces, tools, and system health
+- **Tools**: Browse namespaces, create/edit/delete tools with syntax highlighting
+- **Playground**: Test tools interactively with JSON input/output
+- **Logs**: View HTTP requests with colored status codes, filter by level/logger
+
 ### Create Tools from Template
 Create new tools via API or Admin UI:
 ```bash
