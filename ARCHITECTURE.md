@@ -320,6 +320,7 @@ Environment variables control behavior:
 | `ADMIN_USERNAME` | `admin` | Web GUI username |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `LOG_LEVEL` | `INFO` | Logging level |
+| `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
 
 ---
 
