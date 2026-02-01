@@ -61,7 +61,41 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
         title=SERVER_NAME,
         version="1.0.0",
         description="OpenAPI toolserver exposing registered tools.",
+        swagger_ui_parameters={
+            "persistAuthorization": True,
+        },
     )
+
+    # Add OpenAPI security scheme for Bearer token
+    from fastapi.openapi.utils import get_openapi
+
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        openapi_schema["components"]["securitySchemes"] = {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Enter your Bearer token",
+            }
+        }
+        # Apply security to all endpoints except health
+        for path in openapi_schema["paths"]:
+            if path != "/health":
+                for method in openapi_schema["paths"][path]:
+                    if method != "options":
+                        openapi_schema["paths"][path][method]["security"] = [{"BearerAuth": []}]
+        app.openapi_schema = openapi_schema
+        return app.openapi_schema
+
+    app.openapi = custom_openapi
 
     # Add trailing newline to JSON responses for better CLI output
     app.add_middleware(TrailingNewlineMiddleware)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Key, Send, ChevronDown, ChevronRight, Check, Copy } from 'lucide-react'
+import { Key, Send, ChevronDown, ChevronRight, Check, Copy, ExternalLink } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
 
@@ -9,35 +9,78 @@ interface Endpoint {
   description: string
   auth: boolean
   body?: string
-  category: string
 }
 
-const ENDPOINTS: Endpoint[] = [
-  // Health
-  { method: 'GET', path: '/health', description: 'Backend health check', auth: false, category: 'Health' },
-  { method: 'GET', path: '/api/admin/health', description: 'System health (all services)', auth: true, category: 'Health' },
+interface EndpointCategory {
+  name: string
+  description: string
+  endpoints: Endpoint[]
+}
 
-  // Namespaces & Tools
-  { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true, category: 'Namespaces' },
-  { method: 'GET', path: '/api/folders/shared/tools', description: 'List tools in namespace', auth: true, category: 'Namespaces' },
-
-  // Reload
-  { method: 'POST', path: '/api/reload', description: 'Hot reload all namespaces', auth: true, category: 'Reload' },
-  { method: 'POST', path: '/api/reload/shared', description: 'Hot reload specific namespace', auth: true, category: 'Reload' },
-  { method: 'GET', path: '/api/reload/status', description: 'Get reload status', auth: true, category: 'Reload' },
-
-  // Tools (OpenAPI)
-  { method: 'GET', path: '/tools', description: 'List all tools (OpenAPI)', auth: true, category: 'OpenAPI' },
-  { method: 'POST', path: '/tools/hello_world', description: 'Execute hello_world tool', auth: true, category: 'OpenAPI', body: '{"name": "World"}' },
-
-  // Admin
-  { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true, category: 'Admin' },
-  { method: 'GET', path: '/api/admin/logs?limit=10', description: 'Get recent logs', auth: true, category: 'Admin' },
-  { method: 'GET', path: '/api/servers', description: 'List external servers', auth: true, category: 'Admin' },
-
-  // MCP (Port 8007)
-  { method: 'GET', path: 'http://localhost:8007/health', description: 'MCP health check', auth: false, category: 'MCP' },
-  { method: 'GET', path: 'http://localhost:8007/mcp/namespaces', description: 'List MCP namespaces', auth: true, category: 'MCP' },
+const CATEGORIES: EndpointCategory[] = [
+  {
+    name: 'Health',
+    description: 'Health check endpoints for all services',
+    endpoints: [
+      { method: 'GET', path: '/health', description: 'Backend API health check', auth: false },
+      { method: 'GET', path: '/api/admin/health', description: 'Aggregated health of all services', auth: true },
+    ],
+  },
+  {
+    name: 'Namespaces',
+    description: 'Manage tool namespaces (folders)',
+    endpoints: [
+      { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true },
+      { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name": "my_namespace"}' },
+      { method: 'DELETE', path: '/api/folders/shared', description: 'Delete a namespace', auth: true },
+    ],
+  },
+  {
+    name: 'Tools',
+    description: 'Manage tools within namespaces',
+    endpoints: [
+      { method: 'GET', path: '/api/folders/shared/tools', description: 'List tools in a namespace', auth: true },
+      { method: 'GET', path: '/api/folders/shared/tools/example.py', description: 'Get tool content', auth: true },
+      { method: 'POST', path: '/api/folders/shared/tools/create-from-template', description: 'Create tool from template', auth: true, body: '{"name": "my_tool"}' },
+      { method: 'PUT', path: '/api/folders/shared/tools/example.py', description: 'Update tool content', auth: true, body: '{"content": "# Updated content"}' },
+    ],
+  },
+  {
+    name: 'Reload',
+    description: 'Hot reload tools without server restart',
+    endpoints: [
+      { method: 'GET', path: '/api/reload/status', description: 'Get reload status and namespaces', auth: true },
+      { method: 'POST', path: '/api/reload', description: 'Reload all namespaces', auth: true },
+      { method: 'POST', path: '/api/reload/shared', description: 'Reload specific namespace', auth: true },
+    ],
+  },
+  {
+    name: 'OpenAPI Tools',
+    description: 'Execute tools via OpenAPI (port 8006)',
+    endpoints: [
+      { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
+      { method: 'POST', path: '/tools/hello_world', description: 'Execute hello_world tool', auth: true, body: '{"name": "World"}' },
+    ],
+  },
+  {
+    name: 'Admin',
+    description: 'System administration endpoints',
+    endpoints: [
+      { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
+      { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
+      { method: 'GET', path: '/api/servers', description: 'List external MCP servers', auth: true },
+    ],
+  },
+  {
+    name: 'MCP',
+    description: 'MCP protocol endpoints (port 8007)',
+    endpoints: [
+      { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
+      { method: 'GET', path: '/mcp/shared', description: 'Namespace info', auth: true },
+      { method: 'POST', path: '/mcp/shared', description: 'MCP tools/list', auth: true, body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' },
+      { method: 'POST', path: '/mcp/shared', description: 'MCP tools/call (hello_world)', auth: true, body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hello_world", "arguments": {"name": "World"}}}' },
+    ],
+  },
 ]
 
 function getMethodColor(method: string): string {
@@ -59,8 +102,8 @@ function getStatusColor(status: number): string {
 
 export default function Docs() {
   const [token, setToken] = useState('')
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Health', 'OpenAPI']))
-  const [activeEndpoint, setActiveEndpoint] = useState<Endpoint | null>(null)
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Health', 'OpenAPI Tools']))
+  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint } | null>(null)
   const [requestBody, setRequestBody] = useState('')
   const [response, setResponse] = useState<{ status: number; data: string; time: number } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -92,8 +135,8 @@ export default function Docs() {
     setExpandedCategories(newExpanded)
   }
 
-  const selectEndpoint = (endpoint: Endpoint) => {
-    setActiveEndpoint(endpoint)
+  const selectEndpoint = (category: string, endpoint: Endpoint) => {
+    setActiveEndpoint({ category, endpoint })
     setRequestBody(endpoint.body || '')
     setResponse(null)
   }
@@ -105,25 +148,26 @@ export default function Docs() {
     setResponse(null)
 
     const startTime = Date.now()
+    const endpoint = activeEndpoint.endpoint
 
     try {
-      const isExternalUrl = activeEndpoint.path.startsWith('http')
-      const url = isExternalUrl ? activeEndpoint.path : activeEndpoint.path
+      // All requests go through nginx on current origin
+      const url = endpoint.path
 
       const headers: Record<string, string> = {}
-      if (activeEndpoint.auth && token) {
+      if (endpoint.auth && token) {
         headers['Authorization'] = `Bearer ${token}`
       }
-      if (requestBody && activeEndpoint.method !== 'GET') {
+      if (requestBody && endpoint.method !== 'GET') {
         headers['Content-Type'] = 'application/json'
       }
 
       const options: RequestInit = {
-        method: activeEndpoint.method,
+        method: endpoint.method,
         headers,
       }
 
-      if (requestBody && activeEndpoint.method !== 'GET') {
+      if (requestBody && endpoint.method !== 'GET') {
         options.body = requestBody
       }
 
@@ -163,14 +207,15 @@ export default function Docs() {
   const copyCurl = () => {
     if (!activeEndpoint) return
 
-    const isExternalUrl = activeEndpoint.path.startsWith('http')
-    const url = isExternalUrl ? activeEndpoint.path : `http://localhost:8080${activeEndpoint.path}`
+    const endpoint = activeEndpoint.endpoint
+    const baseUrl = window.location.origin
+    const url = `${baseUrl}${endpoint.path}`
 
-    let curl = `curl -X ${activeEndpoint.method} "${url}"`
-    if (activeEndpoint.auth && token) {
+    let curl = `curl -X ${endpoint.method} "${url}"`
+    if (endpoint.auth && token) {
       curl += ` \\\n  -H "Authorization: Bearer ${token}"`
     }
-    if (requestBody && activeEndpoint.method !== 'GET') {
+    if (requestBody && endpoint.method !== 'GET') {
       curl += ` \\\n  -H "Content-Type: application/json"`
       curl += ` \\\n  -d '${requestBody}'`
     }
@@ -180,19 +225,19 @@ export default function Docs() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Group endpoints by category
-  const categories = ENDPOINTS.reduce((acc, endpoint) => {
-    if (!acc[endpoint.category]) {
-      acc[endpoint.category] = []
-    }
-    acc[endpoint.category].push(endpoint)
-    return acc
-  }, {} as Record<string, Endpoint[]>)
-
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900">API Documentation</h1>
+        <a
+          href="/docs"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <ExternalLink className="w-4 h-4" />
+          Swagger UI
+        </a>
       </div>
 
       {/* Token Input */}
@@ -220,41 +265,47 @@ export default function Docs() {
 
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Endpoints List */}
-        <div className="w-80 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+        <div className="w-96 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
           <div className="p-3 border-b border-gray-200 bg-gray-50">
             <h2 className="font-semibold text-gray-700">Endpoints</h2>
           </div>
           <div className="flex-1 overflow-auto">
-            {Object.entries(categories).map(([category, endpoints]) => (
-              <div key={category}>
+            {CATEGORIES.map((category) => (
+              <div key={category.name}>
                 <button
-                  onClick={() => toggleCategory(category)}
+                  onClick={() => toggleCategory(category.name)}
                   className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 border-b border-gray-200 text-left"
                 >
-                  {expandedCategories.has(category) ? (
+                  {expandedCategories.has(category.name) ? (
                     <ChevronDown className="w-4 h-4 text-gray-500" />
                   ) : (
                     <ChevronRight className="w-4 h-4 text-gray-500" />
                   )}
-                  <span className="font-medium text-gray-700">{category}</span>
-                  <span className="ml-auto text-xs text-gray-500">{endpoints.length}</span>
+                  <div className="flex-1">
+                    <span className="font-medium text-gray-700">{category.name}</span>
+                    <p className="text-xs text-gray-500">{category.description}</p>
+                  </div>
+                  <span className="text-xs text-gray-500">{category.endpoints.length}</span>
                 </button>
-                {expandedCategories.has(category) && (
+                {expandedCategories.has(category.name) && (
                   <div className="divide-y divide-gray-100">
-                    {endpoints.map((endpoint, i) => (
+                    {category.endpoints.map((endpoint, i) => (
                       <button
                         key={i}
-                        onClick={() => selectEndpoint(endpoint)}
+                        onClick={() => selectEndpoint(category.name, endpoint)}
                         className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 ${
-                          activeEndpoint === endpoint ? 'bg-primary-50 border-l-2 border-primary-500' : ''
+                          activeEndpoint?.endpoint === endpoint ? 'bg-primary-50 border-l-2 border-primary-500' : ''
                         }`}
                       >
                         <span className={`px-1.5 py-0.5 text-xs font-bold rounded border ${getMethodColor(endpoint.method)}`}>
                           {endpoint.method}
                         </span>
-                        <span className="text-sm text-gray-600 truncate flex-1" title={endpoint.path}>
-                          {endpoint.path.replace('http://localhost:8007', '')}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-gray-600 truncate block" title={endpoint.path}>
+                            {endpoint.path}
+                          </span>
+                          <span className="text-xs text-gray-400">{endpoint.description}</span>
+                        </div>
                         {endpoint.auth && (
                           <span title="Auth required">
                             <Key className="w-3 h-3 text-gray-400" />
@@ -277,10 +328,10 @@ export default function Docs() {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className={`px-2 py-1 text-sm font-bold rounded border ${getMethodColor(activeEndpoint.method)}`}>
-                      {activeEndpoint.method}
+                    <span className={`px-2 py-1 text-sm font-bold rounded border ${getMethodColor(activeEndpoint.endpoint.method)}`}>
+                      {activeEndpoint.endpoint.method}
                     </span>
-                    <code className="text-sm text-gray-700">{activeEndpoint.path}</code>
+                    <code className="text-sm text-gray-700">{activeEndpoint.endpoint.path}</code>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -292,7 +343,7 @@ export default function Docs() {
                     </button>
                     <button
                       onClick={executeRequest}
-                      disabled={isLoading || (activeEndpoint.auth && !token)}
+                      disabled={isLoading || (activeEndpoint.endpoint.auth && !token)}
                       className="flex items-center gap-2 px-4 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
                     >
                       <Send className="w-4 h-4" />
@@ -301,11 +352,11 @@ export default function Docs() {
                   </div>
                 </div>
                 <div className="p-3">
-                  <p className="text-sm text-gray-600 mb-2">{activeEndpoint.description}</p>
-                  {activeEndpoint.auth && !token && (
+                  <p className="text-sm text-gray-600 mb-2">{activeEndpoint.endpoint.description}</p>
+                  {activeEndpoint.endpoint.auth && !token && (
                     <p className="text-sm text-yellow-600 mb-2">This endpoint requires authentication. Enter a token above.</p>
                   )}
-                  {activeEndpoint.method !== 'GET' && activeEndpoint.body && (
+                  {activeEndpoint.endpoint.body && (
                     <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Request Body:</label>
                       <CodeMirror
