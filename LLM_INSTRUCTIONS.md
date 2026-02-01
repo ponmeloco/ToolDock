@@ -1,8 +1,8 @@
-# LLM Instructions for OmniMCP
+# LLM Instructions for ToolDock
 
 ## Role of the Model
 
-The language model acts as an orchestrator that decides when to call tools. OmniMCP exposes tools via multiple transports - use whichever is configured for your environment.
+The language model acts as an orchestrator that decides when to call tools. ToolDock exposes tools via multiple transports - use whichever is configured for your environment.
 
 ## Rules
 
@@ -148,7 +148,7 @@ curl -X POST http://localhost:8080/api/reload/shared \
 
 ## Adding New Tools
 
-Tools are Python files in `omnimcp_data/tools/{namespace}/`.
+Tools are Python files in `tooldock_data/tools/{namespace}/`.
 
 **Options to add tools:**
 1. **File system**: Create `.py` file in namespace folder, then hot reload
@@ -163,7 +163,7 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for detai
 
 ```yaml
 mcp_servers:
-  - server_name: "omnimcp-shared"
+  - server_name: "tooldock-shared"
     url: "http://localhost:8007/mcp/shared"
     api_key_header: "Authorization"
     api_key_value: "Bearer <token>"
@@ -174,7 +174,7 @@ mcp_servers:
 ```json
 {
   "mcpServers": {
-    "omnimcp": {
+    "tooldock": {
       "url": "http://localhost:8007/mcp/shared",
       "headers": {
         "Authorization": "Bearer <token>"

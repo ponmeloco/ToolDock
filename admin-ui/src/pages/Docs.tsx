@@ -210,7 +210,7 @@ export default function Docs() {
 
   // Load token from localStorage on mount
   useEffect(() => {
-    const savedToken = localStorage.getItem('omnimcp_token') || ''
+    const savedToken = localStorage.getItem('tooldock_token') || ''
     setToken(savedToken)
   }, [])
 
@@ -218,9 +218,9 @@ export default function Docs() {
   const handleTokenChange = (newToken: string) => {
     setToken(newToken)
     if (newToken) {
-      localStorage.setItem('omnimcp_token', newToken)
+      localStorage.setItem('tooldock_token', newToken)
     } else {
-      localStorage.removeItem('omnimcp_token')
+      localStorage.removeItem('tooldock_token')
     }
   }
 

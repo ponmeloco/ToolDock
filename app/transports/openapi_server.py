@@ -30,7 +30,7 @@ from app.errors import ToolError, ToolTimeoutError, ToolUnauthorizedError, ToolV
 
 logger = logging.getLogger("openapi")
 
-SERVER_NAME = os.getenv("OPENAPI_SERVER_NAME", "omnimcp-openapi")
+SERVER_NAME = os.getenv("OPENAPI_SERVER_NAME", "tooldock-openapi")
 REGISTRY_NAMESPACE = os.getenv("REGISTRY_NAMESPACE", "default")
 
 
@@ -196,7 +196,7 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
         return {"tool": tool_name, "result": result}
 
     # Initialize reloader for this registry
-    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = Path(data_dir) / "tools"
     reloader = ToolReloader(registry, str(tools_dir))
 

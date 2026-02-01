@@ -1,5 +1,5 @@
 """
-Reload API Routes for OmniMCP.
+Reload API Routes for ToolDock.
 
 Provides endpoints for hot-reloading tools at runtime.
 """

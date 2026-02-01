@@ -1,5 +1,5 @@
 """
-Hot Reload Module for OmniMCP.
+Hot Reload Module for ToolDock.
 
 Provides functionality to reload tools at runtime without restarting the server.
 Supports:

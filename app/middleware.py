@@ -1,5 +1,5 @@
 """
-Custom Middleware for OmniMCP.
+Custom Middleware for ToolDock.
 
 Provides middleware for:
 - Adding trailing newlines to JSON responses (for better CLI output)

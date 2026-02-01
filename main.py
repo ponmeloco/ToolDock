@@ -1,5 +1,5 @@
 """
-OmniMCP Tool Server - Main Entrypoint
+ToolDock Tool Server - Main Entrypoint
 
 Starts the server in different modes:
 - openapi: OpenAPI/REST Server only (for OpenWebUI)
@@ -55,7 +55,7 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 # DATA_DIR is the base directory for all data (tools, config, external)
-DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.getcwd(), "omnimcp_data"))
+DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.getcwd(), "tooldock_data"))
 TOOLS_DIR = os.path.join(DATA_DIR, "tools")
 EXTERNAL_CONFIG = os.getenv("EXTERNAL_CONFIG", os.path.join(DATA_DIR, "external", "config.yaml"))
 
@@ -300,7 +300,7 @@ def main():
     """Main entrypoint."""
     mode = os.getenv("SERVER_MODE", "openapi").lower()
 
-    logger.info(f"OmniMCP Server starting in mode: {mode}")
+    logger.info(f"ToolDock Server starting in mode: {mode}")
     logger.info(f"Data directory: {DATA_DIR}")
     logger.info(f"Tools directory: {TOOLS_DIR}")
     logger.info(f"Log level: {LOG_LEVEL}")

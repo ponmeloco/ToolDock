@@ -145,7 +145,7 @@ def _mask_sensitive_data(data: Any, parent_key: str = "") -> Any:
 
 def _get_config_path() -> Path:
     """Get the external servers config file path."""
-    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
     return Path(data_dir) / "external" / "config.yaml"
 
 

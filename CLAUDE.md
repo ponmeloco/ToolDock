@@ -1,14 +1,14 @@
-# OmniMCP - Claude Code Instructions
+# ToolDock - Claude Code Instructions
 
 ## Project Overview
 
-**OmniMCP** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **OpenAPI**, **MCP**, and **Web GUI**. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
+**ToolDock** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **OpenAPI**, **MCP**, and **Web GUI**. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
 
 ## Architecture
 
 ```
 ┌──────────────────┐     ┌─────────────────────────────────────┐
-│   Admin UI       │     │         OmniMCP Backend             │
+│   Admin UI       │     │         ToolDock Backend             │
 │   (React/nginx)  │     ├─────────────────────────────────────┤
 │                  │     │  Port 8006 → OpenAPI/REST           │
 │  Port 3000       │────→│  Port 8007 → MCP HTTP               │
@@ -20,7 +20,7 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
                          └─────────────────────────────────────┘
                                          │
                          ┌───────────────┴───────────────┐
-                         │      omnimcp_data/ (Volume)   │
+                         │      tooldock_data/ (Volume)   │
                          ├───────────────────────────────┤
                          │  tools/shared/*.py            │
                          │  tools/team1/*.py             │
@@ -30,8 +30,8 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
 ```
 
 **Two-Container Architecture:**
-- `omnimcp-backend`: Python FastAPI (all APIs)
-- `omnimcp-admin`: React + nginx (Admin UI)
+- `tooldock-backend`: Python FastAPI (all APIs)
+- `tooldock-admin`: React + nginx (Admin UI)
 
 All three transports share the same tool registry — **define once, use everywhere**.
 
@@ -41,7 +41,7 @@ All three transports share the same tool registry — **define once, use everywh
 | File | Purpose |
 |------|---------|
 | `app/registry.py` | Central tool registry (DO NOT BREAK!) |
-| `app/loader.py` | Loads tools from `omnimcp_data/tools/` |
+| `app/loader.py` | Loads tools from `tooldock_data/tools/` |
 | `app/reload.py` | Hot reload functionality |
 | `app/auth.py` | Bearer token authentication |
 | `app/transports/` | OpenAPI and MCP transport implementations |
@@ -99,7 +99,7 @@ def register_tools(registry: ToolRegistry) -> None:
 | `WEB_PORT` | `8080` | Backend API server port |
 | `ADMIN_PORT` | `3000` | Admin UI port (nginx) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
-| `DATA_DIR` | `omnimcp_data` | Data directory path |
+| `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
 
 ## Testing
@@ -125,8 +125,8 @@ docker compose up -d --build
 docker compose logs -f
 
 # Rebuild specific container
-docker compose build omnimcp-admin
-docker compose up -d omnimcp-admin
+docker compose build tooldock-admin
+docker compose up -d tooldock-admin
 
 # Stop all
 docker compose down

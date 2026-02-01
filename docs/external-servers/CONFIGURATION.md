@@ -213,7 +213,7 @@ servers:
 
 ## Validation
 
-On startup, OmniMCP validates:
+On startup, ToolDock validates:
 
 1. YAML syntax is correct
 2. Required fields are present (`source`, `command`/`name`)

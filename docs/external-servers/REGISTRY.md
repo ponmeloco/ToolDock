@@ -20,7 +20,7 @@ Visit https://registry.modelcontextprotocol.io to browse servers with descriptio
 
 ### Via Admin API
 
-Search from OmniMCP:
+Search from ToolDock:
 
 ```bash
 curl "http://localhost:8006/admin/servers/search?query=github" \

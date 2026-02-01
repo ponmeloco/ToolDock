@@ -7,7 +7,7 @@ This file is intentionally minimal for humans and exhaustive for language models
 **Purpose:**
 - This repository exposes Python-based tools to LLMs and agents.
 - To add a new tool, you instruct a language model using the prompt below.
-- The language model will generate **exactly one Python file** that can be dropped into the `omnimcp_data/tools/` directory.
+- The language model will generate **exactly one Python file** that can be dropped into the `tooldock_data/tools/` directory.
 
 **How to use this file:**
 1. Read this short section to understand the intent.
@@ -17,12 +17,12 @@ This file is intentionally minimal for humans and exhaustive for language models
 
 That is all a human needs to do.
 
-**Adding the tool to OmniMCP:**
+**Adding the tool to ToolDock:**
 
 Option 1 - File system:
 ```bash
 # Create tool file
-nano omnimcp_data/tools/shared/my_tool.py
+nano tooldock_data/tools/shared/my_tool.py
 
 # Hot reload (no restart needed)
 curl -X POST http://localhost:8080/api/reload/shared \
@@ -72,7 +72,7 @@ MENTAL MODEL (CRITICAL)
 ========================================
 
 - A tool is a pure capability, NOT an API
-- Tools are auto-discovered from the omnimcp_data/tools/ directory
+- Tools are auto-discovered from the tooldock_data/tools/ directory
 - Each tool consists of EXACTLY:
   1. One Pydantic input schema
   2. One async handler function
@@ -88,7 +88,7 @@ Tools are organized in NAMESPACES (folders). Each namespace becomes a separate M
 
 You MUST create the file at:
 
-omnimcp_data/tools/<namespace>/<tool_name>.py
+tooldock_data/tools/<namespace>/<tool_name>.py
 
 Common namespaces:
 - shared     → Default namespace, available to everyone
@@ -102,7 +102,7 @@ Rules:
 - The file name MUST EXACTLY match the tool name
 
 Example:
-omnimcp_data/tools/shared/hello_user.py
+tooldock_data/tools/shared/hello_user.py
 
 This tool will be available at:
 - OpenAPI: POST /tools/hello_user
@@ -299,7 +299,7 @@ VALIDATION CHECKLIST (MUST PASS)
 
 Before outputting code, verify:
 
-- File path is correct (omnimcp_data/tools/<namespace>/<name>.py)
+- File path is correct (tooldock_data/tools/<namespace>/<name>.py)
 - Tool name matches file name
 - Input model uses ConfigDict(extra="forbid")
 - All fields have descriptions

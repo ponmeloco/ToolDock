@@ -79,7 +79,7 @@ class ToolListResponse(BaseModel):
 
 def _get_base_tools_dir() -> Path:
     """Get the base tools directory path."""
-    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
     return Path(data_dir).resolve() / "tools"
 
 

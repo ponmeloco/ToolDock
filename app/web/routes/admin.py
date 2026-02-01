@@ -109,7 +109,7 @@ def _get_log_dir() -> Path:
     """Get the logs directory, creating it if necessary."""
     global _log_dir
     if _log_dir is None:
-        data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+        data_dir = os.getenv("DATA_DIR", "tooldock_data")
         _log_dir = Path(data_dir) / "logs"
         _log_dir.mkdir(parents=True, exist_ok=True)
     return _log_dir
@@ -340,7 +340,7 @@ async def get_system_health(
         timestamp=datetime.now().isoformat(),
         services=services,
         environment={
-            "data_dir": os.getenv("DATA_DIR", "omnimcp_data"),
+            "data_dir": os.getenv("DATA_DIR", "tooldock_data"),
             "log_level": os.getenv("LOG_LEVEL", "INFO"),
         },
     )
@@ -505,7 +505,7 @@ async def get_system_info(
     import sys
     from pathlib import Path
 
-    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = Path(data_dir) / "tools"
 
     # Get namespaces

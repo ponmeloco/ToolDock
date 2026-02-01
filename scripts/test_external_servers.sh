@@ -1,10 +1,10 @@
 #!/bin/bash
 # ==================================================
-# Test External MCP Server Integration for OmniMCP
+# Test External MCP Server Integration for ToolDock
 # ==================================================
 #
 # Prerequisites:
-#   - OmniMCP running (docker compose up -d)
+#   - ToolDock running (docker compose up -d)
 #
 # Usage: ./scripts/test_external_servers.sh
 # ==================================================
@@ -205,9 +205,9 @@ echo "========================================"
 echo ""
 echo "Summary:"
 echo "  - MCP Namespaces: $NAMESPACES"
-echo "  - External Servers: configured via omnimcp_data/external/config.yaml"
+echo "  - External Servers: configured via tooldock_data/external/config.yaml"
 echo ""
 echo "To add an external server, edit the config file and restart:"
-echo "  nano omnimcp_data/external/config.yaml"
+echo "  nano tooldock_data/external/config.yaml"
 echo "  docker compose restart"
 echo ""

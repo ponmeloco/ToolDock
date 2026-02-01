@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==================================================
-# OmniMCP Startup Script
+# ToolDock Startup Script
 # ==================================================
 # - Checks for .env file
 # - Builds Docker images
@@ -66,7 +66,7 @@ if [ ! -f ".env" ]; then
     else
         print_info "Creating minimal .env..."
         cat > .env << 'EOF'
-# OmniMCP Environment Configuration
+# ToolDock Environment Configuration
 # ==================================
 
 # Authentication (CHANGE THIS!)
@@ -82,7 +82,7 @@ ADMIN_PORT=3000
 CORS_ORIGINS=http://localhost:3000
 
 # Server names
-WEB_SERVER_NAME=omnimcp-backend
+WEB_SERVER_NAME=tooldock-backend
 EOF
         print_success ".env created with default values"
         print_warning "Please update BEARER_TOKEN in .env!"
@@ -107,19 +107,19 @@ fi
 
 print_header "Building Docker Images"
 
-print_info "Building omnimcp-backend..."
-if docker compose build omnimcp-backend --quiet 2>&1; then
-    print_success "omnimcp-backend image built"
+print_info "Building tooldock-backend..."
+if docker compose build tooldock-backend --quiet 2>&1; then
+    print_success "tooldock-backend image built"
 else
-    print_error "Failed to build omnimcp-backend"
+    print_error "Failed to build tooldock-backend"
     exit 1
 fi
 
-print_info "Building omnimcp-admin..."
-if docker compose build omnimcp-admin --quiet 2>&1; then
-    print_success "omnimcp-admin image built"
+print_info "Building tooldock-admin..."
+if docker compose build tooldock-admin --quiet 2>&1; then
+    print_success "tooldock-admin image built"
 else
-    print_error "Failed to build omnimcp-admin"
+    print_error "Failed to build tooldock-admin"
     exit 1
 fi
 
@@ -201,7 +201,7 @@ echo ""
 if ! wait_for_health "Backend API (port $BACKEND_PORT)" "http://localhost:$BACKEND_PORT/health" "json"; then
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
     print_info "Backend logs:"
-    docker compose logs omnimcp-backend --tail=10 2>/dev/null
+    docker compose logs tooldock-backend --tail=10 2>/dev/null
 fi
 
 echo ""
@@ -224,7 +224,7 @@ echo ""
 if ! wait_for_health "Admin UI (port $ADMIN_PORT)" "http://localhost:$ADMIN_PORT" "http"; then
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
     print_info "Admin UI logs:"
-    docker compose logs omnimcp-admin --tail=10 2>/dev/null
+    docker compose logs tooldock-admin --tail=10 2>/dev/null
 fi
 
 echo ""
@@ -285,12 +285,12 @@ print_info "Stop with: docker compose down"
 echo ""
 
 if [ $TEST_EXIT_CODE -eq 0 ] && [ $HEALTH_FAILURES -eq 0 ]; then
-    print_success "OmniMCP is ready!"
+    print_success "ToolDock is ready!"
     exit 0
 elif [ $HEALTH_FAILURES -gt 0 ]; then
-    print_error "OmniMCP started with $HEALTH_FAILURES failed service(s)"
+    print_error "ToolDock started with $HEALTH_FAILURES failed service(s)"
     exit 1
 else
-    print_warning "OmniMCP started with test failures"
+    print_warning "ToolDock started with test failures"
     exit 1
 fi

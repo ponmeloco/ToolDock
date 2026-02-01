@@ -42,7 +42,7 @@ from app.utils import get_cors_origins
 
 logger = logging.getLogger("mcp-http")
 
-SERVER_NAME = os.getenv("MCP_SERVER_NAME", "omnimcp")
+SERVER_NAME = os.getenv("MCP_SERVER_NAME", "tooldock")
 PROTOCOL_VERSION = "2024-11-05"
 
 

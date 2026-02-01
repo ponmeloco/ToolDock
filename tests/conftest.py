@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for OmniMCP tests.
+Shared pytest fixtures for ToolDock tests.
 """
 
 from __future__ import annotations
@@ -211,7 +211,7 @@ def web_client(registry: ToolRegistry, auth_env: str):
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Clean environment with no OmniMCP-related env vars.
+    Clean environment with no ToolDock-related env vars.
     """
     for var in ["BEARER_TOKEN", "DATA_DIR", "CORS_ORIGINS", "ADMIN_USERNAME"]:
         monkeypatch.delenv(var, raising=False)
@@ -224,7 +224,7 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     Creates the expected subdirectory structure.
     """
-    data = tmp_path / "omnimcp_data"
+    data = tmp_path / "tooldock_data"
     (data / "tools" / "shared").mkdir(parents=True)
     (data / "external").mkdir(parents=True)
     (data / "config").mkdir(parents=True)

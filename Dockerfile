@@ -1,5 +1,5 @@
 # ==================================================
-# OmniMCP Dockerfile
+# ToolDock Dockerfile
 # Multi-tenant MCP Server with Web GUI
 # ==================================================
 

@@ -1,13 +1,13 @@
-# OmniMCP Architecture
+# ToolDock Architecture
 
 ## Purpose
 
-OmniMCP is a multi-tenant MCP server that exposes Python tools in a controlled and machine-readable way.
+ToolDock is a multi-tenant MCP server that exposes Python tools in a controlled and machine-readable way.
 It separates business logic from transport concerns and supports namespace-based routing for multi-tenant deployments.
 
 ## Core Components
 
-- **Tool modules** defining contracts and handlers (`omnimcp_data/tools/`)
+- **Tool modules** defining contracts and handlers (`tooldock_data/tools/`)
 - **ToolRegistry** with namespace support (`app/registry.py`)
 - **Loader** for multi-folder discovery (`app/loader.py`)
 - **Transport Layer** with multiple implementations (`app/transports/`)
@@ -40,7 +40,7 @@ The server implements a **triple-transport architecture**:
 │         ▼                ▼                                      │
 │  ┌────────────────────────────────────────────────────────┐    │
 │  │              Tool Definitions                           │    │
-│  │         (omnimcp_data/tools/{namespace}/*.py)           │    │
+│  │         (tooldock_data/tools/{namespace}/*.py)           │    │
 │  └────────────────────────────────────────────────────────┘    │
 └────────────────────────────────────────────────────────────────┘
                               │
@@ -70,10 +70,10 @@ The server implements a **triple-transport architecture**:
 
 ## Namespace Routing
 
-Each folder in `omnimcp_data/tools/` becomes a separate MCP namespace:
+Each folder in `tooldock_data/tools/` becomes a separate MCP namespace:
 
 ```
-omnimcp_data/tools/
+tooldock_data/tools/
 ├── shared/           →  /mcp/shared
 ├── team1/            →  /mcp/team1
 ├── finance/          →  /mcp/finance
@@ -192,7 +192,7 @@ omnimcp_data/tools/
 External servers from the MCP Registry run as subprocesses:
 
 ```
-OmniMCP Container
+ToolDock Container
 ├── Python Process (main)
 │   ├── FastAPI (Ports 8006, 8007, 8080)
 │   ├── Registry with Namespaces
@@ -207,7 +207,7 @@ OmniMCP Container
 ### Configuration
 
 ```yaml
-# omnimcp_data/external/config.yaml
+# tooldock_data/external/config.yaml
 servers:
   github:
     source: registry
@@ -290,7 +290,7 @@ Both transports use:
    - Thread-safe tool registration
    - Unified validation via Pydantic
 
-2. **Same tool definitions** (`omnimcp_data/tools/{namespace}/*.py`)
+2. **Same tool definitions** (`tooldock_data/tools/{namespace}/*.py`)
    - Tools defined once
    - Automatic discovery via `loader.py`
    - `register_tools(registry)` pattern
@@ -312,7 +312,7 @@ Environment variables control behavior:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SERVER_MODE` | `openapi` | `openapi`, `mcp-http`, `both`, `web-gui`, `all` |
-| `DATA_DIR` | `./omnimcp_data` | Base directory for all data |
+| `DATA_DIR` | `./tooldock_data` | Base directory for all data |
 | `OPENAPI_PORT` | `8006` | OpenAPI server port |
 | `MCP_PORT` | `8007` | MCP server port |
 | `WEB_PORT` | `8080` | Web GUI port |
@@ -339,7 +339,7 @@ Environment variables control behavior:
 
 ### Adding a New Namespace
 
-1. Create folder `omnimcp_data/tools/myteam/`
+1. Create folder `tooldock_data/tools/myteam/`
 2. Add Python tool files
 3. Restart server
 4. Access via `/mcp/myteam`
@@ -353,7 +353,7 @@ Environment variables control behavior:
 
 ### Adding External MCP Servers
 
-1. Edit `omnimcp_data/external/config.yaml`
+1. Edit `tooldock_data/external/config.yaml`
 2. Add server configuration
 3. Restart server
 4. Access via `/mcp/{server_id}`

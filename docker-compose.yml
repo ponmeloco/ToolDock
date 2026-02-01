@@ -1,10 +1,10 @@
 # ==================================================
-# OmniMCP Docker Compose
+# ToolDock Docker Compose
 # ==================================================
 #
 # Zwei separate Container - immer getrennt:
-#   - omnimcp-backend: Python Backend (OpenAPI, MCP, API)
-#   - omnimcp-admin: React Frontend (Admin UI)
+#   - tooldock-backend: Python Backend (OpenAPI, MCP, API)
+#   - tooldock-admin: React Frontend (Admin UI)
 #
 # Ports (konfigurierbar in .env):
 #   - 8006: OpenAPI/REST
@@ -21,14 +21,14 @@
 services:
   # ============================================
   # Backend: Python (FastAPI)
-  # Separate Image: omnimcp-backend:latest
+  # Separate Image: tooldock-backend:latest
   # ============================================
-  omnimcp-backend:
+  tooldock-backend:
     build:
       context: .
       dockerfile: Dockerfile
-    image: omnimcp-backend:latest
-    container_name: omnimcp-backend
+    image: tooldock-backend:latest
+    container_name: tooldock-backend
     env_file:
       - .env
     environment:
@@ -40,10 +40,10 @@ services:
       - "${MCP_PORT:-8007}:${MCP_PORT:-8007}"
       - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     volumes:
-      - ./omnimcp_data:/data:rw
+      - ./tooldock_data:/data:rw
     restart: unless-stopped
     networks:
-      - omnimcp-network
+      - tooldock-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -55,21 +55,21 @@ services:
 
   # ============================================
   # Admin UI: React (Nginx)
-  # Separate Image: omnimcp-admin:latest
+  # Separate Image: tooldock-admin:latest
   # ============================================
-  omnimcp-admin:
+  tooldock-admin:
     build:
       context: ./admin-ui
       dockerfile: Dockerfile
-    image: omnimcp-admin:latest
-    container_name: omnimcp-admin
+    image: tooldock-admin:latest
+    container_name: tooldock-admin
     ports:
       - "${ADMIN_PORT:-3000}:80"
     restart: unless-stopped
     networks:
-      - omnimcp-network
+      - tooldock-network
     depends_on:
-      omnimcp-backend:
+      tooldock-backend:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:80"]
@@ -79,5 +79,5 @@ services:
       start_period: 5s
 
 networks:
-  omnimcp-network:
+  tooldock-network:
     driver: bridge

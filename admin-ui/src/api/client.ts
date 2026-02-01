@@ -1,15 +1,15 @@
-// API Client for OmniMCP Backend
+// API Client for ToolDock Backend
 
 const API_BASE = '/api'
 const TOOLS_BASE = '/tools'
 
 // Get auth token from localStorage or prompt
 function getAuthToken(): string {
-  let token = localStorage.getItem('omnimcp_token')
+  let token = localStorage.getItem('tooldock_token')
   if (!token) {
     token = prompt('Enter your Bearer Token:') || ''
     if (token) {
-      localStorage.setItem('omnimcp_token', token)
+      localStorage.setItem('tooldock_token', token)
     }
   }
   return token
@@ -17,7 +17,7 @@ function getAuthToken(): string {
 
 // Clear auth token (for logout)
 export function clearAuthToken(): void {
-  localStorage.removeItem('omnimcp_token')
+  localStorage.removeItem('tooldock_token')
 }
 
 // Fetch wrapper with auth

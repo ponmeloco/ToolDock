@@ -1,5 +1,5 @@
 """
-Web GUI Module for OmniMCP.
+Web GUI Module for ToolDock.
 
 Provides a web interface for:
 - Server management (add/remove external MCP servers)

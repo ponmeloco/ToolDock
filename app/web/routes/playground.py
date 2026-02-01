@@ -238,7 +238,7 @@ async def mcp_test(
                 result={
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "omnimcp-playground", "version": "1.0.0"},
+                    "serverInfo": {"name": "tooldock-playground", "version": "1.0.0"},
                 },
             )
 

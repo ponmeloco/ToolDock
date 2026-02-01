@@ -4,7 +4,7 @@ Access 500+ community tools from the [MCP Registry](https://registry.modelcontex
 
 ## Overview
 
-OmniMCP can connect to external MCP servers and expose their tools alongside your native tools. External tools are:
+ToolDock can connect to external MCP servers and expose their tools alongside your native tools. External tools are:
 
 - **Namespaced**: Prefixed with server ID (e.g., `github:create_repository`)
 - **Discoverable**: Listed in both OpenAPI and MCP transports

@@ -4,7 +4,7 @@ Get external MCP servers running in 5 minutes.
 
 ## Prerequisites
 
-- OmniMCP installed and running
+- ToolDock installed and running
 - Node.js (for npm-based servers) or Python with `uvx` (for PyPI servers)
 
 ## Step 1: Choose a Server
@@ -39,7 +39,7 @@ servers:
       - "/home/user/documents"
 ```
 
-## Step 3: Restart OmniMCP
+## Step 3: Restart ToolDock
 
 ```bash
 # Docker

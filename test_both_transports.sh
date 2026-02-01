@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==================================================
-# OmniMCP - Test Script for All Transports
+# ToolDock - Test Script for All Transports
 # ==================================================
 #
 # Tests all three servers: OpenAPI, MCP HTTP, and Backend API
@@ -9,7 +9,7 @@
 # Usage: ./test_both_transports.sh
 #
 # Prerequisites:
-#   - OmniMCP running (docker compose up -d)
+#   - ToolDock running (docker compose up -d)
 #   - curl installed
 #   - jq installed (optional, for pretty output)
 # ==================================================
@@ -38,7 +38,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo "=============================================="
-echo "  OmniMCP - Testing All Transports"
+echo "  ToolDock - Testing All Transports"
 echo "=============================================="
 echo ""
 echo "OpenAPI Port:    $OPENAPI_PORT"
@@ -152,7 +152,7 @@ echo ">>> Server Info (GET /mcp):"
 SERVER_INFO=$(curl -s "http://localhost:$MCP_PORT/mcp" \
   -H "Authorization: Bearer $BEARER_TOKEN")
 echo "$SERVER_INFO" | $JQ
-if echo "$SERVER_INFO" | grep -q 'omnimcp'; then
+if echo "$SERVER_INFO" | grep -q 'tooldock'; then
     pass "MCP server info"
 else
     fail "MCP server info"

@@ -1,5 +1,5 @@
 """
-Shared utilities for OmniMCP.
+Shared utilities for ToolDock.
 
 This module provides common functionality used across multiple components:
 - CORS configuration

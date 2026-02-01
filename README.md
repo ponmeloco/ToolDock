@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">OmniMCP</h1>
+  <h1 align="center">ToolDock</h1>
   <p align="center">
     <strong>One Server. Every Protocol. All Your Tools.</strong>
   </p>
@@ -21,8 +21,8 @@
 
 ```bash
 # Clone and start
-git clone https://github.com/ponmeloco/OmniMCP.git
-cd OmniMCP
+git clone https://github.com/ponmeloco/ToolDock.git
+cd ToolDock
 ./start.sh
 ```
 
@@ -62,7 +62,7 @@ curl http://localhost:3000          # Admin UI
 
 ```
 ┌──────────────────┐     ┌─────────────────────────────────────┐
-│   Admin UI       │     │         OmniMCP Backend             │
+│   Admin UI       │     │         ToolDock Backend             │
 │   (React)        │     ├─────────────────────────────────────┤
 │  Port 3000       │────→│  Port 8006 → OpenAPI/REST           │
 │                  │     │  Port 8007 → MCP HTTP               │
@@ -100,7 +100,7 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
 ## Namespace Routing
 
-Each folder in `omnimcp_data/tools/` becomes a separate endpoint:
+Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 
 | Folder | MCP Endpoint |
 |--------|--------------|
@@ -120,7 +120,7 @@ Each folder in `omnimcp_data/tools/` becomes a separate endpoint:
 
 ### Via File
 
-Create `omnimcp_data/tools/shared/my_tool.py`:
+Create `tooldock_data/tools/shared/my_tool.py`:
 
 ```python
 from pydantic import BaseModel, Field, ConfigDict
@@ -158,7 +158,7 @@ curl -X POST http://localhost:8080/api/reload/shared \
 
 ```yaml
 mcp_servers:
-  - server_name: "omnimcp"
+  - server_name: "tooldock"
     url: "http://localhost:8007/mcp/shared"
     api_key_header: "Authorization"
     api_key_value: "Bearer change_me"
@@ -171,7 +171,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "omnimcp": {
+    "tooldock": {
       "url": "http://localhost:8007/mcp/shared",
       "headers": {
         "Authorization": "Bearer change_me"

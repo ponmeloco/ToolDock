@@ -1,5 +1,5 @@
 """
-Backend API Server for OmniMCP.
+Backend API Server for ToolDock.
 
 Provides REST API for managing:
 - Folders/Namespaces
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("backend-api")
 
-SERVER_NAME = os.getenv("WEB_SERVER_NAME", "omnimcp-backend")
+SERVER_NAME = os.getenv("WEB_SERVER_NAME", "tooldock-backend")
 
 
 def create_web_app(registry: "ToolRegistry") -> FastAPI:
@@ -56,7 +56,7 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     """
     app = FastAPI(
         title=f"{SERVER_NAME} - API",
-        description="Backend API for OmniMCP server management",
+        description="Backend API for ToolDock server management",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
@@ -117,7 +117,7 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     setup_log_buffer()
 
     # Initialize hot reload
-    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = f"{data_dir}/tools"
     init_reloader(registry, tools_dir)
     logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")

@@ -1,5 +1,5 @@
 """
-Authentication Module for OmniMCP.
+Authentication Module for ToolDock.
 
 Provides multiple authentication methods:
 - Bearer token authentication (for API clients)
@@ -134,7 +134,7 @@ async def verify_basic_auth(
         raise HTTPException(
             status_code=401,
             detail="Authentication required",
-            headers={"WWW-Authenticate": 'Basic realm="OmniMCP"'},
+            headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
         )
 
     # Constant-time comparison for both username and password
@@ -145,7 +145,7 @@ async def verify_basic_auth(
         raise HTTPException(
             status_code=401,
             detail="Invalid credentials",
-            headers={"WWW-Authenticate": 'Basic realm="OmniMCP"'},
+            headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
         )
 
     return credentials.username
@@ -188,7 +188,7 @@ async def verify_token_or_basic(
     raise HTTPException(
         status_code=401,
         detail="Authentication required",
-        headers={"WWW-Authenticate": 'Basic realm="OmniMCP"'},
+        headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
     )
 
 
@@ -299,12 +299,12 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
                     content='{"detail": "Authorization required. Use Bearer token or Basic Auth."}',
                     status_code=401,
                     media_type="application/json",
-                    headers={"WWW-Authenticate": 'Bearer, Basic realm="OmniMCP"'},
+                    headers={"WWW-Authenticate": 'Bearer, Basic realm="ToolDock"'},
                 )
             return Response(
                 content="Authentication required",
                 status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="OmniMCP"'},
+                headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
             )
 
         # Decode and verify Basic credentials
@@ -316,7 +316,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return Response(
                 content="Invalid authorization header",
                 status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="OmniMCP"'},
+                headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
             )
 
         # Constant-time comparison
@@ -327,7 +327,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return Response(
                 content="Invalid credentials",
                 status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="OmniMCP"'},
+                headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
             )
 
         return await call_next(request)

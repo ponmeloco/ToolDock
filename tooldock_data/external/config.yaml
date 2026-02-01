@@ -1,5 +1,5 @@
 # External MCP Servers Configuration
-# For OmniMCP - Multi-Tenant MCP Server
+# For ToolDock - Multi-Tenant MCP Server
 #
 # Each server becomes its own namespace accessible via /mcp/{server_id}
 #
