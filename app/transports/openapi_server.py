@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException, Body, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.auth import get_bearer_token, is_auth_enabled
-from app.middleware import TrailingNewlineMiddleware
+from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.registry import ToolRegistry
 from app.reload import ToolReloader
 from app.errors import ToolError, ToolTimeoutError, ToolUnauthorizedError, ToolValidationError
@@ -99,6 +99,9 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
 
     # Add trailing newline to JSON responses for better CLI output
     app.add_middleware(TrailingNewlineMiddleware)
+
+    # Add request logging middleware
+    app.add_middleware(RequestLoggingMiddleware)
 
     # Store registry in app state
     app.state.registry = registry

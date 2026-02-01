@@ -45,6 +45,7 @@ class LogEntry(BaseModel):
     http_duration_ms: Optional[float] = None
     tool_name: Optional[str] = None
     request_id: Optional[str] = None
+    error_detail: Optional[str] = None
 
 
 class LogsResponse(BaseModel):
@@ -141,6 +142,7 @@ def log_request(
     duration_ms: float,
     tool_name: Optional[str] = None,
     request_id: Optional[str] = None,
+    error_detail: Optional[str] = None,
 ):
     """Log an HTTP request to the buffer."""
     # Determine log level based on status code
@@ -168,6 +170,7 @@ def log_request(
         http_duration_ms=round(duration_ms, 1),
         tool_name=tool_name,
         request_id=request_id,
+        error_detail=error_detail,
     )
     _log_buffer.append(entry)
 

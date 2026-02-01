@@ -11,9 +11,6 @@ from __future__ import annotations
 
 import time
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 
 from app.utils import generate_request_id, set_request_context, clear_request_context, get_request_id
 
@@ -93,31 +90,65 @@ class TrailingNewlineMiddleware:
             })
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
+class RequestLoggingMiddleware:
     """
     Middleware that logs HTTP requests to the in-memory log buffer.
 
-    Logs method, path, status code, and response time for each request.
+    Logs method, path, status code, response time, and error details.
     Also sets up request context for correlation IDs.
+
+    Uses raw ASGI interface to capture response body for error logging.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         # Generate and set request ID for correlation
         request_id = generate_request_id()
         set_request_context(request_id=request_id)
 
+        # Extract request info
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+
         # Extract tool name from path if it's a tool call
         tool_name = None
-        path = request.url.path
-        if path.startswith("/tools/") and request.method == "POST":
+        if path.startswith("/tools/") and method == "POST":
             tool_name = path.split("/tools/", 1)[1].split("/")[0]
             set_request_context(tool_name=tool_name)
 
         start_time = time.time()
 
-        try:
-            response = await call_next(request)
+        # Capture response info
+        status_code = 0
+        response_body_parts = []
+        content_type = ""
 
+        async def send_wrapper(message):
+            nonlocal status_code, content_type
+
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 0)
+                headers = dict(message.get("headers", []))
+                content_type = headers.get(b"content-type", b"").decode("utf-8", errors="ignore")
+
+            elif message["type"] == "http.response.body":
+                # Capture body for error responses (4xx, 5xx)
+                if status_code >= 400:
+                    body = message.get("body", b"")
+                    if body:
+                        response_body_parts.append(body)
+
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
             # Calculate duration
             duration_ms = (time.time() - start_time) * 1000
 
@@ -126,18 +157,27 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 try:
                     from app.web.routes.admin import log_request
 
+                    # Extract error detail for 4xx/5xx responses
+                    error_detail = None
+                    if status_code >= 400 and response_body_parts:
+                        try:
+                            full_body = b"".join(response_body_parts)
+                            # Limit error detail to 1000 chars
+                            error_detail = full_body.decode("utf-8", errors="replace")[:1000]
+                        except Exception:
+                            pass
+
                     log_request(
-                        method=request.method,
+                        method=method,
                         path=path,
-                        status_code=response.status_code,
+                        status_code=status_code,
                         duration_ms=duration_ms,
                         tool_name=tool_name,
                         request_id=request_id,
+                        error_detail=error_detail,
                     )
                 except ImportError:
                     pass  # Log buffer not available
 
-            return response
-        finally:
             # Always clear context after request
             clear_request_context()

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getLogs } from '../api/client'
-import { RefreshCw, Filter, Clock, Globe, Terminal, Wrench } from 'lucide-react'
+import { RefreshCw, Filter, Clock, Globe, Terminal, Wrench, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
 
 type TabType = 'all' | 'http' | 'tools'
 
@@ -54,6 +54,17 @@ export default function Logs() {
   const [loggerFilter, setLoggerFilter] = useState('')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>('http')
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+
+  const toggleRow = (index: number) => {
+    const newExpanded = new Set(expandedRows)
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index)
+    } else {
+      newExpanded.add(index)
+    }
+    setExpandedRows(newExpanded)
+  }
 
   const logsQuery = useQuery({
     queryKey: ['logs', limit, level, loggerFilter],
@@ -209,51 +220,82 @@ export default function Logs() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {logs.map((log, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 font-mono text-gray-500 text-xs whitespace-nowrap">
-                      {new Date(log.timestamp).toLocaleTimeString()}
-                    </td>
-                    <td className="px-4 py-2">
-                      {log.request_id && (
-                        <span className="px-1.5 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-600">
-                          {log.request_id}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-medium ${getMethodColor(
-                          log.http_method || ''
-                        )}`}
-                      >
-                        {log.http_method}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusColor(
-                          log.http_status || 0
-                        )}`}
-                      >
-                        {log.http_status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 font-mono text-gray-700 truncate max-w-md" title={log.http_path}>
-                      {log.http_path}
-                    </td>
-                    {activeTab === 'tools' && (
+                {logs.map((log, i) => {
+                  const hasError = log.error_detail && (log.http_status || 0) >= 400
+                  const isExpanded = expandedRows.has(i)
+                  return (
+                    <tr
+                      key={i}
+                      className={`hover:bg-gray-50 ${hasError ? 'cursor-pointer' : ''}`}
+                      onClick={() => hasError && toggleRow(i)}
+                    >
+                      <td className="px-4 py-2 font-mono text-gray-500 text-xs whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          {hasError && (
+                            isExpanded ? (
+                              <ChevronDown className="w-3 h-3 text-red-500" />
+                            ) : (
+                              <ChevronRight className="w-3 h-3 text-red-500" />
+                            )
+                          )}
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </div>
+                        {isExpanded && log.error_detail && (
+                          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 whitespace-pre-wrap font-mono max-w-lg">
+                            <div className="flex items-center gap-1 mb-1 font-medium">
+                              <AlertCircle className="w-3 h-3" />
+                              Error Detail:
+                            </div>
+                            {log.error_detail}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-2">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
-                          {log.tool_name}
+                        {log.request_id && (
+                          <span className="px-1.5 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-600">
+                            {log.request_id}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-medium ${getMethodColor(
+                            log.http_method || ''
+                          )}`}
+                        >
+                          {log.http_method}
                         </span>
                       </td>
-                    )}
-                    <td className="px-4 py-2 text-right font-mono text-gray-500 text-xs">
-                      {log.http_duration_ms?.toFixed(1)}ms
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-1">
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusColor(
+                              log.http_status || 0
+                            )}`}
+                          >
+                            {log.http_status}
+                          </span>
+                          {hasError && !isExpanded && (
+                            <AlertCircle className="w-3 h-3 text-red-500" />
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 font-mono text-gray-700 truncate max-w-md" title={log.http_path}>
+                        {log.http_path}
+                      </td>
+                      {activeTab === 'tools' && (
+                        <td className="px-4 py-2">
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                            {log.tool_name}
+                          </span>
+                        </td>
+                      )}
+                      <td className="px-4 py-2 text-right font-mono text-gray-500 text-xs">
+                        {log.http_duration_ms?.toFixed(1)}ms
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           ) : (
