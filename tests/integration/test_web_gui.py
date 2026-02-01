@@ -416,3 +416,491 @@ class TestCreateToolFromTemplate:
         )
 
         assert response.status_code == 404
+
+
+# ==================== Get Tool Tests ====================
+
+
+class TestGetTool:
+    """Tests for GET /api/folders/{namespace}/tools/{filename} endpoint."""
+
+    def test_get_tool_success(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test getting a tool file."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        tool_content = '''
+from pydantic import BaseModel, ConfigDict
+from app.registry import ToolDefinition, ToolRegistry
+
+class TestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str = ""
+
+async def handler(payload): return "test"
+
+def register_tools(registry):
+    registry.register(ToolDefinition(name="test", description="Test", input_model=TestInput, handler=handler))
+'''
+        (shared_dir / "test_tool.py").write_text(tool_content)
+
+        response = client.get(
+            "/api/folders/shared/tools/test_tool.py",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["filename"] == "test_tool.py"
+        assert data["namespace"] == "shared"
+        assert "content" in data
+        assert "validation" in data
+
+    def test_get_tool_not_found(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test getting non-existent tool."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        response = client.get(
+            "/api/folders/shared/tools/nonexistent.py",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 404
+
+    def test_get_tool_path_traversal(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test path traversal is blocked."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        # Try various path traversal attempts in filename
+        traversal_attempts = [
+            "../secret.py",
+            "..%2Fsecret.py",
+            "test/../secret.py",
+        ]
+
+        for attempt in traversal_attempts:
+            response = client.get(
+                f"/api/folders/shared/tools/{attempt}",
+                headers=auth_headers,
+            )
+            # Should be blocked - either as invalid filename (400) or not found (404)
+            # The important thing is it doesn't return 200 or leak information
+            assert response.status_code in (400, 404), f"Path traversal not blocked: {attempt}"
+
+    def test_get_tool_invalid_filename(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test invalid filename is rejected."""
+        response = client.get(
+            "/api/folders/shared/tools/not_python.txt",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+
+
+# ==================== Update Tool Tests ====================
+
+
+class TestUpdateTool:
+    """Tests for PUT /api/folders/{namespace}/tools/{filename} endpoint."""
+
+    def test_update_tool_success(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test updating a tool file."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        original_content = '''
+from pydantic import BaseModel, ConfigDict
+from app.registry import ToolDefinition, ToolRegistry
+
+class TestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+async def handler(payload): return "original"
+
+def register_tools(registry):
+    registry.register(ToolDefinition(name="test", description="Test", input_model=TestInput, handler=handler))
+'''
+        (shared_dir / "update_test.py").write_text(original_content)
+
+        new_content = '''
+from pydantic import BaseModel, ConfigDict
+from app.registry import ToolDefinition, ToolRegistry
+
+class TestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_field: str = "updated"
+
+async def handler(payload): return "updated"
+
+def register_tools(registry):
+    registry.register(ToolDefinition(name="test", description="Updated test", input_model=TestInput, handler=handler))
+'''
+
+        response = client.put(
+            "/api/folders/shared/tools/update_test.py",
+            headers=auth_headers,
+            json={"content": new_content, "skip_validation": False},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+        # Verify file was updated
+        updated_content = (shared_dir / "update_test.py").read_text()
+        assert "updated" in updated_content
+
+    def test_update_tool_not_found(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test updating non-existent tool."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        response = client.put(
+            "/api/folders/shared/tools/nonexistent.py",
+            headers=auth_headers,
+            json={"content": "# test", "skip_validation": True},
+        )
+
+        assert response.status_code == 404
+
+    def test_update_tool_validation_failure(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test updating with invalid content fails validation."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+        (shared_dir / "validate_test.py").write_text("# original")
+
+        invalid_content = "def broken syntax("
+
+        response = client.put(
+            "/api/folders/shared/tools/validate_test.py",
+            headers=auth_headers,
+            json={"content": invalid_content, "skip_validation": False},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["validation"]["is_valid"] is False
+
+    def test_update_requires_valid_json(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test update requires valid JSON body."""
+        response = client.put(
+            "/api/folders/shared/tools/test.py",
+            headers=auth_headers,
+            content="not json",
+        )
+
+        assert response.status_code == 422
+
+
+# ==================== Delete Tool Tests ====================
+
+
+class TestDeleteTool:
+    """Tests for DELETE /api/folders/{namespace}/tools/{filename} endpoint."""
+
+    def test_delete_tool_success(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test deleting a tool file."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+        tool_file = shared_dir / "to_delete.py"
+        tool_file.write_text("# delete me")
+
+        assert tool_file.exists()
+
+        response = client.delete(
+            "/api/folders/shared/tools/to_delete.py",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+        # Verify file was deleted
+        assert not tool_file.exists()
+
+    def test_delete_tool_not_found(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test deleting non-existent tool."""
+        shared_dir = tools_dir / "shared"
+        shared_dir.mkdir(exist_ok=True)
+
+        response = client.delete(
+            "/api/folders/shared/tools/nonexistent.py",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 404
+
+
+# ==================== Validate Tool Tests ====================
+
+
+class TestValidateTool:
+    """Tests for POST /api/folders/{namespace}/tools/validate endpoint."""
+
+    def test_validate_valid_tool(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test validating a valid tool file."""
+        valid_content = '''
+from pydantic import BaseModel, ConfigDict
+from app.registry import ToolDefinition, ToolRegistry
+
+class TestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+async def handler(payload): return "test"
+
+def register_tools(registry):
+    registry.register(ToolDefinition(name="test", description="Test", input_model=TestInput, handler=handler))
+'''
+        response = client.post(
+            "/api/folders/shared/tools/validate",
+            headers=auth_headers,
+            files={"file": ("test.py", valid_content, "text/plain")},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_valid"] is True
+
+    def test_validate_invalid_tool(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test validating an invalid tool file."""
+        invalid_content = "def broken("
+
+        response = client.post(
+            "/api/folders/shared/tools/validate",
+            headers=auth_headers,
+            files={"file": ("test.py", invalid_content, "text/plain")},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_valid"] is False
+        assert len(data["errors"]) > 0
+
+
+# ==================== Folders CRUD Tests ====================
+
+
+class TestFoldersCRUD:
+    """Tests for folder/namespace CRUD operations."""
+
+    def test_create_folder(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test creating a new folder."""
+        response = client.post(
+            "/api/folders",
+            headers=auth_headers,
+            json={"name": "my_new_namespace"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "my_new_namespace"
+        assert data["tool_count"] == 0
+
+    def test_create_folder_reserved_name(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test creating folder with reserved name fails."""
+        response = client.post(
+            "/api/folders",
+            headers=auth_headers,
+            json={"name": "external"},  # Reserved name
+        )
+
+        assert response.status_code == 400
+        assert "reserved" in response.json()["detail"].lower()
+
+    def test_create_folder_duplicate(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test creating duplicate folder fails."""
+        # Create first
+        client.post(
+            "/api/folders",
+            headers=auth_headers,
+            json={"name": "duplicate_test"},
+        )
+
+        # Try to create again
+        response = client.post(
+            "/api/folders",
+            headers=auth_headers,
+            json={"name": "duplicate_test"},
+        )
+
+        assert response.status_code == 409
+
+    def test_get_folder(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test getting folder info."""
+        # Create folder with tools
+        test_dir = tools_dir / "test_ns"
+        test_dir.mkdir(parents=True)
+        (test_dir / "tool1.py").write_text("# tool1")
+        (test_dir / "tool2.py").write_text("# tool2")
+
+        response = client.get("/api/folders/test_ns", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "test_ns"
+        assert data["tool_count"] == 2
+
+    def test_get_folder_not_found(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test getting non-existent folder."""
+        response = client.get("/api/folders/nonexistent", headers=auth_headers)
+
+        assert response.status_code == 404
+
+    def test_delete_folder_empty(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test deleting empty folder."""
+        # Create empty folder
+        test_dir = tools_dir / "to_delete"
+        test_dir.mkdir(parents=True)
+
+        response = client.delete(
+            "/api/folders/to_delete",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert not test_dir.exists()
+
+    def test_delete_folder_with_tools_requires_force(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test deleting folder with tools requires force flag."""
+        # Create folder with tool
+        test_dir = tools_dir / "has_tools"
+        test_dir.mkdir(parents=True)
+        (test_dir / "tool.py").write_text("# tool")
+
+        response = client.delete(
+            "/api/folders/has_tools",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+        assert "force" in response.json()["detail"].lower()
+
+        # With force=true
+        response = client.delete(
+            "/api/folders/has_tools?force=true",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert not test_dir.exists()
+
+    def test_delete_reserved_folder(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ):
+        """Test deleting reserved folder fails."""
+        response = client.delete(
+            "/api/folders/shared",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400
+        assert "reserved" in response.json()["detail"].lower()
+
+    def test_namespace_info(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        """Test namespace info includes correct endpoint."""
+        test_dir = tools_dir / "myns"
+        test_dir.mkdir(parents=True)
+
+        response = client.get("/api/folders/myns", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["endpoint"] == "/mcp/myns"
