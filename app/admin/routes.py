@@ -7,6 +7,7 @@ Provides runtime management of external MCP servers.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,14 +23,16 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 _registry = None
 _external_manager = None
 _config = None
+_reloader = None
 
 
-def set_admin_context(registry, external_manager, config):
+def set_admin_context(registry, external_manager, config, reloader=None):
     """Set the admin context for route handlers."""
-    global _registry, _external_manager, _config
+    global _registry, _external_manager, _config, _reloader
     _registry = registry
     _external_manager = external_manager
     _config = config
+    _reloader = reloader
 
 
 def get_manager():
@@ -328,4 +331,81 @@ async def get_stats(
     return {
         "tools": registry_stats,
         "servers": manager_stats,
+    }
+
+
+# === Reload Routes ===
+
+
+@router.post("/reload")
+async def reload_all_namespaces(
+    _: str = Depends(verify_token),
+) -> Dict[str, Any]:
+    """
+    Reload all native tool namespaces.
+
+    This will re-import all Python tool files from the tools directory.
+    External servers are not affected.
+    """
+    if _reloader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Reloader not initialized"
+        )
+
+    logger.info("API request: Reload all namespaces")
+    results = _reloader.reload_all()
+
+    return {
+        "success": all(r.success for r in results),
+        "message": f"Reloaded {len(results)} namespace(s)",
+        "results": [
+            {
+                "namespace": r.namespace,
+                "tools_unloaded": r.tools_unloaded,
+                "tools_loaded": r.tools_loaded,
+                "success": r.success,
+                "error": r.error,
+            }
+            for r in results
+        ],
+    }
+
+
+@router.post("/reload/{namespace}")
+async def reload_namespace(
+    namespace: str,
+    _: str = Depends(verify_token),
+) -> Dict[str, Any]:
+    """
+    Reload a specific namespace.
+
+    Args:
+        namespace: The namespace to reload
+    """
+    if _reloader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Reloader not initialized"
+        )
+
+    logger.info(f"API request: Reload namespace '{namespace}'")
+    result = _reloader.reload_namespace(namespace)
+
+    if not result.success:
+        raise HTTPException(
+            status_code=400,
+            detail=result.error or f"Failed to reload namespace: {namespace}"
+        )
+
+    return {
+        "success": True,
+        "message": f"Successfully reloaded namespace '{namespace}': {result.tools_unloaded} unloaded, {result.tools_loaded} loaded",
+        "result": {
+            "namespace": result.namespace,
+            "tools_unloaded": result.tools_unloaded,
+            "tools_loaded": result.tools_loaded,
+            "success": result.success,
+            "error": result.error,
+        },
     }

@@ -11,15 +11,19 @@ import os
 import re
 from typing import List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app.auth import verify_token
+from app.auth import verify_token, get_bearer_token
 from app.reload import get_reloader, ReloadResult
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/reload", tags=["reload"])
+
+# Port for the OpenAPI server (to forward reload requests)
+OPENAPI_PORT = int(os.getenv("OPENAPI_PORT", "8006"))
 
 
 # ==================== Response Models ====================
@@ -95,6 +99,44 @@ def _result_to_response(result: ReloadResult) -> ReloadResultResponse:
     )
 
 
+async def _forward_reload_to_openapi(namespace: Optional[str] = None) -> None:
+    """
+    Forward reload request to the OpenAPI server.
+
+    In multi-process mode, each server has its own registry.
+    This ensures the OpenAPI server also reloads its registry.
+
+    Args:
+        namespace: Specific namespace to reload, or None for all
+    """
+    token = get_bearer_token()
+    if not token:
+        logger.warning("No bearer token configured, skipping OpenAPI server reload")
+        return
+
+    url = f"http://localhost:{OPENAPI_PORT}/admin/reload"
+    if namespace:
+        url = f"{url}/{namespace}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30.0,
+            )
+            if response.status_code == 200:
+                logger.info(f"Successfully forwarded reload to OpenAPI server: {namespace or 'all'}")
+            else:
+                logger.warning(
+                    f"OpenAPI server reload returned {response.status_code}: {response.text}"
+                )
+    except httpx.ConnectError:
+        logger.debug("OpenAPI server not reachable (may not be running in separate process)")
+    except Exception as e:
+        logger.warning(f"Failed to forward reload to OpenAPI server: {e}")
+
+
 # ==================== Endpoints ====================
 
 
@@ -108,6 +150,7 @@ async def reload_all_tools(request: Request, _: str = Depends(verify_token)) -> 
     1. Unregister all tools in each native namespace
     2. Clear Python module caches
     3. Re-import and register tools from disk
+    4. Forward reload to OpenAPI server (if running separately)
 
     External server namespaces are skipped.
 
@@ -129,6 +172,9 @@ async def reload_all_tools(request: Request, _: str = Depends(verify_token)) -> 
 
     successful = sum(1 for r in results if r.success)
     total = len(results)
+
+    # Forward reload to OpenAPI server (runs in separate process)
+    await _forward_reload_to_openapi()
 
     if successful == total:
         message = f"Successfully reloaded all {total} namespace(s)"
@@ -155,6 +201,7 @@ async def reload_namespace(request: Request, namespace: str, _: str = Depends(ve
     1. Unregister all tools in the namespace
     2. Clear Python module cache for the namespace
     3. Re-import and register tools from the namespace directory
+    4. Forward reload to OpenAPI server (if running separately)
 
     Args:
         namespace: The namespace to reload
@@ -179,6 +226,9 @@ async def reload_namespace(request: Request, namespace: str, _: str = Depends(ve
 
     result = reloader.reload_namespace(namespace)
     response_result = _result_to_response(result)
+
+    # Forward reload to OpenAPI server (runs in separate process)
+    await _forward_reload_to_openapi(namespace)
 
     if result.success:
         message = (

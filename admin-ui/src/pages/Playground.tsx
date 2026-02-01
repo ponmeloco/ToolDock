@@ -1,18 +1,21 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
 import { getAllTools, executeTool } from '../api/client'
-import { Play, Check, X, Loader2 } from 'lucide-react'
+import { Play, Check, X, Loader2, RefreshCw } from 'lucide-react'
 
 export default function Playground() {
   const [selectedTool, setSelectedTool] = useState<string | null>(null)
   const [inputJson, setInputJson] = useState('{}')
   const [jsonError, setJsonError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const toolsQuery = useQuery({
     queryKey: ['allTools'],
     queryFn: getAllTools,
+    refetchOnWindowFocus: true,
+    staleTime: 30000, // Consider stale after 30 seconds
   })
 
   const executeMutation = useMutation({
@@ -69,9 +72,23 @@ export default function Playground() {
     }
   }
 
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['allTools'] })
+  }
+
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
-      <h1 className="text-2xl font-bold text-gray-900 mb-4">Playground</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold text-gray-900">Playground</h1>
+        <button
+          onClick={handleRefresh}
+          disabled={toolsQuery.isRefetching}
+          className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${toolsQuery.isRefetching ? 'animate-spin' : ''}`} />
+          Refresh Tools
+        </button>
+      </div>
 
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Tool List */}

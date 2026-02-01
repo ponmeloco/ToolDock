@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import logging
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException, Body, Depends, Request
@@ -24,6 +25,7 @@ from fastapi.responses import JSONResponse
 from app.auth import get_bearer_token, is_auth_enabled
 from app.middleware import TrailingNewlineMiddleware
 from app.registry import ToolRegistry
+from app.reload import ToolReloader
 from app.errors import ToolError, ToolUnauthorizedError, ToolValidationError
 
 logger = logging.getLogger("openapi")
@@ -151,8 +153,14 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
         result = await registry.call(tool_name, payload or {})
         return {"tool": tool_name, "result": result}
 
-    # Include admin router
-    from app.admin.routes import router as admin_router
+    # Initialize reloader for this registry
+    data_dir = os.getenv("DATA_DIR", "omnimcp_data")
+    tools_dir = Path(data_dir) / "tools"
+    reloader = ToolReloader(registry, str(tools_dir))
+
+    # Include admin router and set context
+    from app.admin.routes import router as admin_router, set_admin_context
+    set_admin_context(registry, None, None, reloader)
     app.include_router(admin_router)
 
     logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")

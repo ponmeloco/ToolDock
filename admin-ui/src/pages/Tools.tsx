@@ -87,18 +87,29 @@ export default function Tools() {
   })
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadTool(namespace!, file),
+    mutationFn: async (file: File) => {
+      const result = await uploadTool(namespace!, file)
+      // Auto-reload the namespace to register the new tool
+      await reloadNamespace(namespace!)
+      return result
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
       queryClient.invalidateQueries({ queryKey: ['namespaces'] })
+      queryClient.invalidateQueries({ queryKey: ['allTools'] })
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (filename: string) => deleteTool(namespace!, filename),
+    mutationFn: async (filename: string) => {
+      await deleteTool(namespace!, filename)
+      // Auto-reload the namespace to unregister the tool
+      await reloadNamespace(namespace!)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
       queryClient.invalidateQueries({ queryKey: ['namespaces'] })
+      queryClient.invalidateQueries({ queryKey: ['allTools'] })
       if (selectedFile === deleteConfirm) {
         setSelectedFile(null)
         setEditorContent('')
@@ -112,6 +123,8 @@ export default function Tools() {
     mutationFn: () => reloadNamespace(namespace!),
     onSuccess: () => {
       queryClient.invalidateQueries()
+      // Also invalidate playground tools list
+      queryClient.invalidateQueries({ queryKey: ['allTools'] })
     },
   })
 
@@ -120,10 +133,17 @@ export default function Tools() {
   })
 
   const createToolMutation = useMutation({
-    mutationFn: (name: string) => createToolFromTemplate(namespace!, name),
+    mutationFn: async (name: string) => {
+      // Create the tool file
+      const result = await createToolFromTemplate(namespace!, name)
+      // Auto-reload the namespace to register the new tool
+      await reloadNamespace(namespace!)
+      return result
+    },
     onSuccess: (_, name) => {
       queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
       queryClient.invalidateQueries({ queryKey: ['namespaces'] })
+      queryClient.invalidateQueries({ queryKey: ['allTools'] })
       setShowNewToolModal(false)
       setNewToolName('')
       // Select the new file
