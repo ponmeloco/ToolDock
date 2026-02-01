@@ -5,12 +5,19 @@
 #
 # Prerequisites:
 #   - OmniMCP running (docker compose up -d)
-#   - BEARER_TOKEN set or using default 'change_me'
 #
 # Usage: ./scripts/test_external_servers.sh
 # ==================================================
 
 set -e
+
+# Get script directory and source .env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
 
 # Configuration
 MCP_URL="${MCP_URL:-http://localhost:8007}"

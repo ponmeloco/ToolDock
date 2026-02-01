@@ -16,6 +16,14 @@
 
 set -e
 
+# Get script directory and source .env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 OPENAPI_PORT=${OPENAPI_PORT:-8006}
 MCP_PORT=${MCP_PORT:-8007}
 WEB_PORT=${WEB_PORT:-8080}
