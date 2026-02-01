@@ -198,6 +198,7 @@ export default function Logs() {
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
                   <th className="px-4 py-2 text-left font-medium text-gray-600 w-28">Time</th>
+                  <th className="px-4 py-2 text-left font-medium text-gray-600 w-20">Request</th>
                   <th className="px-4 py-2 text-left font-medium text-gray-600 w-20">Method</th>
                   <th className="px-4 py-2 text-left font-medium text-gray-600 w-20">Status</th>
                   <th className="px-4 py-2 text-left font-medium text-gray-600">Path</th>
@@ -212,6 +213,13 @@ export default function Logs() {
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-4 py-2 font-mono text-gray-500 text-xs whitespace-nowrap">
                       {new Date(log.timestamp).toLocaleTimeString()}
+                    </td>
+                    <td className="px-4 py-2">
+                      {log.request_id && (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-600">
+                          {log.request_id}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2">
                       <span

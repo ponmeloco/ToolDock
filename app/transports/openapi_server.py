@@ -26,7 +26,7 @@ from app.auth import get_bearer_token, is_auth_enabled
 from app.middleware import TrailingNewlineMiddleware
 from app.registry import ToolRegistry
 from app.reload import ToolReloader
-from app.errors import ToolError, ToolUnauthorizedError, ToolValidationError
+from app.errors import ToolError, ToolTimeoutError, ToolUnauthorizedError, ToolValidationError
 
 logger = logging.getLogger("openapi")
 
@@ -110,6 +110,10 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
     @app.exception_handler(ToolValidationError)
     async def _validation_handler(request: Request, exc: ToolValidationError):
         return JSONResponse({"error": exc.to_dict()}, status_code=422)
+
+    @app.exception_handler(ToolTimeoutError)
+    async def _timeout_handler(request: Request, exc: ToolTimeoutError):
+        return JSONResponse({"error": exc.to_dict()}, status_code=504)
 
     @app.exception_handler(ToolError)
     async def _tool_error_handler(request: Request, exc: ToolError):

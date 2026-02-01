@@ -13,7 +13,7 @@ from app.registry import (
     get_registry,
     reset_registry,
 )
-from app.errors import ToolNotFoundError, ToolValidationError
+from app.errors import ToolNotFoundError, ToolTimeoutError, ToolValidationError
 
 
 # ==================== Test Fixtures ====================
@@ -299,6 +299,61 @@ class TestToolExecution:
 
         with pytest.raises(ToolValidationError):
             await registry.call("sample_tool", {"name": "test", "extra_field": "bad"})
+
+
+# ==================== Timeout Tests ====================
+
+
+class TestToolExecutionTimeout:
+    """Tests for tool execution timeout."""
+
+    @pytest.mark.asyncio
+    async def test_tool_timeout(self, registry: ToolRegistry, monkeypatch):
+        """Test that slow tools are timed out."""
+        import asyncio
+
+        # Set very short timeout
+        monkeypatch.setenv("TOOL_TIMEOUT_SECONDS", "0.1")
+
+        async def slow_handler(payload: SampleInput) -> dict:
+            await asyncio.sleep(1.0)  # Sleep longer than timeout
+            return {"name": payload.name}
+
+        SampleInput.model_rebuild(force=True)
+        slow_tool = ToolDefinition(
+            name="slow_tool",
+            description="A slow tool",
+            input_model=SampleInput,
+            handler=slow_handler,
+        )
+        registry.register(slow_tool)
+
+        with pytest.raises(ToolTimeoutError) as exc_info:
+            await registry.call("slow_tool", {"name": "test"})
+
+        assert exc_info.value.code == "tool_timeout"
+        assert "slow_tool" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_fast_tool_no_timeout(self, registry: ToolRegistry, monkeypatch):
+        """Test that fast tools complete normally."""
+        monkeypatch.setenv("TOOL_TIMEOUT_SECONDS", "5")
+
+        async def fast_handler(payload: SampleInput) -> dict:
+            return {"name": payload.name, "fast": True}
+
+        SampleInput.model_rebuild(force=True)
+        fast_tool = ToolDefinition(
+            name="fast_tool",
+            description="A fast tool",
+            input_model=SampleInput,
+            handler=fast_handler,
+        )
+        registry.register(fast_tool)
+
+        result = await registry.call("fast_tool", {"name": "speedy"})
+
+        assert result == {"name": "speedy", "fast": True}
 
 
 # ==================== Tool Info Tests ====================

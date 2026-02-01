@@ -32,3 +32,12 @@ class ToolUnauthorizedError(ToolError):
 class ToolInternalError(ToolError):
     def __init__(self, message: str = "Interner Fehler", details: Optional[Dict[str, Any]] = None):
         super().__init__(code="internal_error", message=message, details=details)
+
+
+class ToolTimeoutError(ToolError):
+    def __init__(self, tool_name: str, timeout_seconds: float):
+        super().__init__(
+            code="tool_timeout",
+            message=f"Tool '{tool_name}' hat das Zeitlimit von {timeout_seconds}s überschritten",
+            details={"tool": tool_name, "timeout_seconds": timeout_seconds},
+        )

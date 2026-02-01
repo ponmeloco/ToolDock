@@ -4,6 +4,7 @@ Custom Middleware for OmniMCP.
 Provides middleware for:
 - Adding trailing newlines to JSON responses (for better CLI output)
 - Logging HTTP requests to the in-memory log buffer
+- Request context tracking (correlation IDs)
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from app.utils import generate_request_id, set_request_context, clear_request_context, get_request_id
 
 
 class TrailingNewlineMiddleware:
@@ -95,35 +98,46 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     Middleware that logs HTTP requests to the in-memory log buffer.
 
     Logs method, path, status code, and response time for each request.
+    Also sets up request context for correlation IDs.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Generate and set request ID for correlation
+        request_id = generate_request_id()
+        set_request_context(request_id=request_id)
+
+        # Extract tool name from path if it's a tool call
+        tool_name = None
+        path = request.url.path
+        if path.startswith("/tools/") and request.method == "POST":
+            tool_name = path.split("/tools/", 1)[1].split("/")[0]
+            set_request_context(tool_name=tool_name)
+
         start_time = time.time()
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
 
-        # Calculate duration
-        duration_ms = (time.time() - start_time) * 1000
+            # Calculate duration
+            duration_ms = (time.time() - start_time) * 1000
 
-        # Log the request (skip health checks to reduce noise)
-        if request.url.path != "/health":
-            try:
-                from app.web.routes.admin import log_request
+            # Log the request (skip health checks to reduce noise)
+            if path != "/health":
+                try:
+                    from app.web.routes.admin import log_request
 
-                # Extract tool name from path if it's a tool call
-                tool_name = None
-                path = request.url.path
-                if path.startswith("/tools/") and request.method == "POST":
-                    tool_name = path.split("/tools/", 1)[1].split("/")[0]
+                    log_request(
+                        method=request.method,
+                        path=path,
+                        status_code=response.status_code,
+                        duration_ms=duration_ms,
+                        tool_name=tool_name,
+                        request_id=request_id,
+                    )
+                except ImportError:
+                    pass  # Log buffer not available
 
-                log_request(
-                    method=request.method,
-                    path=path,
-                    status_code=response.status_code,
-                    duration_ms=duration_ms,
-                    tool_name=tool_name,
-                )
-            except ImportError:
-                pass  # Log buffer not available
-
-        return response
+            return response
+        finally:
+            # Always clear context after request
+            clear_request_context()

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +24,7 @@ from fastapi.responses import RedirectResponse
 
 from app.auth import is_auth_enabled, verify_token
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
+from app.utils import get_cors_origins
 from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router
 from app.web.routes.admin import setup_log_buffer
 from app.reload import init_reloader
@@ -34,18 +35,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("backend-api")
 
 SERVER_NAME = os.getenv("WEB_SERVER_NAME", "omnimcp-backend")
-
-
-def _get_cors_origins() -> List[str]:
-    """Get CORS origins from environment variable."""
-    origins_str = os.getenv("CORS_ORIGINS", "").strip()
-    if not origins_str or origins_str == "*":
-        logger.warning(
-            "CORS_ORIGINS not configured or set to '*'. "
-            "This is insecure for production. Set specific origins."
-        )
-        return ["*"]
-    return [origin.strip() for origin in origins_str.split(",") if origin.strip()]
 
 
 def create_web_app(registry: "ToolRegistry") -> FastAPI:
@@ -109,7 +98,7 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     app.openapi = custom_openapi
 
     # Configure CORS with environment-based origins
-    cors_origins = _get_cors_origins()
+    cors_origins = get_cors_origins()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,

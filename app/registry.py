@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Set, Type
 
 from pydantic import BaseModel
 
-from app.errors import ToolNotFoundError, ToolValidationError
+from app.errors import ToolNotFoundError, ToolTimeoutError, ToolValidationError
+from app.utils import get_request_id, set_request_context
 
 if TYPE_CHECKING:
     from app.external.proxy import MCPServerProxy
@@ -179,11 +182,38 @@ class ToolRegistry:
         return name in self._tools or name in self._external_tools
 
     async def call(self, name: str, raw_args: Optional[Dict[str, Any]] = None) -> Any:
+        """
+        Execute a tool by name.
+
+        Args:
+            name: Tool name
+            raw_args: Tool arguments
+
+        Returns:
+            Tool execution result
+
+        Raises:
+            ToolNotFoundError: If tool doesn't exist
+            ToolValidationError: If arguments are invalid
+            ToolTimeoutError: If execution exceeds timeout
+        """
         raw_args = raw_args or {}
+
+        # Get timeout from environment (default 30 seconds)
+        timeout = float(os.getenv("TOOL_TIMEOUT_SECONDS", "30"))
+
+        # Set tool name in request context for logging
+        set_request_context(tool_name=name)
+        request_id = get_request_id()
+        logger.info(f"[{request_id}/{name}] Executing tool with args: {list(raw_args.keys())}")
 
         # Check external tools first (prefixed names like "github:create_repo")
         if name in self._external_tools:
-            return await self._call_external_tool(name, raw_args)
+            return await self._call_with_timeout(
+                self._call_external_tool(name, raw_args),
+                name,
+                timeout,
+            )
 
         # Native tool
         tool = self.get(name)
@@ -196,7 +226,16 @@ class ToolRegistry:
                 details={"error": str(e), "tool": name, "args": raw_args},
             ) from e
 
-        return await tool.handler(model)
+        return await self._call_with_timeout(tool.handler(model), name, timeout)
+
+    async def _call_with_timeout(self, coro: Any, tool_name: str, timeout: float) -> Any:
+        """Execute a coroutine with timeout."""
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            request_id = get_request_id()
+            logger.error(f"[{request_id}/{tool_name}] Tool execution timed out after {timeout}s")
+            raise ToolTimeoutError(tool_name, timeout)
 
     async def _call_external_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
         """Execute an external tool via its proxy."""

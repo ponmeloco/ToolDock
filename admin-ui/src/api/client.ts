@@ -98,6 +98,7 @@ export interface LogEntry {
   http_status?: number
   http_duration_ms?: number
   tool_name?: string
+  request_id?: string
 }
 
 export interface ToolExecutionResult {
