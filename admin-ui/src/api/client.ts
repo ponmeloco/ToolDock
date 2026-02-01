@@ -296,11 +296,66 @@ export interface PlaygroundTool {
   namespace: string
 }
 
-// Get all tools (for playground)
+// Tool execution response
+export interface PlaygroundExecuteResponse {
+  tool: string
+  transport: string
+  result: unknown
+  success: boolean
+  error?: string
+}
+
+// MCP response format
+export interface MCPResponse {
+  jsonrpc: string
+  id: number
+  result?: unknown
+  error?: { code: number; message: string }
+}
+
+// Get all tools (for playground) - via Backend API for proper logging
 export async function getAllTools(): Promise<{
-  namespace: string
   tools: PlaygroundTool[]
+  total: number
 }> {
-  const res = await fetchWithAuth(`${TOOLS_BASE}`)
+  const res = await fetchWithAuth(`${API_BASE}/playground/tools`)
+  return res.json()
+}
+
+// Execute tool via playground API (logs locally)
+export async function executePlaygroundTool(
+  toolName: string,
+  payload: Record<string, unknown>,
+  transport: 'direct' | 'mcp' = 'direct'
+): Promise<PlaygroundExecuteResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/playground/execute`, {
+    method: 'POST',
+    body: JSON.stringify({
+      tool_name: toolName,
+      arguments: payload,
+      transport,
+    }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Tool execution failed')
+  }
+  return res.json()
+}
+
+// Test MCP JSON-RPC format
+export async function testMCP(
+  method: string,
+  params?: Record<string, unknown>
+): Promise<MCPResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/playground/mcp`, {
+    method: 'POST',
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method,
+      params,
+    }),
+  })
   return res.json()
 }

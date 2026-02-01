@@ -25,7 +25,7 @@ from fastapi.responses import RedirectResponse
 from app.auth import is_auth_enabled, verify_token
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.utils import get_cors_origins
-from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router
+from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router, playground_router
 from app.web.routes.admin import setup_log_buffer
 from app.reload import init_reloader
 
@@ -131,6 +131,7 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     app.include_router(servers_router)
     app.include_router(reload_router)
     app.include_router(admin_router)
+    app.include_router(playground_router)
 
     # Root endpoint - redirect to docs
     @app.get("/")

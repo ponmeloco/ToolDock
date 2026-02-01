@@ -2,26 +2,29 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { getAllTools, executeTool, PlaygroundTool } from '../api/client'
-import { Play, Check, X, Loader2, RefreshCw, FolderTree, Wrench } from 'lucide-react'
+import { getAllTools, executePlaygroundTool, PlaygroundTool } from '../api/client'
+import { Play, Check, X, Loader2, RefreshCw, FolderTree, Wrench, Zap, Server } from 'lucide-react'
+
+type Transport = 'direct' | 'mcp'
 
 export default function Playground() {
   const [selectedNamespace, setSelectedNamespace] = useState<string | null>(null)
   const [selectedTool, setSelectedTool] = useState<string | null>(null)
   const [inputJson, setInputJson] = useState('{}')
   const [jsonError, setJsonError] = useState<string | null>(null)
+  const [transport, setTransport] = useState<Transport>('direct')
   const queryClient = useQueryClient()
 
   const toolsQuery = useQuery({
-    queryKey: ['allTools'],
+    queryKey: ['playgroundTools'],
     queryFn: getAllTools,
     refetchOnWindowFocus: true,
     staleTime: 30000,
   })
 
   const executeMutation = useMutation({
-    mutationFn: ({ name, payload }: { name: string; payload: Record<string, unknown> }) =>
-      executeTool(name, payload),
+    mutationFn: ({ name, payload, transport }: { name: string; payload: Record<string, unknown>; transport: Transport }) =>
+      executePlaygroundTool(name, payload, transport),
   })
 
   const tools = toolsQuery.data?.tools || []
@@ -97,28 +100,56 @@ export default function Playground() {
 
     try {
       const payload = JSON.parse(inputJson)
-      executeMutation.mutate({ name: selectedTool, payload })
+      executeMutation.mutate({ name: selectedTool, payload, transport })
     } catch (e) {
       setJsonError((e as Error).message)
     }
   }
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['allTools'] })
+    queryClient.invalidateQueries({ queryKey: ['playgroundTools'] })
   }
 
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900">Playground</h1>
-        <button
-          onClick={handleRefresh}
-          disabled={toolsQuery.isRefetching}
-          className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${toolsQuery.isRefetching ? 'animate-spin' : ''}`} />
-          Refresh Tools
-        </button>
+        <div className="flex items-center gap-4">
+          {/* Transport selector */}
+          <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setTransport('direct')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                transport === 'direct'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              Direct
+            </button>
+            <button
+              onClick={() => setTransport('mcp')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                transport === 'mcp'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Server className="w-4 h-4" />
+              MCP
+            </button>
+          </div>
+
+          <button
+            onClick={handleRefresh}
+            disabled={toolsQuery.isRefetching}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${toolsQuery.isRefetching ? 'animate-spin' : ''}`} />
+            Refresh Tools
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 flex gap-4 min-h-0">
@@ -210,6 +241,15 @@ export default function Playground() {
                   <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
                     {selectedToolInfo?.type}
                   </span>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${
+                      transport === 'mcp'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    via {transport === 'mcp' ? 'MCP' : 'Direct'}
+                  </span>
                 </div>
                 <p className="text-sm text-gray-600 mt-1">{selectedToolInfo?.description}</p>
               </div>
@@ -259,15 +299,24 @@ export default function Playground() {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
                   <div className="flex items-center gap-2 p-3 border-b border-gray-200">
                     <span className="font-medium text-gray-900">Output</span>
-                    {executeMutation.isSuccess && <Check className="w-4 h-4 text-green-600" />}
-                    {executeMutation.isError && <X className="w-4 h-4 text-red-600" />}
+                    {executeMutation.isSuccess && executeMutation.data?.success && (
+                      <Check className="w-4 h-4 text-green-600" />
+                    )}
+                    {(executeMutation.isError || (executeMutation.data && !executeMutation.data.success)) && (
+                      <X className="w-4 h-4 text-red-600" />
+                    )}
+                    {executeMutation.data && (
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                        {executeMutation.data.transport}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex-1 overflow-auto p-3">
                     {executeMutation.isPending ? (
                       <div className="flex items-center gap-2 text-gray-500">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Executing...
+                        Executing via {transport}...
                       </div>
                     ) : executeMutation.isError ? (
                       <div className="text-red-600">
@@ -277,9 +326,18 @@ export default function Playground() {
                         </pre>
                       </div>
                     ) : executeMutation.data ? (
-                      <pre className="text-sm whitespace-pre-wrap font-mono">
-                        {JSON.stringify(executeMutation.data.result, null, 2)}
-                      </pre>
+                      executeMutation.data.success ? (
+                        <pre className="text-sm whitespace-pre-wrap font-mono">
+                          {JSON.stringify(executeMutation.data.result, null, 2)}
+                        </pre>
+                      ) : (
+                        <div className="text-red-600">
+                          <div className="font-medium">Execution Failed</div>
+                          <pre className="mt-2 text-sm whitespace-pre-wrap">
+                            {executeMutation.data.error}
+                          </pre>
+                        </div>
+                      )
                     ) : (
                       <div className="text-gray-400 text-sm">Click "Execute" to run the tool</div>
                     )}
