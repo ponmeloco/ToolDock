@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Key, Send, ChevronDown, ChevronRight, Check, Copy, ExternalLink } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
+import { getNamespaces } from '../api/client'
+
+interface PathParam {
+  name: string
+  description: string
+  default?: string
+}
 
 interface Endpoint {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -9,6 +17,7 @@ interface Endpoint {
   description: string
   auth: boolean
   body?: string
+  pathParams?: PathParam[]
 }
 
 interface EndpointCategory {
@@ -32,17 +41,55 @@ const CATEGORIES: EndpointCategory[] = [
     endpoints: [
       { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true },
       { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name": "my_namespace"}' },
-      { method: 'DELETE', path: '/api/folders/shared', description: 'Delete a namespace', auth: true },
+      {
+        method: 'DELETE',
+        path: '/api/folders/{namespace}',
+        description: 'Delete a namespace',
+        auth: true,
+        pathParams: [{ name: 'namespace', description: 'Namespace to delete' }],
+      },
     ],
   },
   {
     name: 'Tools',
     description: 'Manage tools within namespaces',
     endpoints: [
-      { method: 'GET', path: '/api/folders/shared/tools', description: 'List tools in a namespace', auth: true },
-      { method: 'GET', path: '/api/folders/shared/tools/example.py', description: 'Get tool content', auth: true },
-      { method: 'POST', path: '/api/folders/shared/tools/create-from-template', description: 'Create tool from template', auth: true, body: '{"name": "my_tool"}' },
-      { method: 'PUT', path: '/api/folders/shared/tools/example.py', description: 'Update tool content', auth: true, body: '{"content": "# Updated content"}' },
+      {
+        method: 'GET',
+        path: '/api/folders/{namespace}/tools',
+        description: 'List tools in a namespace',
+        auth: true,
+        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+      },
+      {
+        method: 'GET',
+        path: '/api/folders/{namespace}/tools/{filename}',
+        description: 'Get tool content',
+        auth: true,
+        pathParams: [
+          { name: 'namespace', description: 'Namespace name' },
+          { name: 'filename', description: 'Tool filename (e.g., example.py)' },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/api/folders/{namespace}/tools/create-from-template',
+        description: 'Create tool from template',
+        auth: true,
+        body: '{"name": "my_tool"}',
+        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+      },
+      {
+        method: 'PUT',
+        path: '/api/folders/{namespace}/tools/{filename}',
+        description: 'Update tool content',
+        auth: true,
+        body: '{"content": "# Updated content"}',
+        pathParams: [
+          { name: 'namespace', description: 'Namespace name' },
+          { name: 'filename', description: 'Tool filename (e.g., example.py)' },
+        ],
+      },
     ],
   },
   {
@@ -51,7 +98,13 @@ const CATEGORIES: EndpointCategory[] = [
     endpoints: [
       { method: 'GET', path: '/api/reload/status', description: 'Get reload status and namespaces', auth: true },
       { method: 'POST', path: '/api/reload', description: 'Reload all namespaces', auth: true },
-      { method: 'POST', path: '/api/reload/shared', description: 'Reload specific namespace', auth: true },
+      {
+        method: 'POST',
+        path: '/api/reload/{namespace}',
+        description: 'Reload specific namespace',
+        auth: true,
+        pathParams: [{ name: 'namespace', description: 'Namespace to reload' }],
+      },
     ],
   },
   {
@@ -59,7 +112,14 @@ const CATEGORIES: EndpointCategory[] = [
     description: 'Execute tools via OpenAPI (port 8006)',
     endpoints: [
       { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
-      { method: 'POST', path: '/tools/hello_world', description: 'Execute hello_world tool', auth: true, body: '{"name": "World"}' },
+      {
+        method: 'POST',
+        path: '/tools/{tool_name}',
+        description: 'Execute a tool',
+        auth: true,
+        body: '{"name": "World"}',
+        pathParams: [{ name: 'tool_name', description: 'Tool name (e.g., hello_world)', default: 'hello_world' }],
+      },
     ],
   },
   {
@@ -76,20 +136,45 @@ const CATEGORIES: EndpointCategory[] = [
     description: 'MCP protocol endpoints (port 8007)',
     endpoints: [
       { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
-      { method: 'GET', path: '/mcp/shared', description: 'Namespace info', auth: true },
-      { method: 'POST', path: '/mcp/shared', description: 'MCP tools/list', auth: true, body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' },
-      { method: 'POST', path: '/mcp/shared', description: 'MCP tools/call (hello_world)', auth: true, body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hello_world", "arguments": {"name": "World"}}}' },
+      {
+        method: 'GET',
+        path: '/mcp/{namespace}',
+        description: 'Namespace info',
+        auth: true,
+        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+      },
+      {
+        method: 'POST',
+        path: '/mcp/{namespace}',
+        description: 'MCP tools/list',
+        auth: true,
+        body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}',
+        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+      },
+      {
+        method: 'POST',
+        path: '/mcp/{namespace}',
+        description: 'MCP tools/call',
+        auth: true,
+        body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hello_world", "arguments": {"name": "World"}}}',
+        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+      },
     ],
   },
 ]
 
 function getMethodColor(method: string): string {
   switch (method) {
-    case 'GET': return 'bg-green-100 text-green-700 border-green-200'
-    case 'POST': return 'bg-blue-100 text-blue-700 border-blue-200'
-    case 'PUT': return 'bg-yellow-100 text-yellow-700 border-yellow-200'
-    case 'DELETE': return 'bg-red-100 text-red-700 border-red-200'
-    default: return 'bg-gray-100 text-gray-700 border-gray-200'
+    case 'GET':
+      return 'bg-green-100 text-green-700 border-green-200'
+    case 'POST':
+      return 'bg-blue-100 text-blue-700 border-blue-200'
+    case 'PUT':
+      return 'bg-yellow-100 text-yellow-700 border-yellow-200'
+    case 'DELETE':
+      return 'bg-red-100 text-red-700 border-red-200'
+    default:
+      return 'bg-gray-100 text-gray-700 border-gray-200'
   }
 }
 
@@ -102,12 +187,26 @@ function getStatusColor(status: number): string {
 
 export default function Docs() {
   const [token, setToken] = useState('')
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Health', 'OpenAPI Tools']))
-  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint } | null>(null)
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    new Set(['Health', 'OpenAPI Tools'])
+  )
+  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint } | null>(
+    null
+  )
+  const [pathParamValues, setPathParamValues] = useState<Record<string, string>>({})
   const [requestBody, setRequestBody] = useState('')
   const [response, setResponse] = useState<{ status: number; data: string; time: number } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Fetch namespaces for autocomplete
+  const namespacesQuery = useQuery({
+    queryKey: ['namespaces'],
+    queryFn: getNamespaces,
+    staleTime: 60000,
+  })
+
+  const namespaces = namespacesQuery.data?.map((ns) => ns.name) || []
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -139,6 +238,30 @@ export default function Docs() {
     setActiveEndpoint({ category, endpoint })
     setRequestBody(endpoint.body || '')
     setResponse(null)
+
+    // Initialize path params with defaults or first available namespace
+    const initialParams: Record<string, string> = {}
+    if (endpoint.pathParams) {
+      for (const param of endpoint.pathParams) {
+        if (param.default) {
+          initialParams[param.name] = param.default
+        } else if (param.name === 'namespace' && namespaces.length > 0) {
+          initialParams[param.name] = namespaces[0]
+        } else {
+          initialParams[param.name] = ''
+        }
+      }
+    }
+    setPathParamValues(initialParams)
+  }
+
+  const getResolvedPath = (): string => {
+    if (!activeEndpoint) return ''
+    let path = activeEndpoint.endpoint.path
+    for (const [key, value] of Object.entries(pathParamValues)) {
+      path = path.replace(`{${key}}`, value || `{${key}}`)
+    }
+    return path
   }
 
   const executeRequest = async () => {
@@ -151,8 +274,7 @@ export default function Docs() {
     const endpoint = activeEndpoint.endpoint
 
     try {
-      // All requests go through nginx on current origin
-      const url = endpoint.path
+      const url = getResolvedPath()
 
       const headers: Record<string, string> = {}
       if (endpoint.auth && token) {
@@ -189,7 +311,7 @@ export default function Docs() {
       setResponse({
         status: 0,
         data: JSON.stringify({ error: String(error) }, null, 2),
-        time: duration
+        time: duration,
       })
     } finally {
       setIsLoading(false)
@@ -209,7 +331,7 @@ export default function Docs() {
 
     const endpoint = activeEndpoint.endpoint
     const baseUrl = window.location.origin
-    const url = `${baseUrl}${endpoint.path}`
+    const url = `${baseUrl}${getResolvedPath()}`
 
     let curl = `curl -X ${endpoint.method} "${url}"`
     if (endpoint.auth && token) {
@@ -294,14 +416,23 @@ export default function Docs() {
                         key={i}
                         onClick={() => selectEndpoint(category.name, endpoint)}
                         className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 ${
-                          activeEndpoint?.endpoint === endpoint ? 'bg-primary-50 border-l-2 border-primary-500' : ''
+                          activeEndpoint?.endpoint === endpoint
+                            ? 'bg-primary-50 border-l-2 border-primary-500'
+                            : ''
                         }`}
                       >
-                        <span className={`px-1.5 py-0.5 text-xs font-bold rounded border ${getMethodColor(endpoint.method)}`}>
+                        <span
+                          className={`px-1.5 py-0.5 text-xs font-bold rounded border ${getMethodColor(
+                            endpoint.method
+                          )}`}
+                        >
                           {endpoint.method}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-600 truncate block" title={endpoint.path}>
+                          <span
+                            className="text-sm text-gray-600 truncate block"
+                            title={endpoint.path}
+                          >
                             {endpoint.path}
                           </span>
                           <span className="text-xs text-gray-400">{endpoint.description}</span>
@@ -328,10 +459,14 @@ export default function Docs() {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className={`px-2 py-1 text-sm font-bold rounded border ${getMethodColor(activeEndpoint.endpoint.method)}`}>
+                    <span
+                      className={`px-2 py-1 text-sm font-bold rounded border ${getMethodColor(
+                        activeEndpoint.endpoint.method
+                      )}`}
+                    >
                       {activeEndpoint.endpoint.method}
                     </span>
-                    <code className="text-sm text-gray-700">{activeEndpoint.endpoint.path}</code>
+                    <code className="text-sm text-gray-700">{getResolvedPath()}</code>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -354,11 +489,69 @@ export default function Docs() {
                 <div className="p-3">
                   <p className="text-sm text-gray-600 mb-2">{activeEndpoint.endpoint.description}</p>
                   {activeEndpoint.endpoint.auth && !token && (
-                    <p className="text-sm text-yellow-600 mb-2">This endpoint requires authentication. Enter a token above.</p>
+                    <p className="text-sm text-yellow-600 mb-2">
+                      This endpoint requires authentication. Enter a token above.
+                    </p>
                   )}
+
+                  {/* Path Parameters */}
+                  {activeEndpoint.endpoint.pathParams &&
+                    activeEndpoint.endpoint.pathParams.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Path Parameters:
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {activeEndpoint.endpoint.pathParams.map((param) => (
+                            <div key={param.name}>
+                              <label className="block text-xs text-gray-500 mb-1">
+                                {param.name}
+                                {param.description && (
+                                  <span className="text-gray-400"> - {param.description}</span>
+                                )}
+                              </label>
+                              {param.name === 'namespace' && namespaces.length > 0 ? (
+                                <select
+                                  value={pathParamValues[param.name] || ''}
+                                  onChange={(e) =>
+                                    setPathParamValues((prev) => ({
+                                      ...prev,
+                                      [param.name]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                                >
+                                  {namespaces.map((ns) => (
+                                    <option key={ns} value={ns}>
+                                      {ns}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={pathParamValues[param.name] || ''}
+                                  onChange={(e) =>
+                                    setPathParamValues((prev) => ({
+                                      ...prev,
+                                      [param.name]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder={param.default || param.name}
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono"
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                   {activeEndpoint.endpoint.body && (
                     <div className="mt-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Request Body:</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Request Body:
+                      </label>
                       <CodeMirror
                         value={requestBody}
                         height="100px"
@@ -390,7 +583,11 @@ export default function Docs() {
                       onClick={copyResponse}
                       className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
                     >
-                      {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                      {copied ? (
+                        <Check className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
                       {copied ? 'Copied!' : 'Copy'}
                     </button>
                   )}
