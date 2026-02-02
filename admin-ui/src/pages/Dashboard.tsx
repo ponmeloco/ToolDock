@@ -52,16 +52,16 @@ export default function Dashboard() {
             {healthQuery.data?.services.map((service) => (
               <div
                 key={service.name}
-                className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg"
+                className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
               >
-                <StatusIcon status={service.status} />
-                <div>
+                <div className="flex items-center gap-3">
+                  <StatusIcon status={service.status} />
                   <div className="font-medium text-gray-900 capitalize">
-                    {service.name} Server
+                    {service.name}
                   </div>
-                  <div className="text-sm text-gray-500">
-                    Port {service.port} - {service.status}
-                  </div>
+                </div>
+                <div className="text-xs text-gray-500">
+                  Last checked: {new Date(healthQuery.data?.timestamp || Date.now()).toLocaleTimeString()}
                 </div>
               </div>
             ))}
