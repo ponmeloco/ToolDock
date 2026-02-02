@@ -53,6 +53,9 @@ tooldock_data/tools/*/
 !tooldock_data/tools/shared/
 tooldock_data/logs/
 
+# LiteLLM (local stack)
+LiteLLM/
+
 # Coverage
 .coverage
 htmlcov/
