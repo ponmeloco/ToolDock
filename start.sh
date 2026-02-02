@@ -150,10 +150,12 @@ print_success "Set permissions on tooldock_data/"
 
 print_header "Building Docker Images"
 
-# Build function with compact output
+# Build function with compact output and spinner
 build_image() {
     local service=$1
     local build_args=""
+    local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local spin_index=0
 
     if [ "$FORCE_REBUILD" = true ]; then
         build_args="--no-cache --pull"
@@ -161,13 +163,16 @@ build_image() {
 
     print_info "Building $service..."
 
-    # Build with progress output, show only last 15 lines in a fixed area
+    # Build with progress output
     if [ -t 1 ]; then
-        # Terminal: show compact rolling output
+        # Terminal: show spinner with current step
         docker compose build $service $build_args --progress=plain 2>&1 | \
-            tail -n 15 | while IFS= read -r line; do
-                # Clear line and print
-                printf "\r\033[K  %.100s" "$line"
+            while IFS= read -r line; do
+                # Get spinner character
+                local spin_char="${spin_chars:$spin_index:1}"
+                spin_index=$(( (spin_index + 1) % ${#spin_chars} ))
+                # Show spinner + truncated line
+                printf "\r\033[K  ${YELLOW}%s${NC} %.90s" "$spin_char" "$line"
             done
         printf "\r\033[K"  # Clear the last line
     else
