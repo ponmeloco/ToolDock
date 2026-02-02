@@ -293,26 +293,32 @@ else
 fi
 
 # ==================================================
-# Step 6: Run Unit Tests
+# Step 6: Run Unit Tests (optional, dev only)
 # ==================================================
 
-print_header "Running Unit Tests"
+# Only run tests if pytest is available
+if command -v pytest &> /dev/null || python -m pytest --version &> /dev/null 2>&1; then
+    print_header "Running Unit Tests"
 
-print_info "Running pytest..."
+    print_info "Running pytest..."
 
-# Run tests and capture output
-TEST_OUTPUT=$(python -m pytest tests/ -q --tb=no 2>&1)
-TEST_EXIT_CODE=$?
+    # Run tests and capture output
+    TEST_OUTPUT=$(python -m pytest tests/ -q --tb=no 2>&1)
+    TEST_EXIT_CODE=$?
 
-# Extract summary line
-SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
+    # Extract summary line
+    SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
 
-if [ $TEST_EXIT_CODE -eq 0 ]; then
-    print_success "All tests passed: $SUMMARY"
+    if [ $TEST_EXIT_CODE -eq 0 ]; then
+        print_success "All tests passed: $SUMMARY"
+    else
+        print_error "Some tests failed: $SUMMARY"
+        echo ""
+        echo "Run 'pytest tests/ -v' for details"
+    fi
 else
-    print_error "Some tests failed: $SUMMARY"
-    echo ""
-    echo "Run 'pytest tests/ -v' for details"
+    # Skip tests on production servers
+    TEST_EXIT_CODE=0
 fi
 
 # ==================================================
