@@ -150,28 +150,47 @@ print_success "Set permissions on tooldock_data/"
 
 print_header "Building Docker Images"
 
-# Set build options
-BUILD_OPTS="--quiet"
+# Build function with compact output
+build_image() {
+    local service=$1
+    local build_args=""
+
+    if [ "$FORCE_REBUILD" = true ]; then
+        build_args="--no-cache --pull"
+    fi
+
+    print_info "Building $service..."
+
+    # Build with progress output, show only last 15 lines in a fixed area
+    if [ -t 1 ]; then
+        # Terminal: show compact rolling output
+        docker compose build $service $build_args --progress=plain 2>&1 | \
+            tail -n 15 | while IFS= read -r line; do
+                # Clear line and print
+                printf "\r\033[K  %.100s" "$line"
+            done
+        printf "\r\033[K"  # Clear the last line
+    else
+        # Non-terminal: quiet build
+        docker compose build $service $build_args --quiet 2>&1
+    fi
+
+    # Check if build succeeded
+    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+        print_success "$service image built"
+        return 0
+    else
+        print_error "Failed to build $service"
+        return 1
+    fi
+}
+
 if [ "$FORCE_REBUILD" = true ]; then
-    BUILD_OPTS="--no-cache --pull"
     print_info "Force rebuild enabled (--no-cache --pull)"
 fi
 
-print_info "Building tooldock-backend..."
-if docker compose build tooldock-backend $BUILD_OPTS 2>&1 | grep -v "^$"; then
-    print_success "tooldock-backend image built"
-else
-    print_error "Failed to build tooldock-backend"
-    exit 1
-fi
-
-print_info "Building tooldock-admin..."
-if docker compose build tooldock-admin $BUILD_OPTS 2>&1 | grep -v "^$"; then
-    print_success "tooldock-admin image built"
-else
-    print_error "Failed to build tooldock-admin"
-    exit 1
-fi
+build_image "tooldock-backend" || exit 1
+build_image "tooldock-admin" || exit 1
 
 # ==================================================
 # Step 4: Start Stack
