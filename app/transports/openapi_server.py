@@ -101,7 +101,7 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
     app.add_middleware(TrailingNewlineMiddleware)
 
     # Add request logging middleware
-    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(RequestLoggingMiddleware, service_name="openapi")
 
     # Store registry in app state
     app.state.registry = registry
@@ -207,5 +207,4 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
 
     logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")
     return app
-
 

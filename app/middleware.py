@@ -100,8 +100,9 @@ class RequestLoggingMiddleware:
     Uses raw ASGI interface to capture response body for error logging.
     """
 
-    def __init__(self, app):
+    def __init__(self, app, service_name: str | None = None):
         self.app = app
+        self.service_name = service_name
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -173,6 +174,7 @@ class RequestLoggingMiddleware:
                         status_code=status_code,
                         duration_ms=duration_ms,
                         tool_name=tool_name,
+                        service_name=self.service_name,
                         request_id=request_id,
                         error_detail=error_detail,
                     )

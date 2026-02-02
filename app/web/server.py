@@ -123,7 +123,7 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")
 
     # Add request logging middleware (after log buffer is set up)
-    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(RequestLoggingMiddleware, service_name="web")
 
     # Include API routes
     app.include_router(folders_router)

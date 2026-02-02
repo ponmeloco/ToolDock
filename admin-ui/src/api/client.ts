@@ -87,6 +87,38 @@ export interface SystemHealth {
   environment: Record<string, string>
 }
 
+export interface ErrorRateWindow {
+  requests: number
+  errors: number
+  error_rate: number
+}
+
+export interface ServiceErrorRates {
+  last_5m: ErrorRateWindow
+  last_1h: ErrorRateWindow
+  last_24h: ErrorRateWindow
+  last_7d: ErrorRateWindow
+}
+
+export interface ToolCallCounts {
+  total: number
+  success: number
+  error: number
+}
+
+export interface ToolCallStats {
+  last_5m: ToolCallCounts
+  last_1h: ToolCallCounts
+  last_24h: ToolCallCounts
+  last_7d: ToolCallCounts
+}
+
+export interface SystemMetrics {
+  timestamp: string
+  services: Record<string, ServiceErrorRates>
+  tool_calls: ToolCallStats
+}
+
 export interface LogEntry {
   timestamp: string
   level: string
@@ -98,6 +130,7 @@ export interface LogEntry {
   http_status?: number
   http_duration_ms?: number
   tool_name?: string
+  service_name?: string
   request_id?: string
   error_detail?: string
 }
@@ -257,6 +290,11 @@ export async function getSystemInfo(): Promise<{
   environment: Record<string, string>
 }> {
   const res = await fetchWithAuth(`${API_BASE}/admin/info`)
+  return res.json()
+}
+
+export async function getSystemMetrics(): Promise<SystemMetrics> {
+  const res = await fetchWithAuth(`${API_BASE}/admin/metrics`)
   return res.json()
 }
 

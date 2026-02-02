@@ -57,6 +57,7 @@ class LogEntry(BaseModel):
     http_status: Optional[int] = None
     http_duration_ms: Optional[float] = None
     tool_name: Optional[str] = None
+    service_name: Optional[str] = None
     request_id: Optional[str] = None
     error_detail: Optional[str] = None
 
@@ -103,6 +104,90 @@ class SystemInfoResponse(BaseModel):
     data_dir: str
     namespaces: List[str]
     environment: dict
+
+
+class ServiceErrorRate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requests: int
+    errors: int
+    error_rate: float
+
+
+class ServiceErrorRates(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_5m: ServiceErrorRate
+    last_1h: ServiceErrorRate
+    last_24h: ServiceErrorRate
+    last_7d: ServiceErrorRate
+
+
+class ToolCallCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    success: int
+    error: int
+
+
+class ToolCallStats(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_5m: ToolCallCounts
+    last_1h: ToolCallCounts
+    last_24h: ToolCallCounts
+    last_7d: ToolCallCounts
+
+
+class MetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: str
+    services: dict
+    tool_calls: ToolCallStats
+
+
+class ServiceErrorRate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requests: int
+    errors: int
+    error_rate: float
+
+
+class ServiceErrorRates(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_5m: ServiceErrorRate
+    last_1h: ServiceErrorRate
+    last_24h: ServiceErrorRate
+    last_7d: ServiceErrorRate
+
+
+class ToolCallCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    success: int
+    error: int
+
+
+class ToolCallStats(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_5m: ToolCallCounts
+    last_1h: ToolCallCounts
+    last_24h: ToolCallCounts
+    last_7d: ToolCallCounts
+
+
+class MetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: str
+    services: dict
+    tool_calls: ToolCallStats
 
 
 def _get_log_dir() -> Path:
@@ -214,6 +299,58 @@ def _read_recent_logs_from_file(
     return list(results), total
 
 
+def _infer_service_name(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    if path.startswith("/mcp"):
+        return "mcp"
+    if path.startswith("/tools") or path.startswith("/openapi") or path.startswith("/docs"):
+        return "openapi"
+    if path.startswith("/api") or path.startswith("/admin"):
+        return "web"
+    return None
+
+
+def _load_logs_since(cutoff: datetime) -> List[LogEntry]:
+    """Load log entries from the last 7 days (or since cutoff)."""
+    log_dir = _get_log_dir()
+    entries: List[LogEntry] = []
+    for log_file in sorted(log_dir.glob("*.jsonl")):
+        try:
+            file_date_str = log_file.stem
+            file_date = datetime.strptime(file_date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+
+        # Skip files older than cutoff date
+        if file_date.date() < cutoff.date():
+            continue
+
+        try:
+            with open(log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        data = json.loads(line.strip())
+                        entry = LogEntry(**data)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+
+                    try:
+                        ts = datetime.fromisoformat(entry.timestamp)
+                    except ValueError:
+                        continue
+                    if ts < cutoff:
+                        continue
+
+                    if entry.service_name is None:
+                        entry.service_name = _infer_service_name(entry.http_path)
+                    entries.append(entry)
+        except Exception as e:
+            logger.warning(f"Error reading log file {log_file}: {e}")
+
+    return entries
+
+
 class BufferingLogHandler(logging.Handler):
     """Custom log handler that buffers log entries and writes to file."""
 
@@ -269,6 +406,7 @@ def log_request(
     status_code: int,
     duration_ms: float,
     tool_name: Optional[str] = None,
+    service_name: Optional[str] = None,
     request_id: Optional[str] = None,
     error_detail: Optional[str] = None,
 ):
@@ -305,6 +443,7 @@ def log_request(
         http_status=status_code,
         http_duration_ms=round(duration_ms, 1),
         tool_name=tool_name,
+        service_name=service_name,
         request_id=request_id,
         error_detail=error_detail,
     )
@@ -595,4 +734,66 @@ async def get_system_info(
             ),
             "host_data_dir": os.getenv("HOST_DATA_DIR", ""),
         },
+    )
+
+
+@router.get("/metrics", response_model=MetricsResponse)
+async def get_metrics(_: str = Depends(verify_token)) -> MetricsResponse:
+    """Get recent error rates and tool call stats for the dashboard."""
+    now = datetime.now()
+    cutoff = now - timedelta(days=7)
+    entries = _load_logs_since(cutoff)
+
+    windows = {
+        "last_5m": now - timedelta(minutes=5),
+        "last_1h": now - timedelta(hours=1),
+        "last_24h": now - timedelta(hours=24),
+        "last_7d": now - timedelta(days=7),
+    }
+
+    service_names = ["openapi", "mcp", "web"]
+    services: dict = {}
+
+    for service in service_names:
+        rates = {}
+        for key, window_start in windows.items():
+            window_entries = [
+                e for e in entries
+                if e.service_name == service
+                and e.http_status is not None
+                and datetime.fromisoformat(e.timestamp) >= window_start
+            ]
+            requests = len(window_entries)
+            errors = len([e for e in window_entries if (e.http_status or 0) >= 400])
+            error_rate = (errors / requests * 100.0) if requests else 0.0
+            rates[key] = ServiceErrorRate(
+                requests=requests,
+                errors=errors,
+                error_rate=round(error_rate, 2),
+            )
+        services[service] = ServiceErrorRates(**rates)
+
+    def tool_counts(since: datetime) -> ToolCallCounts:
+        tool_entries = [
+            e for e in entries
+            if e.tool_name is not None
+            and e.http_status is not None
+            and datetime.fromisoformat(e.timestamp) >= since
+        ]
+        total = len(tool_entries)
+        errors = len([e for e in tool_entries if (e.http_status or 0) >= 400])
+        success = total - errors
+        return ToolCallCounts(total=total, success=success, error=errors)
+
+    tool_calls = ToolCallStats(
+        last_5m=tool_counts(windows["last_5m"]),
+        last_1h=tool_counts(windows["last_1h"]),
+        last_24h=tool_counts(windows["last_24h"]),
+        last_7d=tool_counts(windows["last_7d"]),
+    )
+
+    return MetricsResponse(
+        timestamp=now.isoformat(),
+        services=services,
+        tool_calls=tool_calls,
     )

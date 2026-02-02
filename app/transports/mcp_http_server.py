@@ -91,7 +91,7 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
     # Add trailing newline to JSON responses for better CLI output
     app.add_middleware(TrailingNewlineMiddleware)
-    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(RequestLoggingMiddleware, service_name="mcp")
 
     # Store registry in app state
     app.state.registry = registry

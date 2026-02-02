@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { getSystemHealth, getSystemInfo } from '../api/client'
+import { getSystemHealth, getSystemInfo, getSystemMetrics } from '../api/client'
 import {
   CheckCircle,
   XCircle,
@@ -31,6 +31,28 @@ export default function Dashboard() {
     queryKey: ['info'],
     queryFn: getSystemInfo,
   })
+
+  const metricsQuery = useQuery({
+    queryKey: ['metrics'],
+    queryFn: getSystemMetrics,
+    refetchInterval: 10000,
+  })
+
+  const formatRate = (rate: number) => `${rate.toFixed(1)}%`
+
+  const serviceOrder = ['openapi', 'mcp', 'web']
+  const serviceLabels: Record<string, string> = {
+    openapi: 'OpenAPI',
+    mcp: 'MCP',
+    web: 'Admin',
+  }
+
+  const toolCallWindows = [
+    { key: 'last_5m', label: 'Last 5m' },
+    { key: 'last_1h', label: 'Last 1h' },
+    { key: 'last_24h', label: 'Last 24h' },
+    { key: 'last_7d', label: 'Last 7d' },
+  ] as const
 
   return (
     <div className="space-y-6">
@@ -65,6 +87,58 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Error Rate */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          Error Rate (by Service)
+        </h2>
+        {metricsQuery.isLoading ? (
+          <div className="text-gray-500">Loading...</div>
+        ) : metricsQuery.error ? (
+          <div className="text-red-500">Failed to load metrics</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {serviceOrder.map((service) => {
+              const rates = metricsQuery.data?.services?.[service]
+              if (!rates) return null
+              return (
+                <div key={service} className="p-4 bg-gray-50 rounded-lg">
+                  <div className="font-medium text-gray-900 mb-2">
+                    {serviceLabels[service] || service}
+                  </div>
+                  <div className="space-y-1 text-xs text-gray-600">
+                    <div className="flex justify-between">
+                      <span>Last 5m</span>
+                      <span className="font-mono">
+                        {formatRate(rates.last_5m.error_rate)} ({rates.last_5m.errors}/{rates.last_5m.requests})
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Last 1h</span>
+                      <span className="font-mono">
+                        {formatRate(rates.last_1h.error_rate)} ({rates.last_1h.errors}/{rates.last_1h.requests})
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Last 24h</span>
+                      <span className="font-mono">
+                        {formatRate(rates.last_24h.error_rate)} ({rates.last_24h.errors}/{rates.last_24h.requests})
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Last 7d</span>
+                      <span className="font-mono">
+                        {formatRate(rates.last_7d.error_rate)} ({rates.last_7d.errors}/{rates.last_7d.requests})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -155,6 +229,36 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Tool Calls */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Tool Calls</h2>
+        {metricsQuery.isLoading ? (
+          <div className="text-gray-500">Loading...</div>
+        ) : metricsQuery.error ? (
+          <div className="text-red-500">Failed to load metrics</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {toolCallWindows.map((window) => {
+              const stats = metricsQuery.data?.tool_calls?.[window.key]
+              if (!stats) return null
+              const successRate = stats.total ? (stats.success / stats.total) * 100 : 0
+              return (
+                <div key={window.key} className="p-4 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-gray-500">{window.label}</div>
+                  <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                  <div className="text-xs text-gray-600">
+                    {stats.success} ok / {stats.error} err
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Success {successRate.toFixed(1)}%
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Quick Links */}
