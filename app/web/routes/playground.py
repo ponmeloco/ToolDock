@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
+from app.utils import set_request_context
 from app.errors import ToolError, ToolNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,8 @@ class ToolExecuteRequest(BaseModel):
 
     tool_name: str
     arguments: Dict[str, Any] = {}
-    transport: str = "direct"  # "direct" or "mcp"
+    transport: str = "openapi"  # "openapi", "mcp", or "direct"
+    namespace: Optional[str] = None
 
 
 class ToolExecuteResponse(BaseModel):
@@ -40,6 +42,8 @@ class ToolExecuteResponse(BaseModel):
     result: Any
     success: bool
     error: Optional[str] = None
+    error_type: Optional[str] = None  # "network" | "server" | "unknown"
+    status_code: Optional[int] = None
 
 
 class MCPRequest(BaseModel):
@@ -120,22 +124,15 @@ async def execute_tool(
     Args:
         body: Tool name, arguments, and transport type
     """
-    registry = request.app.state.registry
+    import os
 
+    registry = request.app.state.registry
+    set_request_context(tool_name=body.tool_name)
     logger.info(f"Playground executing tool: {body.tool_name} via {body.transport}")
 
     try:
-        if body.transport == "mcp":
-            # Execute via MCP-style call (same result, different logging)
-            result = await registry.call(body.tool_name, body.arguments)
-            return ToolExecuteResponse(
-                tool=body.tool_name,
-                transport="mcp",
-                result={"content": [{"type": "text", "text": str(result)}]},
-                success=True,
-            )
-        else:
-            # Direct execution
+        if body.transport == "direct":
+            # Direct execution (registry only)
             result = await registry.call(body.tool_name, body.arguments)
             return ToolExecuteResponse(
                 tool=body.tool_name,
@@ -143,6 +140,125 @@ async def execute_tool(
                 result=result,
                 success=True,
             )
+
+        # Proxy to real tool servers for transport-level testing
+        token = os.getenv("BEARER_TOKEN", "")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        timeout = float(os.getenv("TOOL_TIMEOUT_SECONDS", "30"))
+
+        import httpx
+
+        if body.transport == "openapi":
+            openapi_port = int(os.getenv("OPENAPI_PORT", "8006"))
+            url = f"http://localhost:{openapi_port}/tools/{body.tool_name}"
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    res = await client.post(url, json=body.arguments, headers=headers)
+            except httpx.RequestError as e:
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="openapi",
+                    result=None,
+                    success=False,
+                    error=f"Network error: {e}",
+                    error_type="network",
+                )
+            except httpx.TimeoutException as e:
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="openapi",
+                    result=None,
+                    success=False,
+                    error=f"Network timeout: {e}",
+                    error_type="network",
+                )
+            if res.status_code >= 400:
+                try:
+                    error = res.json()
+                except Exception:
+                    error = res.text
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="openapi",
+                    result=None,
+                    success=False,
+                    error=str(error),
+                    error_type="server",
+                    status_code=res.status_code,
+                )
+            data = res.json()
+            result = data.get("result", data)
+            return ToolExecuteResponse(
+                tool=body.tool_name,
+                transport="openapi",
+                result=result,
+                success=True,
+            )
+
+        if body.transport == "mcp":
+            namespace = body.namespace or "shared"
+            mcp_port = int(os.getenv("MCP_PORT", "8007"))
+            url = f"http://localhost:{mcp_port}/mcp/{namespace}"
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": body.tool_name, "arguments": body.arguments},
+            }
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    res = await client.post(url, json=payload, headers=headers)
+            except httpx.RequestError as e:
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="mcp",
+                    result=None,
+                    success=False,
+                    error=f"Network error: {e}",
+                    error_type="network",
+                )
+            except httpx.TimeoutException as e:
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="mcp",
+                    result=None,
+                    success=False,
+                    error=f"Network timeout: {e}",
+                    error_type="network",
+                )
+            if res.status_code >= 400:
+                try:
+                    error = res.json()
+                except Exception:
+                    error = res.text
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="mcp",
+                    result=None,
+                    success=False,
+                    error=str(error),
+                    error_type="server",
+                    status_code=res.status_code,
+                )
+            data = res.json()
+            if data.get("error"):
+                return ToolExecuteResponse(
+                    tool=body.tool_name,
+                    transport="mcp",
+                    result=None,
+                    success=False,
+                    error=data.get("error", {}).get("message", "MCP error"),
+                    error_type="server",
+                    status_code=res.status_code,
+                )
+            return ToolExecuteResponse(
+                tool=body.tool_name,
+                transport="mcp",
+                result=data.get("result"),
+                success=True,
+            )
+
+        raise HTTPException(status_code=400, detail=f"Unknown transport: {body.transport}")
 
     except ToolNotFoundError as e:
         logger.warning(f"Tool not found: {body.tool_name}")
@@ -156,6 +272,7 @@ async def execute_tool(
             result=None,
             success=False,
             error=e.message,
+            error_type="server",
         )
 
     except Exception as e:
@@ -166,6 +283,7 @@ async def execute_tool(
             result=None,
             success=False,
             error=str(e),
+            error_type="unknown",
         )
 
 

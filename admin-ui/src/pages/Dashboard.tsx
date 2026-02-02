@@ -117,13 +117,27 @@ export default function Dashboard() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Data Volume:</span>
-                <span className="font-mono text-xs">{infoQuery.data?.data_dir || 'tooldock_data'}</span>
+                <span className="font-mono text-xs">
+                  {infoQuery.data?.environment?.host_data_dir || infoQuery.data?.data_dir || 'tooldock_data'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">MCP Protocol:</span>
+                <span className="font-mono text-xs">
+                  {infoQuery.data?.environment?.mcp_protocol_version || '2025-03-26'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">MCP Supported:</span>
+                <span className="font-mono text-xs">
+                  {infoQuery.data?.environment?.mcp_protocol_versions || '2025-03-26'}
+                </span>
               </div>
 
               <div className="border-t border-gray-100 pt-3 mt-3">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Ports</div>
                 {Object.entries(infoQuery.data?.environment || {})
-                  .filter(([key]) => key.includes('port'))
+                  .filter(([key]) => key.includes('port') && !key.includes('internal'))
                   .map(([key, value]) => (
                     <div key={key} className="flex justify-between">
                       <span className="text-gray-500">{key.replace('_', ' ')}:</span>

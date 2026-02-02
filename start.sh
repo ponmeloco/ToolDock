@@ -94,6 +94,10 @@ MCP_PORT=18007
 WEB_PORT=18080
 ADMIN_PORT=13000
 
+# MCP (strict mode defaults)
+MCP_PROTOCOL_VERSION=2025-03-26
+MCP_PROTOCOL_VERSIONS=2025-03-26
+
 # CORS (comma-separated origins, or * for all)
 CORS_ORIGINS=http://localhost:13000
 
@@ -111,6 +115,18 @@ fi
 set -a
 source .env
 set +a
+
+# Ensure host data dir is available for UI display
+if [ -z "${HOST_DATA_DIR:-}" ]; then
+    HOST_DATA_DIR="${SCRIPT_DIR}/tooldock_data"
+else
+    # If relative, resolve against repo root for clarity
+    case "$HOST_DATA_DIR" in
+        /*) : ;;
+        *) HOST_DATA_DIR="${SCRIPT_DIR}/${HOST_DATA_DIR}" ;;
+    esac
+fi
+export HOST_DATA_DIR
 
 # Check for default token warning
 if grep -q "BEARER_TOKEN=change_me" .env 2>/dev/null; then
@@ -278,10 +294,10 @@ print_info "Giving containers time to initialize..."
 sleep 2
 
 # Check each service
-BACKEND_PORT="${WEB_PORT:-8080}"
-OPENAPI_PORT="${OPENAPI_PORT:-8006}"
-MCP_PORT="${MCP_PORT:-8007}"
-ADMIN_PORT="${ADMIN_PORT:-3000}"
+BACKEND_PORT="${WEB_PORT:-18080}"
+OPENAPI_PORT="${OPENAPI_PORT:-18006}"
+MCP_PORT="${MCP_PORT:-18007}"
+ADMIN_PORT="${ADMIN_PORT:-13000}"
 
 echo ""
 
@@ -328,31 +344,45 @@ fi
 # Step 6: Run Unit Tests (optional, dev only)
 # ==================================================
 
-# Only run tests if pytest is available
-if command -v pytest &> /dev/null || python -m pytest --version &> /dev/null 2>&1; then
+# Prefer running tests inside the backend container (stable Python 3.12)
+if docker compose ps --status running -q tooldock-backend 2>/dev/null | grep -q .; then
     print_header "Running Unit Tests"
+    print_info "Running pytest inside tooldock-backend container..."
 
-    print_info "Running pytest..."
-
-    # Run tests and capture output
-    TEST_OUTPUT=$(python -m pytest tests/ -q --tb=no 2>&1)
+    TEST_OUTPUT=$(docker compose exec -T tooldock-backend python -m pytest tests/ -q --tb=no 2>&1)
     TEST_EXIT_CODE=$?
 
-    # Extract summary line
     SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
-
     if [ $TEST_EXIT_CODE -eq 0 ]; then
         print_success "All tests passed: $SUMMARY"
     else
         print_error "Some tests failed: $SUMMARY"
         echo ""
-        echo "Run 'pytest tests/ -v' for details"
+        echo "Run 'docker compose exec -T tooldock-backend pytest tests/ -v' for details"
     fi
 else
-    # Skip tests on production servers
-    print_info "Skipping tests (pytest not installed)"
-    print_info "To run tests: pip install pytest pytest-asyncio"
-    TEST_EXIT_CODE=0
+    # Fallback to host pytest if available
+    if command -v pytest &> /dev/null || python -m pytest --version &> /dev/null 2>&1; then
+        print_header "Running Unit Tests"
+        print_info "Running pytest on host..."
+
+        TEST_OUTPUT=$(python -m pytest tests/ -q --tb=no 2>&1)
+        TEST_EXIT_CODE=$?
+
+        SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
+        if [ $TEST_EXIT_CODE -eq 0 ]; then
+            print_success "All tests passed: $SUMMARY"
+        else
+            print_error "Some tests failed: $SUMMARY"
+            echo ""
+            echo "Run 'pytest tests/ -v' for details"
+        fi
+    else
+        # Skip tests on production servers
+        print_info "Skipping tests (pytest not installed)"
+        print_info "To run tests: pip install pytest pytest-asyncio"
+        TEST_EXIT_CODE=0
+    fi
 fi
 
 # ==================================================
@@ -367,6 +397,11 @@ echo "  Backend API:  http://localhost:${WEB_PORT:-18080}"
 echo "  OpenAPI:      http://localhost:${OPENAPI_PORT:-18006}"
 echo "  MCP HTTP:     http://localhost:${MCP_PORT:-18007}"
 echo "  Admin UI:     http://localhost:${ADMIN_PORT:-13000}"
+echo ""
+echo "MCP Strict Mode:"
+echo "  GET /mcp and GET /mcp/{namespace} return 405"
+echo "  Notifications-only requests return 202"
+echo "  MCP-Protocol-Version validated if present"
 echo ""
 echo "API Docs:       http://localhost:${WEB_PORT:-18080}/docs"
 echo ""

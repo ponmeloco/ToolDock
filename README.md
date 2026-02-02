@@ -55,7 +55,7 @@ curl http://localhost:13000          # Admin UI
 | **Multi-Tenant** | Each folder becomes a separate MCP endpoint |
 | **Dual Transport** | OpenAPI + MCP from the same codebase |
 | **Hot Reload** | Reload tools without server restart |
-| **Playground** | Test tools with Direct or MCP transport |
+| **Playground** | Test tools via OpenAPI or MCP (real servers) |
 | **Persistent Logs** | Daily JSON log files with auto-cleanup |
 | **External MCP** | Integrate GitHub, Filesystem, etc. from MCP Registry |
 
@@ -94,6 +94,13 @@ ADMIN_PORT=13000
 
 # Optional - Logging
 LOG_RETENTION_DAYS=30  # Auto-delete logs after N days
+
+# Optional - MCP Protocol (strict mode)
+MCP_PROTOCOL_VERSION=2025-03-26
+MCP_PROTOCOL_VERSIONS=2025-03-26
+
+# Optional - Host display (Admin UI)
+HOST_DATA_DIR=./tooldock_data
 
 # Optional - External MCP
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx
@@ -202,7 +209,10 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 |----------|--------|-------------|
 | `/health` | GET | Health check |
 | `/mcp/namespaces` | GET | List namespaces |
-| `/mcp/{namespace}` | POST | JSON-RPC endpoint |
+| `/mcp` | POST | JSON-RPC endpoint (all namespaces) |
+| `/mcp/{namespace}` | POST | JSON-RPC endpoint (namespace) |
+| `/mcp/info` | GET | Non-standard discovery |
+| `/mcp/{namespace}/info` | GET | Non-standard discovery |
 
 ### Backend API (Port 18080)
 
@@ -215,7 +225,16 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 | `/api/admin/logs` | GET | View logs |
 | `/api/admin/logs/files` | GET | List log files |
 | `/api/playground/tools` | GET | List tools for playground |
-| `/api/playground/execute` | POST | Execute tool (Direct/MCP) |
+| `/api/playground/execute` | POST | Execute tool (OpenAPI/MCP via real servers) |
+
+---
+
+## MCP Strict Mode Notes
+
+- `GET /mcp` and `GET /mcp/{namespace}` return **405** (strict spec).
+- Notifications-only requests return **202** with no body.
+- `Origin` header is validated against `CORS_ORIGINS`.
+- `MCP-Protocol-Version` is validated if present; supported versions configured via `MCP_PROTOCOL_VERSIONS`.
 
 ---
 
@@ -233,6 +252,7 @@ pip install pytest pytest-asyncio pytest-cov
 ```
 
 > **Note:** Tests are skipped automatically on production servers without pytest installed.
+> When using `./start.sh`, tests run **inside the backend container** (Python 3.12) to avoid host interpreter incompatibilities.
 
 ---
 

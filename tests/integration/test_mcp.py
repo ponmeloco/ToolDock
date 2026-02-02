@@ -100,6 +100,16 @@ class TestHealthEndpoint:
         assert "tools" in data
         assert data["tools"]["total"] >= 2
 
+    def test_strict_get_mcp_returns_405(self, client: TestClient, auth_headers: dict):
+        """GET /mcp is not used in strict mode."""
+        response = client.get("/mcp", headers=auth_headers)
+        assert response.status_code == 405
+
+    def test_strict_get_mcp_namespace_returns_405(self, client: TestClient, auth_headers: dict):
+        """GET /mcp/{namespace} is not used in strict mode."""
+        response = client.get("/mcp/shared", headers=auth_headers)
+        assert response.status_code == 405
+
 
 # ==================== Initialize Tests ====================
 
@@ -119,7 +129,7 @@ class TestMCPInitialize:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": "2025-03-26",
                     "clientInfo": {"name": "test-client", "version": "1.0.0"},
                     "capabilities": {},
                 },
@@ -146,7 +156,7 @@ class TestMCPInitialize:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": "2025-03-26",
                     "clientInfo": {"name": "test-client"},
                     "capabilities": {},
                 },
@@ -156,6 +166,30 @@ class TestMCPInitialize:
         assert response.status_code == 200
         data = response.json()
         assert data["result"]["serverInfo"]["name"].endswith("/shared")
+
+    def test_initialize_invalid_protocol_version(
+        self, client: TestClient, auth_headers: dict
+    ):
+        """Test initialize rejects unsupported protocol versions."""
+        response = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "1900-01-01",
+                    "clientInfo": {"name": "test-client"},
+                    "capabilities": {},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+        assert data["error"]["code"] == -32602
 
 
 # ==================== List Tools Tests ====================
@@ -350,11 +384,21 @@ class TestNamespaceRouting:
         assert "shared" in data["namespaces"]
         assert "team" in data["namespaces"]
 
+    def test_mcp_info_global(
+        self, client: TestClient, auth_headers: dict
+    ):
+        """Test non-standard global discovery endpoint."""
+        response = client.get("/mcp/info", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["protocol"] == "MCP"
+        assert "namespace_endpoints" in data
+
     def test_namespace_info(
         self, client: TestClient, auth_headers: dict
     ):
-        """Test getting namespace info via GET."""
-        response = client.get("/mcp/shared", headers=auth_headers)
+        """Test getting namespace info via non-standard endpoint."""
+        response = client.get("/mcp/shared/info", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -364,8 +408,8 @@ class TestNamespaceRouting:
     def test_unknown_namespace(
         self, client: TestClient, auth_headers: dict
     ):
-        """Test accessing unknown namespace returns 404."""
-        response = client.get("/mcp/nonexistent", headers=auth_headers)
+        """Test accessing unknown namespace info returns 404."""
+        response = client.get("/mcp/nonexistent/info", headers=auth_headers)
 
         assert response.status_code == 404
         data = response.json()
@@ -418,6 +462,35 @@ class TestMCPAuthentication:
         )
 
         assert response.status_code == 200
+
+    def test_origin_rejected(
+        self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Invalid Origin header is rejected."""
+        monkeypatch.setenv("CORS_ORIGINS", "http://allowed.example")
+        response = client.post(
+            "/mcp",
+            headers={**auth_headers, "Origin": "http://blocked.example"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "ping",
+            },
+        )
+        assert response.status_code == 403
+
+    def test_protocol_header_rejected(self, client: TestClient, auth_headers: dict):
+        """Unsupported MCP-Protocol-Version header is rejected."""
+        response = client.post(
+            "/mcp",
+            headers={**auth_headers, "MCP-Protocol-Version": "1900-01-01"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "ping",
+            },
+        )
+        assert response.status_code == 400
 
 
 # ==================== JSON-RPC Error Handling Tests ====================
@@ -530,7 +603,7 @@ class TestMCPNotifications:
     def test_initialized_notification(
         self, client: TestClient, auth_headers: dict
     ):
-        """Test initialized notification returns 204."""
+        """Test initialized notification returns 202."""
         response = client.post(
             "/mcp",
             headers=auth_headers,
@@ -542,4 +615,20 @@ class TestMCPNotifications:
             },
         )
 
-        assert response.status_code == 204
+        assert response.status_code == 202
+
+    def test_notifications_initialized_supported(
+        self, client: TestClient, auth_headers: dict
+    ):
+        """notifications/initialized is supported."""
+        response = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {},
+            },
+        )
+
+        assert response.status_code == 202

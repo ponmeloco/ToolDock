@@ -3,16 +3,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
 import { getAllTools, executePlaygroundTool, PlaygroundTool } from '../api/client'
-import { Play, Check, X, Loader2, RefreshCw, FolderTree, Wrench, Zap, Server } from 'lucide-react'
+import { Play, Check, X, Loader2, RefreshCw, FolderTree, Wrench, Server, Globe } from 'lucide-react'
 
-type Transport = 'direct' | 'mcp'
+type Transport = 'openapi' | 'mcp'
 
 export default function Playground() {
   const [selectedNamespace, setSelectedNamespace] = useState<string | null>(null)
   const [selectedTool, setSelectedTool] = useState<string | null>(null)
   const [inputJson, setInputJson] = useState('{}')
   const [jsonError, setJsonError] = useState<string | null>(null)
-  const [transport, setTransport] = useState<Transport>('direct')
+  const [transport, setTransport] = useState<Transport>('openapi')
   const queryClient = useQueryClient()
 
   const toolsQuery = useQuery({
@@ -23,8 +23,8 @@ export default function Playground() {
   })
 
   const executeMutation = useMutation({
-    mutationFn: ({ name, payload, transport }: { name: string; payload: Record<string, unknown>; transport: Transport }) =>
-      executePlaygroundTool(name, payload, transport),
+    mutationFn: ({ name, payload, transport, namespace }: { name: string; payload: Record<string, unknown>; transport: Transport; namespace?: string }) =>
+      executePlaygroundTool(name, payload, transport, namespace),
   })
 
   const tools = toolsQuery.data?.tools || []
@@ -100,7 +100,7 @@ export default function Playground() {
 
     try {
       const payload = JSON.parse(inputJson)
-      executeMutation.mutate({ name: selectedTool, payload, transport })
+      executeMutation.mutate({ name: selectedTool, payload, transport, namespace: selectedNamespace || undefined })
     } catch (e) {
       setJsonError((e as Error).message)
     }
@@ -118,15 +118,15 @@ export default function Playground() {
           {/* Transport selector */}
           <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
             <button
-              onClick={() => setTransport('direct')}
+              onClick={() => setTransport('openapi')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                transport === 'direct'
+                transport === 'openapi'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Zap className="w-4 h-4" />
-              Direct
+              <Globe className="w-4 h-4" />
+              OpenAPI
             </button>
             <button
               onClick={() => setTransport('mcp')}
@@ -248,7 +248,7 @@ export default function Playground() {
                         : 'bg-blue-100 text-blue-700'
                     }`}
                   >
-                    via {transport === 'mcp' ? 'MCP' : 'Direct'}
+                    via {transport === 'mcp' ? 'MCP' : 'OpenAPI'}
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mt-1">{selectedToolInfo?.description}</p>
@@ -308,6 +308,22 @@ export default function Playground() {
                     {executeMutation.data && (
                       <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
                         {executeMutation.data.transport}
+                      </span>
+                    )}
+                    {executeMutation.data?.error_type && (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          executeMutation.data.error_type === 'network'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {executeMutation.data.error_type === 'network' ? 'Network' : 'Tool Server'}
+                      </span>
+                    )}
+                    {executeMutation.isError && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">
+                        Network (Admin API)
                       </span>
                     )}
                   </div>

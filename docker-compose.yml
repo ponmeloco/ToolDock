@@ -39,6 +39,11 @@ services:
       - OPENAPI_PORT=8006
       - MCP_PORT=8007
       - WEB_PORT=8080
+      # Public/host ports (used for UI display and links)
+      - OPENAPI_PUBLIC_PORT=${OPENAPI_PORT:-18006}
+      - MCP_PUBLIC_PORT=${MCP_PORT:-18007}
+      - WEB_PUBLIC_PORT=${WEB_PORT:-18080}
+      - HOST_DATA_DIR=${HOST_DATA_DIR:-./tooldock_data}
     ports:
       # Host:Container - host ports from .env, container ports fixed
       - "${OPENAPI_PORT:-18006}:8006"

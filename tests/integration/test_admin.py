@@ -116,6 +116,9 @@ class TestAdminInfo:
         assert "data_dir" in data
         assert "namespaces" in data
         assert "environment" in data
+        assert "mcp_protocol_version" in data["environment"]
+        assert "mcp_protocol_versions" in data["environment"]
+        assert "host_data_dir" in data["environment"]
 
     def test_info_includes_namespaces(
         self, web_client: TestClient, auth_headers: dict

@@ -80,14 +80,14 @@ tooldock_data/tools/
 └── github/           →  /mcp/github (external)
 ```
 
-### MCP Endpoint Structure
+### MCP Endpoint Structure (Strict Mode)
 
 ```
-/mcp                    → Global endpoint (all tools, initialize, ping)
+/mcp                    → Global endpoint (JSON-RPC 2.0 POST)
 /mcp/namespaces         → List available namespaces
-/mcp/{namespace}        → Namespace-specific endpoint
-  GET                   → Namespace info
-  POST                  → JSON-RPC 2.0 (tools/list, tools/call)
+/mcp/{namespace}        → Namespace-specific endpoint (JSON-RPC 2.0 POST)
+/mcp/info               → Non-standard discovery (GET)
+/mcp/{namespace}/info   → Non-standard discovery (GET)
 ```
 
 ### Namespace Isolation
@@ -124,20 +124,26 @@ tooldock_data/tools/
 - **Authentication:** Bearer Token
 - **Specification:** https://modelcontextprotocol.io/specification
 
-**Endpoints:**
+**Endpoints (Strict MCP):**
 - `GET /health` - Health check
 - `GET /mcp/namespaces` - List namespaces
-- `GET /mcp` - Server info
 - `POST /mcp` - Global JSON-RPC 2.0 endpoint
-- `GET /mcp/{namespace}` - Namespace info
 - `POST /mcp/{namespace}` - Namespace-specific JSON-RPC
+- `GET /mcp/info` - Non-standard discovery
+- `GET /mcp/{namespace}/info` - Non-standard discovery
 
 **MCP Methods:**
 - `initialize` - Initialize session
-- `initialized` - Notification after init
+- `notifications/initialized` - Notification after init (legacy `initialized` supported)
 - `ping` - Keep-alive
 - `tools/list` - List available tools
 - `tools/call` - Execute a tool
+
+**Strict MCP Notes:**
+- `GET /mcp` and `GET /mcp/{namespace}` return **405**
+- Notifications-only requests return **202** with no body
+- `Origin` header is validated against `CORS_ORIGINS`
+- `MCP-Protocol-Version` is validated if present; supported versions via `MCP_PROTOCOL_VERSIONS`
 
 ---
 
@@ -321,6 +327,9 @@ Environment variables control behavior:
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `LOG_LEVEL` | `INFO` | Logging level |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
+| `MCP_PROTOCOL_VERSION` | `2025-03-26` | Default MCP protocol version |
+| `MCP_PROTOCOL_VERSIONS` | `2025-03-26` | Comma-separated supported versions |
+| `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 
 ---
 

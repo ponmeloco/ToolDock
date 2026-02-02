@@ -114,6 +114,90 @@ class TestPlaygroundListTools:
 class TestPlaygroundExecute:
     """Tests for POST /api/playground/execute endpoint."""
 
+    def _install_fake_httpx(self, monkeypatch: pytest.MonkeyPatch):
+        """Install a fake httpx module for proxy tests."""
+        class FakeResponse:
+            def __init__(self, status_code: int, json_data: dict):
+                self.status_code = status_code
+                self._json_data = json_data
+                self.text = ""
+
+            def json(self):
+                return self._json_data
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url: str, json=None, headers=None):
+                if "/tools/" in url:
+                    return FakeResponse(
+                        200,
+                        {"result": {"echo": (json or {}).get("value", ""), "status": "ok"}},
+                    )
+                if "/mcp/" in url:
+                    return FakeResponse(
+                        200,
+                        {"result": {"content": [{"type": "text", "text": "ok"}], "isError": False}},
+                    )
+                return FakeResponse(404, {"error": "not found"})
+
+        class FakeHttpxModule:
+            class RequestError(Exception):
+                pass
+
+            class TimeoutException(Exception):
+                pass
+
+            AsyncClient = FakeAsyncClient
+
+        import sys
+        monkeypatch.setitem(sys.modules, "httpx", FakeHttpxModule())
+
+    def _install_fake_httpx_error(self, monkeypatch: pytest.MonkeyPatch, error_type: str):
+        """Install a fake httpx module that returns errors."""
+        class FakeResponse:
+            def __init__(self, status_code: int, json_data: dict):
+                self.status_code = status_code
+                self._json_data = json_data
+                self.text = ""
+
+            def json(self):
+                return self._json_data
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url: str, json=None, headers=None):
+                if error_type == "server":
+                    return FakeResponse(500, {"error": "server failure"})
+                raise FakeHttpxModule.RequestError("boom")
+
+        class FakeHttpxModule:
+            class RequestError(Exception):
+                pass
+
+            class TimeoutException(Exception):
+                pass
+
+            AsyncClient = FakeAsyncClient
+
+        import sys
+        monkeypatch.setitem(sys.modules, "httpx", FakeHttpxModule())
+
     def test_execute_tool_direct(self, client: TestClient, auth_headers: dict):
         """Test executing a tool directly."""
         response = client.post(
@@ -133,8 +217,28 @@ class TestPlaygroundExecute:
         assert data["transport"] == "direct"
         assert data["result"]["echo"] == "hello"
 
-    def test_execute_tool_mcp(self, client: TestClient, auth_headers: dict):
-        """Test executing a tool via MCP format."""
+    def test_execute_tool_openapi(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+        """Test executing a tool via OpenAPI proxy."""
+        self._install_fake_httpx(monkeypatch)
+        response = client.post(
+            "/api/playground/execute",
+            headers=auth_headers,
+            json={
+                "tool_name": "playground_test_tool",
+                "arguments": {"value": "openapi_test"},
+                "transport": "openapi",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["transport"] == "openapi"
+        assert data["result"]["echo"] == "openapi_test"
+
+    def test_execute_tool_mcp(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+        """Test executing a tool via MCP proxy."""
+        self._install_fake_httpx(monkeypatch)
         response = client.post(
             "/api/playground/execute",
             headers=auth_headers,
@@ -142,6 +246,7 @@ class TestPlaygroundExecute:
                 "tool_name": "playground_test_tool",
                 "arguments": {"value": "mcp_test"},
                 "transport": "mcp",
+                "namespace": "shared",
             },
         )
 
@@ -149,7 +254,6 @@ class TestPlaygroundExecute:
         data = response.json()
         assert data["success"] is True
         assert data["transport"] == "mcp"
-        # MCP format wraps result in content array
         assert "content" in data["result"]
 
     def test_execute_tool_not_found(self, client: TestClient, auth_headers: dict):
@@ -160,13 +264,15 @@ class TestPlaygroundExecute:
             json={
                 "tool_name": "nonexistent_tool",
                 "arguments": {},
+                "transport": "direct",
             },
         )
 
         assert response.status_code == 404
 
-    def test_execute_tool_default_transport(self, client: TestClient, auth_headers: dict):
-        """Test default transport is 'direct'."""
+    def test_execute_tool_default_transport(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+        """Test default transport is 'openapi'."""
+        self._install_fake_httpx(monkeypatch)
         response = client.post(
             "/api/playground/execute",
             headers=auth_headers,
@@ -178,7 +284,43 @@ class TestPlaygroundExecute:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["transport"] == "direct"
+        assert data["transport"] == "openapi"
+
+    def test_execute_tool_error_type_network(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+        """Test network error classification."""
+        self._install_fake_httpx_error(monkeypatch, "network")
+        response = client.post(
+            "/api/playground/execute",
+            headers=auth_headers,
+            json={
+                "tool_name": "playground_test_tool",
+                "arguments": {"value": "x"},
+                "transport": "openapi",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_type"] == "network"
+
+    def test_execute_tool_error_type_server(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+        """Test server error classification."""
+        self._install_fake_httpx_error(monkeypatch, "server")
+        response = client.post(
+            "/api/playground/execute",
+            headers=auth_headers,
+            json={
+                "tool_name": "playground_test_tool",
+                "arguments": {"value": "x"},
+                "transport": "openapi",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error_type"] == "server"
 
     def test_execute_tool_requires_auth(self, client: TestClient):
         """Test execution requires authentication."""

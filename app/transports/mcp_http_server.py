@@ -34,7 +34,7 @@ from fastapi import FastAPI, Request, Response, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.middleware import TrailingNewlineMiddleware
+from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.registry import ToolRegistry
 from app.errors import ToolError, ToolNotFoundError
 from app.auth import verify_token, is_auth_enabled
@@ -43,7 +43,12 @@ from app.utils import get_cors_origins
 logger = logging.getLogger("mcp-http")
 
 SERVER_NAME = os.getenv("MCP_SERVER_NAME", "tooldock")
-PROTOCOL_VERSION = "2024-11-05"
+PROTOCOL_VERSION = os.getenv("MCP_PROTOCOL_VERSION", "2025-03-26")
+SUPPORTED_PROTOCOL_VERSIONS = [
+    v.strip()
+    for v in os.getenv("MCP_PROTOCOL_VERSIONS", PROTOCOL_VERSION).split(",")
+    if v.strip()
+]
 
 
 def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
@@ -79,6 +84,7 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
     # Add trailing newline to JSON responses for better CLI output
     app.add_middleware(TrailingNewlineMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
 
     # Store registry in app state
     app.state.registry = registry
@@ -92,6 +98,17 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
     ) -> Dict[str, Any]:
         """Handle MCP initialize request."""
         client_info = params.get("clientInfo", {})
+        requested_version = params.get("protocolVersion")
+        if requested_version and requested_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"Unsupported protocolVersion: {requested_version}",
+                    "data": {"supported": SUPPORTED_PROTOCOL_VERSIONS},
+                },
+            }
         ns_info = f" (namespace={namespace})" if namespace else ""
         logger.info(f"MCP Initialize from client: {client_info.get('name', 'unknown')}{ns_info}")
 
@@ -270,10 +287,31 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
     METHOD_HANDLERS = {
         "initialize": handle_initialize,
         "initialized": handle_initialized,
+        "notifications/initialized": handle_initialized,
         "ping": handle_ping,
         "tools/list": handle_list_tools,
         "tools/call": handle_call_tool,
     }
+
+    def _validate_origin(request: Request) -> Optional[Response]:
+        origin = request.headers.get("origin")
+        if not origin:
+            return None
+        allowed = get_cors_origins()
+        if allowed == ["*"]:
+            return None
+        if origin not in allowed:
+            return Response(status_code=403)
+        return None
+
+    def _validate_protocol_header(request: Request) -> Optional[Response]:
+        version = request.headers.get("MCP-Protocol-Version")
+        if not version:
+            # Per spec, assume default if absent
+            return None
+        if version not in SUPPORTED_PROTOCOL_VERSIONS:
+            return Response(status_code=400)
+        return None
 
     async def process_jsonrpc_request(
         body: Dict[str, Any],
@@ -376,33 +414,6 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
             "total": len(namespaces),
         }
 
-    @app.get("/mcp/{namespace}")
-    async def mcp_namespace_get_info(namespace: str, _: str = Depends(verify_token)):
-        """
-        GET /mcp/{namespace} returns namespace-specific server info.
-        """
-        # Validate namespace exists
-        if not registry.has_namespace(namespace):
-            return JSONResponse(
-                content={
-                    "error": f"Unknown namespace: {namespace}",
-                    "available_namespaces": registry.list_namespaces(),
-                },
-                status_code=404,
-            )
-
-        tools = registry.list_tools_for_namespace(namespace)
-        return {
-            "server": f"{SERVER_NAME}/{namespace}",
-            "namespace": namespace,
-            "protocol": "MCP",
-            "protocolVersion": PROTOCOL_VERSION,
-            "transport": "streamable-http",
-            "endpoint": f"/mcp/{namespace}",
-            "methods": list(METHOD_HANDLERS.keys()),
-            "tools_count": len(tools),
-        }
-
     @app.post("/mcp/{namespace}")
     async def mcp_namespace_endpoint(
         namespace: str,
@@ -418,6 +429,13 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         Args:
             namespace: The namespace to use (e.g., 'shared', 'team1', 'github')
         """
+        origin_error = _validate_origin(request)
+        if origin_error:
+            return origin_error
+        protocol_error = _validate_protocol_header(request)
+        if protocol_error:
+            return protocol_error
+
         # Validate namespace exists
         if not registry.has_namespace(namespace):
             logger.warning(f"MCP: Request to unknown namespace: {namespace}")
@@ -448,13 +466,15 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
                     response = await process_jsonrpc_request(item, namespace)
                     if response is not None:  # Notifications don't return responses
                         responses.append(response)
-                return JSONResponse(content=responses if responses else None)
+                if not responses:
+                    return Response(status_code=202)
+                return JSONResponse(content=responses)
             else:
                 # Single request
                 response = await process_jsonrpc_request(body, namespace)
                 if response is None:
-                    # Notification - return 204 No Content
-                    return Response(status_code=204)
+                    # Notification - return 202 Accepted (no content)
+                    return Response(status_code=202)
                 return JSONResponse(content=response)
 
         except json.JSONDecodeError:
@@ -493,6 +513,13 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         Handles JSON-RPC 2.0 requests conforming to the MCP specification.
         All tools from all namespaces are accessible.
         """
+        origin_error = _validate_origin(request)
+        if origin_error:
+            return origin_error
+        protocol_error = _validate_protocol_header(request)
+        if protocol_error:
+            return protocol_error
+
         try:
             body = await request.json()
             logger.debug(f"MCP POST: method={body.get('method')}")
@@ -505,13 +532,15 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
                     response = await process_jsonrpc_request(item, namespace=None)
                     if response is not None:  # Notifications don't return responses
                         responses.append(response)
-                return JSONResponse(content=responses if responses else None)
+                if not responses:
+                    return Response(status_code=202)
+                return JSONResponse(content=responses)
             else:
                 # Single request
                 response = await process_jsonrpc_request(body, namespace=None)
                 if response is None:
-                    # Notification - return 204 No Content
-                    return Response(status_code=204)
+                    # Notification - return 202 Accepted (no content)
+                    return Response(status_code=202)
                 return JSONResponse(content=response)
 
         except json.JSONDecodeError:
@@ -542,18 +571,15 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
                 status_code=200,
             )
 
-    @app.get("/mcp")
-    async def mcp_get_info(_: str = Depends(verify_token)):
-        """
-        GET /mcp returns server info and available methods.
-
-        This is not part of the MCP spec but useful for discovery.
-        """
+    @app.get("/mcp/info")
+    async def mcp_info(_: str = Depends(verify_token)):
+        """Non-standard discovery endpoint."""
         stats = registry.get_stats()
         return {
             "server": SERVER_NAME,
             "protocol": "MCP",
             "protocolVersion": PROTOCOL_VERSION,
+            "supportedProtocolVersions": SUPPORTED_PROTOCOL_VERSIONS,
             "transport": "streamable-http",
             "endpoint": "/mcp",
             "namespace_endpoints": [f"/mcp/{ns}" for ns in registry.list_namespaces()],
@@ -564,6 +590,40 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
                 "total": stats.get("total", 0),
             },
         }
+
+    @app.get("/mcp/{namespace}/info")
+    async def mcp_namespace_info(namespace: str, _: str = Depends(verify_token)):
+        """Non-standard discovery endpoint for a namespace."""
+        if not registry.has_namespace(namespace):
+            return JSONResponse(
+                content={
+                    "error": f"Unknown namespace: {namespace}",
+                    "available_namespaces": registry.list_namespaces(),
+                },
+                status_code=404,
+            )
+        tools = registry.list_tools_for_namespace(namespace)
+        return {
+            "server": f"{SERVER_NAME}/{namespace}",
+            "namespace": namespace,
+            "protocol": "MCP",
+            "protocolVersion": PROTOCOL_VERSION,
+            "supportedProtocolVersions": SUPPORTED_PROTOCOL_VERSIONS,
+            "transport": "streamable-http",
+            "endpoint": f"/mcp/{namespace}",
+            "methods": list(METHOD_HANDLERS.keys()),
+            "tools_count": len(tools),
+        }
+
+    @app.get("/mcp")
+    async def mcp_get_info(_: str = Depends(verify_token)):
+        """GET /mcp is not used for discovery in strict MCP mode."""
+        return Response(status_code=405)
+
+    @app.get("/mcp/{namespace}")
+    async def mcp_get_namespace_info(_: str = Depends(verify_token)):
+        """GET /mcp/{namespace} is not used for discovery in strict MCP mode."""
+        return Response(status_code=405)
 
     stats = registry.get_stats()
     logger.info(

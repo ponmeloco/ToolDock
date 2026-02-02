@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**ToolDock** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **OpenAPI**, **MCP**, and **Web GUI**. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
+**ToolDock** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **OpenAPI**, **MCP**, and **Web GUI**. MCP runs in **strict spec mode** while keeping namespace endpoints. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
 
 ## Architecture
 
@@ -101,6 +101,9 @@ def register_tools(registry: ToolRegistry) -> None:
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
+| `MCP_PROTOCOL_VERSION` | `2025-03-26` | Default MCP protocol version |
+| `MCP_PROTOCOL_VERSIONS` | `2025-03-26` | Comma-separated supported versions |
+| `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 
 ## Testing
 
@@ -159,9 +162,15 @@ curl -X POST http://localhost:18080/api/reload \
 ```
 
 ### Playground (Admin UI)
-- Test tools with Direct or MCP transport
+- Test tools via OpenAPI or MCP (real servers)
 - JSON input editor with syntax highlighting
 - Real-time execution results
+
+### MCP Strict Mode Notes
+- `GET /mcp` and `GET /mcp/{namespace}` return **405**
+- Notifications-only requests return **202** with no body
+- `Origin` header validated against `CORS_ORIGINS`
+- `MCP-Protocol-Version` validated if present
 
 ### Persistent Logging
 - Daily log files: `DATA_DIR/logs/YYYY-MM-DD.jsonl`

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Key, Send, ChevronDown, ChevronRight, Check, Copy, ExternalLink } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { getNamespaces } from '../api/client'
+import { getNamespaces, getSystemInfo } from '../api/client'
 
 interface PathParam {
   name: string
@@ -24,144 +24,179 @@ interface EndpointCategory {
   name: string
   description: string
   endpoints: Endpoint[]
+  baseUrl?: string
 }
 
-const CATEGORIES: EndpointCategory[] = [
-  {
-    name: 'Health',
-    description: 'Health check endpoints for all services',
-    endpoints: [
-      { method: 'GET', path: '/health', description: 'Backend API health check', auth: false },
-      { method: 'GET', path: '/api/admin/health', description: 'Aggregated health of all services', auth: true },
-    ],
-  },
-  {
-    name: 'Namespaces',
-    description: 'Manage tool namespaces (folders)',
-    endpoints: [
-      { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true },
-      { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name": "my_namespace"}' },
-      {
-        method: 'DELETE',
-        path: '/api/folders/{namespace}',
-        description: 'Delete a namespace',
-        auth: true,
-        pathParams: [{ name: 'namespace', description: 'Namespace to delete' }],
-      },
-    ],
-  },
-  {
-    name: 'Tools',
-    description: 'Manage tools within namespaces',
-    endpoints: [
-      {
-        method: 'GET',
-        path: '/api/folders/{namespace}/tools',
-        description: 'List tools in a namespace',
-        auth: true,
-        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
-      },
-      {
-        method: 'GET',
-        path: '/api/folders/{namespace}/tools/{filename}',
-        description: 'Get tool content',
-        auth: true,
-        pathParams: [
-          { name: 'namespace', description: 'Namespace name' },
-          { name: 'filename', description: 'Tool filename (e.g., example.py)' },
-        ],
-      },
-      {
-        method: 'POST',
-        path: '/api/folders/{namespace}/tools/create-from-template',
-        description: 'Create tool from template',
-        auth: true,
-        body: '{"name": "my_tool"}',
-        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
-      },
-      {
-        method: 'PUT',
-        path: '/api/folders/{namespace}/tools/{filename}',
-        description: 'Update tool content',
-        auth: true,
-        body: '{"content": "# Updated content"}',
-        pathParams: [
-          { name: 'namespace', description: 'Namespace name' },
-          { name: 'filename', description: 'Tool filename (e.g., example.py)' },
-        ],
-      },
-    ],
-  },
-  {
-    name: 'Reload',
-    description: 'Hot reload tools without server restart',
-    endpoints: [
-      { method: 'GET', path: '/api/reload/status', description: 'Get reload status and namespaces', auth: true },
-      { method: 'POST', path: '/api/reload', description: 'Reload all namespaces', auth: true },
-      {
-        method: 'POST',
-        path: '/api/reload/{namespace}',
-        description: 'Reload specific namespace',
-        auth: true,
-        pathParams: [{ name: 'namespace', description: 'Namespace to reload' }],
-      },
-    ],
-  },
-  {
-    name: 'OpenAPI Tools',
-    description: 'Execute tools via OpenAPI (port 18006)',
-    endpoints: [
-      { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
-      {
-        method: 'POST',
-        path: '/tools/{tool_name}',
-        description: 'Execute a tool',
-        auth: true,
-        body: '{"name": "World"}',
-        pathParams: [{ name: 'tool_name', description: 'Tool name (e.g., hello_world)', default: 'hello_world' }],
-      },
-    ],
-  },
-  {
-    name: 'Admin',
-    description: 'System administration endpoints',
-    endpoints: [
-      { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
-      { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
-      { method: 'GET', path: '/api/servers', description: 'List external MCP servers', auth: true },
-    ],
-  },
-  {
-    name: 'MCP',
-    description: 'MCP protocol endpoints (port 18007)',
-    endpoints: [
-      { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
-      {
-        method: 'GET',
-        path: '/mcp/{namespace}',
-        description: 'Namespace info',
-        auth: true,
-        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
-      },
-      {
-        method: 'POST',
-        path: '/mcp/{namespace}',
-        description: 'MCP tools/list',
-        auth: true,
-        body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}',
-        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
-      },
-      {
-        method: 'POST',
-        path: '/mcp/{namespace}',
-        description: 'MCP tools/call',
-        auth: true,
-        body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hello_world", "arguments": {"name": "World"}}}',
-        pathParams: [{ name: 'namespace', description: 'Namespace name' }],
-      },
-    ],
-  },
-]
+function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory[] {
+  const openapiBase = `http://localhost:${openapiPort}`
+  const mcpBase = `http://localhost:${mcpPort}`
+  return [
+    {
+      name: 'Health',
+      description: 'Health check endpoints for all services',
+      endpoints: [
+        { method: 'GET', path: '/health', description: 'Backend API health check', auth: false },
+        { method: 'GET', path: '/api/admin/health', description: 'Aggregated health of all services', auth: true },
+      ],
+    },
+    {
+      name: 'Namespaces',
+      description: 'Manage tool namespaces (folders)',
+      endpoints: [
+        { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true },
+        { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name": "my_namespace"}' },
+        {
+          method: 'DELETE',
+          path: '/api/folders/{namespace}',
+          description: 'Delete a namespace',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace to delete' }],
+        },
+      ],
+    },
+    {
+      name: 'Tools',
+      description: 'Manage tools within namespaces',
+      endpoints: [
+        {
+          method: 'GET',
+          path: '/api/folders/{namespace}/tools',
+          description: 'List tools in a namespace',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'GET',
+          path: '/api/folders/{namespace}/tools/{filename}',
+          description: 'Get tool content',
+          auth: true,
+          pathParams: [
+            { name: 'namespace', description: 'Namespace name' },
+            { name: 'filename', description: 'Tool filename (e.g., example.py)' },
+          ],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/create-from-template',
+          description: 'Create tool from template',
+          auth: true,
+          body: '{"name": "my_tool"}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'PUT',
+          path: '/api/folders/{namespace}/tools/{filename}',
+          description: 'Update tool content',
+          auth: true,
+          body: '{"content": "# Updated content"}',
+          pathParams: [
+            { name: 'namespace', description: 'Namespace name' },
+            { name: 'filename', description: 'Tool filename (e.g., example.py)' },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'Reload',
+      description: 'Hot reload tools without server restart',
+      endpoints: [
+        { method: 'GET', path: '/api/reload/status', description: 'Get reload status and namespaces', auth: true },
+        { method: 'POST', path: '/api/reload', description: 'Reload all namespaces', auth: true },
+        {
+          method: 'POST',
+          path: '/api/reload/{namespace}',
+          description: 'Reload specific namespace',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace to reload' }],
+        },
+      ],
+    },
+    {
+      name: 'OpenAPI Server',
+      description: `OpenAPI endpoints (port ${openapiPort})`,
+      baseUrl: openapiBase,
+      endpoints: [
+        { method: 'GET', path: '/health', description: 'OpenAPI health check', auth: false },
+        { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
+        {
+          method: 'POST',
+          path: '/tools/{tool_name}',
+          description: 'Execute a tool',
+          auth: true,
+          body: '{"name": "World"}',
+          pathParams: [{ name: 'tool_name', description: 'Tool name (e.g., hello_world)', default: 'hello_world' }],
+        },
+      ],
+    },
+    {
+      name: 'Admin',
+      description: 'System administration endpoints',
+      endpoints: [
+        { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
+        { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
+        { method: 'GET', path: '/api/servers', description: 'List external MCP servers', auth: true },
+      ],
+    },
+    {
+      name: 'MCP',
+      description: `MCP Streamable HTTP endpoints (port ${mcpPort})`,
+      baseUrl: mcpBase,
+      endpoints: [
+        { method: 'GET', path: '/health', description: 'MCP health check', auth: false },
+        { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
+        {
+          method: 'GET',
+          path: '/mcp',
+          description: 'Strict MCP mode returns 405 (use /mcp/info)',
+          auth: true,
+        },
+        {
+          method: 'GET',
+          path: '/mcp/info',
+          description: 'Non-standard discovery (all namespaces)',
+          auth: true,
+        },
+        {
+          method: 'GET',
+          path: '/mcp/{namespace}/info',
+          description: 'Non-standard discovery (namespace)',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/mcp',
+          description: 'Global JSON-RPC endpoint (all namespaces)',
+          auth: true,
+          body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}',
+        },
+        {
+          method: 'GET',
+          path: '/mcp/{namespace}',
+          description: 'Strict MCP mode returns 405 (use /mcp/{namespace}/info)',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/mcp/{namespace}',
+          description: 'MCP tools/list',
+          auth: true,
+          body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/mcp/{namespace}',
+          description: 'MCP tools/call',
+          auth: true,
+          body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hello_world", "arguments": {"name": "World"}}}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+      ],
+    },
+  ]
+}
 
 function getMethodColor(method: string): string {
   switch (method) {
@@ -190,7 +225,7 @@ export default function Docs() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
     new Set(['Health', 'OpenAPI Tools'])
   )
-  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint } | null>(
+  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint; baseUrl?: string } | null>(
     null
   )
   const [pathParamValues, setPathParamValues] = useState<Record<string, string>>({})
@@ -206,7 +241,16 @@ export default function Docs() {
     staleTime: 60000,
   })
 
+  const infoQuery = useQuery({
+    queryKey: ['info'],
+    queryFn: getSystemInfo,
+    staleTime: 60000,
+  })
+
   const namespaces = namespacesQuery.data?.map((ns) => ns.name) || []
+  const openapiPort = String(infoQuery.data?.environment?.openapi_port || 'unknown')
+  const mcpPort = String(infoQuery.data?.environment?.mcp_port || 'unknown')
+  const categories = buildCategories(openapiPort, mcpPort)
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -235,7 +279,8 @@ export default function Docs() {
   }
 
   const selectEndpoint = (category: string, endpoint: Endpoint) => {
-    setActiveEndpoint({ category, endpoint })
+    const categoryInfo = categories.find((c) => c.name === category)
+    setActiveEndpoint({ category, endpoint, baseUrl: categoryInfo?.baseUrl })
     setRequestBody(endpoint.body || '')
     setResponse(null)
 
@@ -274,7 +319,8 @@ export default function Docs() {
     const endpoint = activeEndpoint.endpoint
 
     try {
-      const url = getResolvedPath()
+    const baseUrl = activeEndpoint.baseUrl || window.location.origin
+    const url = `${baseUrl}${getResolvedPath()}`
 
       const headers: Record<string, string> = {}
       if (endpoint.auth && token) {
@@ -330,7 +376,7 @@ export default function Docs() {
     if (!activeEndpoint) return
 
     const endpoint = activeEndpoint.endpoint
-    const baseUrl = window.location.origin
+    const baseUrl = activeEndpoint.baseUrl || window.location.origin
     const url = `${baseUrl}${getResolvedPath()}`
 
     let curl = `curl -X ${endpoint.method} "${url}"`
@@ -392,7 +438,7 @@ export default function Docs() {
             <h2 className="font-semibold text-gray-700">Endpoints</h2>
           </div>
           <div className="flex-1 overflow-auto">
-            {CATEGORIES.map((category) => (
+            {categories.map((category) => (
               <div key={category.name}>
                 <button
                   onClick={() => toggleCategory(category.name)}

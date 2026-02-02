@@ -233,6 +233,14 @@ def log_request(
     error_detail: Optional[str] = None,
 ):
     """Log an HTTP request to the buffer and file."""
+    if tool_name is None:
+        try:
+            from app.utils import get_tool_name
+
+            tool_name = get_tool_name()
+        except Exception:
+            pass
+
     # Determine log level based on status code
     if status_code >= 500:
         level = "ERROR"
@@ -276,10 +284,15 @@ async def get_system_health(
     Returns health status of OpenAPI, MCP, and Web GUI servers.
     """
     import httpx
+    import anyio
 
     openapi_port = int(os.getenv("OPENAPI_PORT", "8006"))
     mcp_port = int(os.getenv("MCP_PORT", "8007"))
     web_port = int(os.getenv("WEB_PORT", "8080"))
+
+    openapi_public_port = int(os.getenv("OPENAPI_PUBLIC_PORT", str(openapi_port)))
+    mcp_public_port = int(os.getenv("MCP_PUBLIC_PORT", str(mcp_port)))
+    web_public_port = int(os.getenv("WEB_PUBLIC_PORT", str(web_port)))
 
     services = []
 
@@ -287,7 +300,8 @@ async def get_system_health(
     async with httpx.AsyncClient(timeout=2.0) as client:
         # OpenAPI Server
         try:
-            resp = await client.get(f"http://localhost:{openapi_port}/health")
+            with anyio.fail_after(2.0):
+                resp = await client.get(f"http://localhost:{openapi_port}/health")
             openapi_status = "healthy" if resp.status_code == 200 else "unhealthy"
             openapi_details = resp.json() if resp.status_code == 200 else None
         except Exception:
@@ -298,14 +312,15 @@ async def get_system_health(
             ServiceHealth(
                 name="openapi",
                 status=openapi_status,
-                port=openapi_port,
+                port=openapi_public_port,
                 details=openapi_details,
             )
         )
 
         # MCP Server
         try:
-            resp = await client.get(f"http://localhost:{mcp_port}/health")
+            with anyio.fail_after(2.0):
+                resp = await client.get(f"http://localhost:{mcp_port}/health")
             mcp_status = "healthy" if resp.status_code == 200 else "unhealthy"
             mcp_details = resp.json() if resp.status_code == 200 else None
         except Exception:
@@ -316,7 +331,7 @@ async def get_system_health(
             ServiceHealth(
                 name="mcp",
                 status=mcp_status,
-                port=mcp_port,
+                port=mcp_public_port,
                 details=mcp_details,
             )
         )
@@ -326,7 +341,7 @@ async def get_system_health(
             ServiceHealth(
                 name="web",
                 status="healthy",
-                port=web_port,
+                port=web_public_port,
                 details={"service": "web-gui"},
             )
         )
@@ -523,10 +538,16 @@ async def get_system_info(
         data_dir=data_dir_absolute,
         namespaces=namespaces,
         environment={
-            "openapi_port": os.getenv("OPENAPI_PORT", "8006"),
-            "mcp_port": os.getenv("MCP_PORT", "8007"),
-            "web_port": os.getenv("WEB_PORT", "8080"),
+            "openapi_port": os.getenv("OPENAPI_PUBLIC_PORT", os.getenv("OPENAPI_PORT", "8006")),
+            "mcp_port": os.getenv("MCP_PUBLIC_PORT", os.getenv("MCP_PORT", "8007")),
+            "web_port": os.getenv("WEB_PUBLIC_PORT", os.getenv("WEB_PORT", "8080")),
+            "openapi_internal_port": os.getenv("OPENAPI_PORT", "8006"),
+            "mcp_internal_port": os.getenv("MCP_PORT", "8007"),
+            "web_internal_port": os.getenv("WEB_PORT", "8080"),
             "log_level": os.getenv("LOG_LEVEL", "INFO"),
             "cors_origins": os.getenv("CORS_ORIGINS", "*"),
+            "mcp_protocol_version": os.getenv("MCP_PROTOCOL_VERSION", "2025-03-26"),
+            "mcp_protocol_versions": os.getenv("MCP_PROTOCOL_VERSIONS", os.getenv("MCP_PROTOCOL_VERSION", "2025-03-26")),
+            "host_data_dir": os.getenv("HOST_DATA_DIR", ""),
         },
     )

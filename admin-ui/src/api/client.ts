@@ -303,6 +303,8 @@ export interface PlaygroundExecuteResponse {
   result: unknown
   success: boolean
   error?: string
+  error_type?: string
+  status_code?: number
 }
 
 // MCP response format
@@ -326,7 +328,8 @@ export async function getAllTools(): Promise<{
 export async function executePlaygroundTool(
   toolName: string,
   payload: Record<string, unknown>,
-  transport: 'direct' | 'mcp' = 'direct'
+  transport: 'openapi' | 'mcp' = 'openapi',
+  namespace?: string
 ): Promise<PlaygroundExecuteResponse> {
   const res = await fetchWithAuth(`${API_BASE}/playground/execute`, {
     method: 'POST',
@@ -334,6 +337,7 @@ export async function executePlaygroundTool(
       tool_name: toolName,
       arguments: payload,
       transport,
+      namespace,
     }),
   })
   if (!res.ok) {
