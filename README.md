@@ -24,6 +24,9 @@
 git clone https://github.com/ponmeloco/ToolDock.git
 cd ToolDock
 ./start.sh
+
+# Force rebuild images
+./start.sh --rebuild
 ```
 
 Or manually:
@@ -224,7 +227,12 @@ pytest tests/ -v
 
 # Run with coverage
 pytest tests/ --cov=app --cov-report=html
+
+# Install test dependencies (optional, for development)
+pip install pytest pytest-asyncio pytest-cov
 ```
+
+> **Note:** Tests are skipped automatically on production servers without pytest installed.
 
 ---
 

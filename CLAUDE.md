@@ -115,6 +115,24 @@ pytest tests/ --cov=app --cov-report=html
 pytest tests/unit/test_registry.py -v
 ```
 
+## Start Script
+
+```bash
+# Normal start (uses cached images)
+./start.sh
+
+# Force rebuild all images
+./start.sh --rebuild
+./start.sh -r
+```
+
+The script:
+- Creates `.env` from `.env.example` if missing
+- Creates data directories with correct permissions
+- Builds Docker images (with spinner animation)
+- Starts containers and runs health checks
+- Runs pytest if installed (skipped on production)
+
 ## Docker Commands
 
 ```bash
