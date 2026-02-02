@@ -147,7 +147,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
         {
           method: 'GET',
           path: '/mcp',
-          description: 'Strict MCP mode returns 405 (use /mcp/info)',
+          description: 'SSE stream (requires Accept: text/event-stream)',
           auth: true,
         },
         {
@@ -173,7 +173,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
         {
           method: 'GET',
           path: '/mcp/{namespace}',
-          description: 'Strict MCP mode returns 405 (use /mcp/{namespace}/info)',
+          description: 'SSE stream (requires Accept: text/event-stream)',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },

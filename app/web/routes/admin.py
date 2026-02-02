@@ -546,8 +546,11 @@ async def get_system_info(
             "web_internal_port": os.getenv("WEB_PORT", "8080"),
             "log_level": os.getenv("LOG_LEVEL", "INFO"),
             "cors_origins": os.getenv("CORS_ORIGINS", "*"),
-            "mcp_protocol_version": os.getenv("MCP_PROTOCOL_VERSION", "2025-03-26"),
-            "mcp_protocol_versions": os.getenv("MCP_PROTOCOL_VERSIONS", os.getenv("MCP_PROTOCOL_VERSION", "2025-03-26")),
+            "mcp_protocol_version": os.getenv("MCP_PROTOCOL_VERSION", "2025-11-25"),
+            "mcp_protocol_versions": os.getenv(
+                "MCP_PROTOCOL_VERSIONS",
+                f"{os.getenv('MCP_PROTOCOL_VERSION', '2025-11-25')},2025-03-26",
+            ),
             "host_data_dir": os.getenv("HOST_DATA_DIR", ""),
         },
     )

@@ -74,7 +74,10 @@ def client(registry: ToolRegistry, monkeypatch: pytest.MonkeyPatch) -> TestClien
 @pytest.fixture
 def auth_headers() -> dict:
     """Auth headers for requests."""
-    return {"Authorization": "Bearer test_token"}
+    return {
+        "Authorization": "Bearer test_token",
+        "Accept": "application/json, text/event-stream",
+    }
 
 
 # ==================== Health Endpoint Tests ====================
@@ -100,15 +103,23 @@ class TestHealthEndpoint:
         assert "tools" in data
         assert data["tools"]["total"] >= 2
 
-    def test_strict_get_mcp_returns_405(self, client: TestClient, auth_headers: dict):
-        """GET /mcp is not used in strict mode."""
-        response = client.get("/mcp", headers=auth_headers)
-        assert response.status_code == 405
+    def test_get_mcp_stream(self, client: TestClient, auth_headers: dict):
+        """GET /mcp returns SSE stream when Accept is correct."""
+        response = client.get(
+            "/mcp",
+            headers={**auth_headers, "Accept": "text/event-stream"},
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
 
-    def test_strict_get_mcp_namespace_returns_405(self, client: TestClient, auth_headers: dict):
-        """GET /mcp/{namespace} is not used in strict mode."""
-        response = client.get("/mcp/shared", headers=auth_headers)
-        assert response.status_code == 405
+    def test_get_mcp_namespace_stream(self, client: TestClient, auth_headers: dict):
+        """GET /mcp/{namespace} returns SSE stream when Accept is correct."""
+        response = client.get(
+            "/mcp/shared",
+            headers={**auth_headers, "Accept": "text/event-stream"},
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
 
 
 # ==================== Initialize Tests ====================
@@ -129,7 +140,7 @@ class TestMCPInitialize:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2025-03-26",
+                    "protocolVersion": "2025-11-25",
                     "clientInfo": {"name": "test-client", "version": "1.0.0"},
                     "capabilities": {},
                 },
@@ -144,6 +155,22 @@ class TestMCPInitialize:
         assert "protocolVersion" in data["result"]
         assert "serverInfo" in data["result"]
 
+    def test_initialize_missing_accept_header(self, client: TestClient, auth_headers: dict):
+        """Missing Accept header returns 400."""
+        headers = dict(auth_headers)
+        headers.pop("Accept", None)
+        response = client.post(
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25"},
+            },
+        )
+        assert response.status_code == 400
+
     def test_initialize_namespace_endpoint(
         self, client: TestClient, auth_headers: dict
     ):
@@ -156,7 +183,7 @@ class TestMCPInitialize:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2025-03-26",
+                    "protocolVersion": "2025-11-25",
                     "clientInfo": {"name": "test-client"},
                     "capabilities": {},
                 },
@@ -566,6 +593,23 @@ class TestJSONRPCErrors:
         data = response.json()
         assert "error" in data
         assert data["error"]["code"] == -32700  # Parse error
+
+    def test_batch_rejected(
+        self, client: TestClient, auth_headers: dict
+    ):
+        """JSON-RPC batching is rejected."""
+        response = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json=[
+                {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+            ],
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+        assert data["error"]["code"] == -32600
 
 
 # ==================== Ping Tests ====================

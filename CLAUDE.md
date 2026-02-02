@@ -101,8 +101,8 @@ def register_tools(registry: ToolRegistry) -> None:
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
-| `MCP_PROTOCOL_VERSION` | `2025-03-26` | Default MCP protocol version |
-| `MCP_PROTOCOL_VERSIONS` | `2025-03-26` | Comma-separated supported versions |
+| `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
+| `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 
 ## Testing
@@ -167,7 +167,9 @@ curl -X POST http://localhost:18080/api/reload \
 - Real-time execution results
 
 ### MCP Strict Mode Notes
-- `GET /mcp` and `GET /mcp/{namespace}` return **405**
+- GET endpoints return SSE streams (require `Accept: text/event-stream`)
+- POST requests require `Accept: application/json, text/event-stream`
+- JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header validated against `CORS_ORIGINS`
 - `MCP-Protocol-Version` validated if present

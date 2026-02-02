@@ -96,8 +96,8 @@ ADMIN_PORT=13000
 LOG_RETENTION_DAYS=30  # Auto-delete logs after N days
 
 # Optional - MCP Protocol (strict mode)
-MCP_PROTOCOL_VERSION=2025-03-26
-MCP_PROTOCOL_VERSIONS=2025-03-26
+MCP_PROTOCOL_VERSION=2025-11-25
+MCP_PROTOCOL_VERSIONS=2025-11-25,2025-03-26
 
 # Optional - Host display (Admin UI)
 HOST_DATA_DIR=./tooldock_data
@@ -231,7 +231,9 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 
 ## MCP Strict Mode Notes
 
-- `GET /mcp` and `GET /mcp/{namespace}` return **405** (strict spec).
+- `GET /mcp` and `GET /mcp/{namespace}` open SSE streams (requires `Accept: text/event-stream`).
+- POST requests require `Accept: application/json, text/event-stream`.
+- JSON-RPC batching is rejected.
 - Notifications-only requests return **202** with no body.
 - `Origin` header is validated against `CORS_ORIGINS`.
 - `MCP-Protocol-Version` is validated if present; supported versions configured via `MCP_PROTOCOL_VERSIONS`.

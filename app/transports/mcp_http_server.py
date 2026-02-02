@@ -31,7 +31,7 @@ import os
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request, Response, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
@@ -43,11 +43,18 @@ from app.utils import get_cors_origins
 logger = logging.getLogger("mcp-http")
 
 SERVER_NAME = os.getenv("MCP_SERVER_NAME", "tooldock")
-PROTOCOL_VERSION = os.getenv("MCP_PROTOCOL_VERSION", "2025-03-26")
+PROTOCOL_VERSION = os.getenv("MCP_PROTOCOL_VERSION", "2025-11-25")
+_supported_versions_env = os.getenv("MCP_PROTOCOL_VERSIONS")
+if _supported_versions_env:
+    _supported_versions = _supported_versions_env
+else:
+    _supported_versions = (
+        f"{PROTOCOL_VERSION},2025-03-26"
+        if PROTOCOL_VERSION != "2025-03-26"
+        else PROTOCOL_VERSION
+    )
 SUPPORTED_PROTOCOL_VERSIONS = [
-    v.strip()
-    for v in os.getenv("MCP_PROTOCOL_VERSIONS", PROTOCOL_VERSION).split(",")
-    if v.strip()
+    v.strip() for v in _supported_versions.split(",") if v.strip()
 ]
 
 
@@ -313,11 +320,32 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
             return Response(status_code=400)
         return None
 
+    def _validate_accept_header(request: Request, require_stream: bool = False) -> Optional[Response]:
+        accept = request.headers.get("accept", "")
+        if require_stream:
+            if "text/event-stream" not in accept:
+                return Response(status_code=406)
+            return None
+        if "application/json" not in accept or "text/event-stream" not in accept:
+            return Response(status_code=400)
+        return None
+
     async def process_jsonrpc_request(
         body: Dict[str, Any],
         namespace: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Process a single JSON-RPC request."""
+        # Reject JSON-RPC batching (removed in 2025-06-18)
+        if isinstance(body, list):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request: JSON-RPC batching is not supported",
+                },
+            }
+
         # Validate JSON-RPC structure
         if body.get("jsonrpc") != "2.0":
             return {
@@ -331,6 +359,9 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
         method = body.get("method")
         if not method:
+            # JSON-RPC response (no method, but result/error present)
+            if "result" in body or "error" in body:
+                return None
             return {
                 "jsonrpc": "2.0",
                 "id": body.get("id"),
@@ -435,6 +466,9 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         protocol_error = _validate_protocol_header(request)
         if protocol_error:
             return protocol_error
+        accept_error = _validate_accept_header(request, require_stream=False)
+        if accept_error:
+            return accept_error
 
         # Validate namespace exists
         if not registry.has_namespace(namespace):
@@ -458,24 +492,11 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
             body = await request.json()
             logger.debug(f"MCP POST /{namespace}: method={body.get('method')}")
 
-            # Handle single request or batch
-            if isinstance(body, list):
-                # Batch request
-                responses = []
-                for item in body:
-                    response = await process_jsonrpc_request(item, namespace)
-                    if response is not None:  # Notifications don't return responses
-                        responses.append(response)
-                if not responses:
-                    return Response(status_code=202)
-                return JSONResponse(content=responses)
-            else:
-                # Single request
-                response = await process_jsonrpc_request(body, namespace)
-                if response is None:
-                    # Notification - return 202 Accepted (no content)
-                    return Response(status_code=202)
-                return JSONResponse(content=response)
+            response = await process_jsonrpc_request(body, namespace)
+            if response is None:
+                # Notification or JSON-RPC response - return 202 Accepted (no content)
+                return Response(status_code=202)
+            return JSONResponse(content=response)
 
         except json.JSONDecodeError:
             logger.error("MCP: JSON parse error")
@@ -519,29 +540,19 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         protocol_error = _validate_protocol_header(request)
         if protocol_error:
             return protocol_error
+        accept_error = _validate_accept_header(request, require_stream=False)
+        if accept_error:
+            return accept_error
 
         try:
             body = await request.json()
             logger.debug(f"MCP POST: method={body.get('method')}")
 
-            # Handle single request or batch
-            if isinstance(body, list):
-                # Batch request
-                responses = []
-                for item in body:
-                    response = await process_jsonrpc_request(item, namespace=None)
-                    if response is not None:  # Notifications don't return responses
-                        responses.append(response)
-                if not responses:
-                    return Response(status_code=202)
-                return JSONResponse(content=responses)
-            else:
-                # Single request
-                response = await process_jsonrpc_request(body, namespace=None)
-                if response is None:
-                    # Notification - return 202 Accepted (no content)
-                    return Response(status_code=202)
-                return JSONResponse(content=response)
+            response = await process_jsonrpc_request(body, namespace=None)
+            if response is None:
+                # Notification or JSON-RPC response - return 202 Accepted (no content)
+                return Response(status_code=202)
+            return JSONResponse(content=response)
 
         except json.JSONDecodeError:
             logger.error("MCP: JSON parse error")
@@ -616,14 +627,48 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
         }
 
     @app.get("/mcp")
-    async def mcp_get_info(_: str = Depends(verify_token)):
-        """GET /mcp is not used for discovery in strict MCP mode."""
-        return Response(status_code=405)
+    async def mcp_get_stream(request: Request, _: str = Depends(verify_token)):
+        """GET /mcp opens an SSE stream (may be idle)."""
+        origin_error = _validate_origin(request)
+        if origin_error:
+            return origin_error
+        protocol_error = _validate_protocol_header(request)
+        if protocol_error:
+            return protocol_error
+        accept_error = _validate_accept_header(request, require_stream=True)
+        if accept_error:
+            return accept_error
+
+        async def event_stream():
+            yield b": ok\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.get("/mcp/{namespace}")
-    async def mcp_get_namespace_info(_: str = Depends(verify_token)):
-        """GET /mcp/{namespace} is not used for discovery in strict MCP mode."""
-        return Response(status_code=405)
+    async def mcp_get_namespace_stream(namespace: str, request: Request, _: str = Depends(verify_token)):
+        """GET /mcp/{namespace} opens an SSE stream (may be idle)."""
+        origin_error = _validate_origin(request)
+        if origin_error:
+            return origin_error
+        protocol_error = _validate_protocol_header(request)
+        if protocol_error:
+            return protocol_error
+        accept_error = _validate_accept_header(request, require_stream=True)
+        if accept_error:
+            return accept_error
+        if not registry.has_namespace(namespace):
+            return JSONResponse(
+                content={
+                    "error": f"Unknown namespace: {namespace}",
+                    "available_namespaces": registry.list_namespaces(),
+                },
+                status_code=404,
+            )
+
+        async def event_stream():
+            yield b": ok\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     stats = registry.get_stats()
     logger.info(

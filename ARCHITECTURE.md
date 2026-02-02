@@ -129,6 +129,8 @@ tooldock_data/tools/
 - `GET /mcp/namespaces` - List namespaces
 - `POST /mcp` - Global JSON-RPC 2.0 endpoint
 - `POST /mcp/{namespace}` - Namespace-specific JSON-RPC
+- `GET /mcp` - SSE stream (Accept: `text/event-stream`)
+- `GET /mcp/{namespace}` - SSE stream (Accept: `text/event-stream`)
 - `GET /mcp/info` - Non-standard discovery
 - `GET /mcp/{namespace}/info` - Non-standard discovery
 
@@ -140,7 +142,9 @@ tooldock_data/tools/
 - `tools/call` - Execute a tool
 
 **Strict MCP Notes:**
-- `GET /mcp` and `GET /mcp/{namespace}` return **405**
+- GET endpoints return SSE streams (require `Accept: text/event-stream`)
+- POST requests require `Accept: application/json, text/event-stream`
+- JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header is validated against `CORS_ORIGINS`
 - `MCP-Protocol-Version` is validated if present; supported versions via `MCP_PROTOCOL_VERSIONS`
@@ -327,8 +331,8 @@ Environment variables control behavior:
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `LOG_LEVEL` | `INFO` | Logging level |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
-| `MCP_PROTOCOL_VERSION` | `2025-03-26` | Default MCP protocol version |
-| `MCP_PROTOCOL_VERSIONS` | `2025-03-26` | Comma-separated supported versions |
+| `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
+| `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 
 ---

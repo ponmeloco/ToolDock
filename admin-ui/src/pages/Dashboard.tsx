@@ -124,13 +124,13 @@ export default function Dashboard() {
               <div className="flex justify-between">
                 <span className="text-gray-500">MCP Protocol:</span>
                 <span className="font-mono text-xs">
-                  {infoQuery.data?.environment?.mcp_protocol_version || '2025-03-26'}
+                  {infoQuery.data?.environment?.mcp_protocol_version || '2025-11-25'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">MCP Supported:</span>
                 <span className="font-mono text-xs">
-                  {infoQuery.data?.environment?.mcp_protocol_versions || '2025-03-26'}
+                  {infoQuery.data?.environment?.mcp_protocol_versions || '2025-11-25,2025-03-26'}
                 </span>
               </div>
 
