@@ -109,7 +109,7 @@ const CATEGORIES: EndpointCategory[] = [
   },
   {
     name: 'OpenAPI Tools',
-    description: 'Execute tools via OpenAPI (port 8006)',
+    description: 'Execute tools via OpenAPI (port 18006)',
     endpoints: [
       { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
       {
@@ -133,7 +133,7 @@ const CATEGORIES: EndpointCategory[] = [
   },
   {
     name: 'MCP',
-    description: 'MCP protocol endpoints (port 8007)',
+    description: 'MCP protocol endpoints (port 18007)',
     endpoints: [
       { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
       {

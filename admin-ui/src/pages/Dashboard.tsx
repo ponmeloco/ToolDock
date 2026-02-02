@@ -148,7 +148,7 @@ export default function Dashboard() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Links</h2>
         <div className="flex flex-wrap gap-3">
           <a
-            href={`http://localhost:${healthQuery.data?.services.find(s => s.name === 'openapi')?.port || 8006}/docs`}
+            href={`http://localhost:${healthQuery.data?.services.find(s => s.name === 'openapi')?.port || 18006}/docs`}
             target="_blank"
             rel="noopener noreferrer"
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
@@ -156,7 +156,7 @@ export default function Dashboard() {
             OpenAPI Docs
           </a>
           <a
-            href={`http://localhost:${healthQuery.data?.services.find(s => s.name === 'openapi')?.port || 8006}/openapi.json`}
+            href={`http://localhost:${healthQuery.data?.services.find(s => s.name === 'openapi')?.port || 18006}/openapi.json`}
             target="_blank"
             rel="noopener noreferrer"
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
