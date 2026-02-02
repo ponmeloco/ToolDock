@@ -315,36 +315,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Tool Calls */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Tool Calls</h2>
-        {metricsQuery.isLoading ? (
-          <div className="text-gray-500">Loading...</div>
-        ) : metricsQuery.error ? (
-          <div className="text-red-500">Failed to load metrics</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {toolCallWindows.map((window) => {
-              const stats = metricsQuery.data?.tool_calls?.[window.key]
-              if (!stats) return null
-              const successRate = stats.total ? (stats.success / stats.total) * 100 : 0
-              return (
-                <div key={window.key} className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-500">{window.label}</div>
-                  <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-                  <div className="text-xs text-gray-600">
-                    {stats.success} ok / {stats.error} err
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Success {successRate.toFixed(1)}%
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
       {/* Quick Links */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Links</h2>
