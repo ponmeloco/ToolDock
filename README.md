@@ -232,7 +232,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 ## MCP Strict Mode Notes
 
 - `GET /mcp` and `GET /mcp/{namespace}` open SSE streams (requires `Accept: text/event-stream`).
-- POST requests require `Accept: application/json, text/event-stream`.
+- POST requests require `Accept: application/json` (include `text/event-stream` if you can handle streaming responses).
 - JSON-RPC batching is rejected.
 - Notifications-only requests return **202** with no body.
 - `Origin` header is validated against `CORS_ORIGINS`.

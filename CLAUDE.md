@@ -168,7 +168,7 @@ curl -X POST http://localhost:18080/api/reload \
 
 ### MCP Strict Mode Notes
 - GET endpoints return SSE streams (require `Accept: text/event-stream`)
-- POST requests require `Accept: application/json, text/event-stream`
+- POST requests require `Accept: application/json` (include `text/event-stream` if you can handle streaming responses)
 - JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header validated against `CORS_ORIGINS`

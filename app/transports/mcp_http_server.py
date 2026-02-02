@@ -326,7 +326,7 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
             if "text/event-stream" not in accept:
                 return Response(status_code=406)
             return None
-        if "application/json" not in accept or "text/event-stream" not in accept:
+        if "application/json" not in accept:
             return Response(status_code=400)
         return None
 
@@ -490,7 +490,8 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
         try:
             body = await request.json()
-            logger.debug(f"MCP POST /{namespace}: method={body.get('method')}")
+            method = body.get("method") if isinstance(body, dict) else "batch"
+            logger.debug(f"MCP POST /{namespace}: method={method}")
 
             response = await process_jsonrpc_request(body, namespace)
             if response is None:
@@ -546,7 +547,8 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
         try:
             body = await request.json()
-            logger.debug(f"MCP POST: method={body.get('method')}")
+            method = body.get("method") if isinstance(body, dict) else "batch"
+            logger.debug(f"MCP POST: method={method}")
 
             response = await process_jsonrpc_request(body, namespace=None)
             if response is None:

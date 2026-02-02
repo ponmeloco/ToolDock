@@ -453,6 +453,7 @@ class TestMCPAuthentication:
         """Test that MCP endpoints require authentication."""
         response = client.post(
             "/mcp",
+            headers={"Accept": "application/json"},
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -480,6 +481,7 @@ class TestMCPAuthentication:
 
         response = client.post(
             "/mcp",
+            headers={"Accept": "application/json"},
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
