@@ -207,8 +207,8 @@ print_info "Stopping existing containers..."
 docker compose down --remove-orphans 2>/dev/null || true
 
 print_info "Starting containers..."
-# Start containers quietly
-docker compose up -d 2>&1 > /dev/null
+# Start containers quietly (suppress all docker compose output)
+docker compose up -d &> /dev/null
 
 # Check if backend is running
 if docker compose ps --status running -q tooldock-backend 2>/dev/null | grep -q .; then
