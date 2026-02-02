@@ -22,7 +22,7 @@ fi
 # Configuration
 MCP_URL="${MCP_URL:-http://localhost:18007}"
 WEB_URL="${WEB_URL:-http://localhost:18080}"
-TOKEN="${BEARER_TOKEN:-change_me}"
+TOKEN="${BEARER_TOKEN:-change_me_to_a_secure_token}"
 
 # Colors
 RED='\033[0;31m'
