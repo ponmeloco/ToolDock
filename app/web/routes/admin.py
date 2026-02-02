@@ -506,6 +506,7 @@ async def get_system_info(
     from pathlib import Path
 
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
+    data_dir_absolute = str(Path(data_dir).resolve())
     tools_dir = Path(data_dir) / "tools"
 
     # Get namespaces
@@ -519,7 +520,7 @@ async def get_system_info(
     return SystemInfoResponse(
         version="1.0.0",
         python_version=sys.version,
-        data_dir=data_dir,
+        data_dir=data_dir_absolute,
         namespaces=namespaces,
         environment={
             "openapi_port": os.getenv("OPENAPI_PORT", "8006"),
