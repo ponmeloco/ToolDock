@@ -35,10 +35,15 @@ services:
       - SERVER_MODE=all
       - DATA_DIR=/data
       - HOST=0.0.0.0
+      # Internal container ports are fixed - only host ports are configurable
+      - OPENAPI_PORT=8006
+      - MCP_PORT=8007
+      - WEB_PORT=8080
     ports:
-      - "${OPENAPI_PORT:-8006}:${OPENAPI_PORT:-8006}"
-      - "${MCP_PORT:-8007}:${MCP_PORT:-8007}"
-      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
+      # Host:Container - host ports from .env, container ports fixed
+      - "${OPENAPI_PORT:-8006}:8006"
+      - "${MCP_PORT:-8007}:8007"
+      - "${WEB_PORT:-8080}:8080"
     volumes:
       - ./tooldock_data:/data:rw
     restart: unless-stopped
@@ -47,6 +52,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
+      # Uses fixed internal port (8007)
       test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
       interval: 30s
       timeout: 10s
