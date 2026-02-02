@@ -124,6 +124,10 @@ for dir in "${DATA_DIRS[@]}"; do
     fi
 done
 
+# Ensure directories are writable by container user (UID 1000)
+chmod -R a+rwX tooldock_data/ 2>/dev/null || true
+print_success "Set permissions on tooldock_data/"
+
 # ==================================================
 # Step 3: Build Docker Images
 # ==================================================
