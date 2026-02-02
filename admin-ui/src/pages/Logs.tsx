@@ -99,8 +99,8 @@ export default function Logs() {
   const toolCount = allLogs.filter((l) => l.tool_name !== undefined && l.tool_name !== null).length
 
   const tabs = [
-    { id: 'http' as TabType, label: 'HTTP Requests', icon: Globe, count: httpCount },
     { id: 'tools' as TabType, label: 'Tool Calls', icon: Wrench, count: toolCount },
+    { id: 'http' as TabType, label: 'HTTP Requests', icon: Globe, count: httpCount },
     { id: 'all' as TabType, label: 'All Logs', icon: Terminal, count: allLogs.length },
   ]
 
