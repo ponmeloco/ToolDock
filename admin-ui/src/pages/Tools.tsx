@@ -36,11 +36,16 @@ export default function Tools() {
   const [showUnsavedModal, setShowUnsavedModal] = useState(false)
   const [pendingFileSelect, setPendingFileSelect] = useState<string | null>(null)
   const [newToolName, setNewToolName] = useState('')
+  const [lastValidation, setLastValidation] = useState<{
+    is_valid: boolean
+    errors: string[]
+    warnings: string[]
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
   // Calculate hasChanges from content comparison
-  const hasChanges = editorContent !== originalContent && originalContent !== ''
+  const hasChanges = editorContent !== originalContent
 
   const toolsQuery = useQuery({
     queryKey: ['tools', namespace],
@@ -60,6 +65,7 @@ export default function Tools() {
     if (toolContentQuery.data?.content !== undefined) {
       setEditorContent(toolContentQuery.data.content)
       setOriginalContent(toolContentQuery.data.content)
+      setLastValidation(toolContentQuery.data.validation ?? null)
     }
   }, [toolContentQuery.data?.content, selectedFile])
 
@@ -77,10 +83,13 @@ export default function Tools() {
 
   const updateMutation = useMutation({
     mutationFn: ({ content }: { content: string }) =>
-      updateTool(namespace!, selectedFile!, content),
-    onSuccess: (data) => {
+      updateTool(namespace!, selectedFile!, content, true),
+    onSuccess: (data, variables) => {
       if (data.success) {
-        setOriginalContent(editorContent)
+        setOriginalContent(variables.content)
+        if (data.validation) {
+          setLastValidation(data.validation)
+        }
         queryClient.invalidateQueries({ queryKey: ['tool', namespace, selectedFile] })
       }
     },
@@ -130,6 +139,9 @@ export default function Tools() {
 
   const validateMutation = useMutation({
     mutationFn: () => validateTool(namespace!, editorContent, selectedFile || 'tool.py'),
+    onSuccess: (data) => {
+      setLastValidation(data)
+    },
   })
 
   const createToolMutation = useMutation({
@@ -153,11 +165,25 @@ export default function Tools() {
 
   const handleEditorChange = useCallback((value: string) => {
     setEditorContent(value)
+    setLastValidation(null)
   }, [])
 
-  const handleSave = useCallback(() => {
-    updateMutation.mutate({ content: editorContent })
-  }, [editorContent, updateMutation])
+  const handleSave = useCallback(async () => {
+    if (!namespace || !selectedFile) return
+
+    const validationResult = await validateMutation.mutateAsync()
+    if (!validationResult.is_valid) {
+      return
+    }
+
+    const result = await updateMutation.mutateAsync({ content: editorContent })
+    if (result.success) {
+      await reloadNamespace(namespace)
+      queryClient.invalidateQueries({ queryKey: ['tools', namespace] })
+      queryClient.invalidateQueries({ queryKey: ['namespaces'] })
+      queryClient.invalidateQueries({ queryKey: ['allTools'] })
+    }
+  }, [editorContent, namespace, selectedFile, queryClient, updateMutation, validateMutation])
 
   const handleSelectFile = useCallback((filename: string) => {
     if (filename === selectedFile) return
@@ -214,7 +240,11 @@ export default function Tools() {
     }
   }
 
-  const validation = updateMutation.data?.validation || validateMutation.data || toolContentQuery.data?.validation
+  const validation =
+    lastValidation ||
+    updateMutation.data?.validation ||
+    validateMutation.data ||
+    toolContentQuery.data?.validation
 
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
@@ -374,11 +404,15 @@ export default function Tools() {
                   </button>
                   <button
                     onClick={handleSave}
-                    disabled={!hasChanges || updateMutation.isPending}
+                    disabled={
+                      !hasChanges ||
+                      updateMutation.isPending ||
+                      validateMutation.isPending
+                    }
                     className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded transition-colors"
                   >
                     <Save className="w-4 h-4" />
-                    {updateMutation.isPending ? 'Saving...' : 'Save'}
+                    {updateMutation.isPending ? 'Saving...' : validateMutation.isPending ? 'Validating...' : 'Save'}
                   </button>
                 </div>
               </div>

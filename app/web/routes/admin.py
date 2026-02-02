@@ -174,6 +174,46 @@ def _write_log_to_file(entry: LogEntry):
         logger.debug(f"Failed to write log to file: {e}")
 
 
+def _read_recent_logs_from_file(
+    limit: int,
+    level: Optional[str] = None,
+    logger_name: Optional[str] = None,
+) -> tuple[List[LogEntry], int]:
+    """Read recent log entries from today's log file."""
+    log_dir = _get_log_dir()
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_file = log_dir / f"{today}.jsonl"
+
+    if not log_file.exists():
+        return [], 0
+
+    level_upper = level.upper() if level else None
+    results: deque = deque(maxlen=limit)
+    total = 0
+
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    data = json.loads(line.strip())
+                    entry = LogEntry(**data)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+                if level_upper and entry.level != level_upper:
+                    continue
+                if logger_name and logger_name.lower() not in entry.logger.lower():
+                    continue
+
+                results.append(entry)
+                total += 1
+    except Exception as e:
+        logger.warning(f"Error reading log file {log_file}: {e}")
+        return [], 0
+
+    return list(results), total
+
+
 class BufferingLogHandler(logging.Handler):
     """Custom log handler that buffers log entries and writes to file."""
 
@@ -376,19 +416,21 @@ async def get_logs(
         level: Filter by log level (DEBUG, INFO, WARNING, ERROR)
         logger_name: Filter by logger name (e.g., 'mcp', 'openapi')
     """
-    # Filter logs
-    logs = list(_log_buffer)
+    # Prefer file-backed logs to include entries from other processes (OpenAPI/MCP)
+    logs, total = _read_recent_logs_from_file(limit, level=level, logger_name=logger_name)
 
-    if level:
-        level_upper = level.upper()
-        logs = [log for log in logs if log.level == level_upper]
+    # Fallback to in-memory buffer if file is empty/unavailable
+    if not logs:
+        logs = list(_log_buffer)
+        if level:
+            level_upper = level.upper()
+            logs = [log for log in logs if log.level == level_upper]
+        if logger_name:
+            logs = [log for log in logs if logger_name.lower() in log.logger.lower()]
+        logs = logs[-limit:]
 
-    if logger_name:
-        logs = [log for log in logs if logger_name.lower() in log.logger.lower()]
-
-    # Get most recent entries
-    total = len(logs)
-    logs = logs[-limit:]
+    if not total:
+        total = len(logs)
 
     return LogsResponse(
         logs=logs,
