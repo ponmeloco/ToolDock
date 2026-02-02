@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
+from app.metrics_store import get_metrics_store, init_metrics_store
 
 logger = logging.getLogger(__name__)
 
@@ -740,60 +741,18 @@ async def get_system_info(
 @router.get("/metrics", response_model=MetricsResponse)
 async def get_metrics(_: str = Depends(verify_token)) -> MetricsResponse:
     """Get recent error rates and tool call stats for the dashboard."""
-    now = datetime.now()
-    cutoff = now - timedelta(days=7)
-    entries = _load_logs_since(cutoff)
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
+    store = get_metrics_store() or init_metrics_store(data_dir)
+    metrics = store.get_metrics()
 
-    windows = {
-        "last_5m": now - timedelta(minutes=5),
-        "last_1h": now - timedelta(hours=1),
-        "last_24h": now - timedelta(hours=24),
-        "last_7d": now - timedelta(days=7),
+    services = {
+        name: ServiceErrorRates(**rates)
+        for name, rates in metrics.get("services", {}).items()
     }
-
-    service_names = ["openapi", "mcp", "web"]
-    services: dict = {}
-
-    for service in service_names:
-        rates = {}
-        for key, window_start in windows.items():
-            window_entries = [
-                e for e in entries
-                if e.service_name == service
-                and e.http_status is not None
-                and datetime.fromisoformat(e.timestamp) >= window_start
-            ]
-            requests = len(window_entries)
-            errors = len([e for e in window_entries if (e.http_status or 0) >= 400])
-            error_rate = (errors / requests * 100.0) if requests else 0.0
-            rates[key] = ServiceErrorRate(
-                requests=requests,
-                errors=errors,
-                error_rate=round(error_rate, 2),
-            )
-        services[service] = ServiceErrorRates(**rates)
-
-    def tool_counts(since: datetime) -> ToolCallCounts:
-        tool_entries = [
-            e for e in entries
-            if e.tool_name is not None
-            and e.http_status is not None
-            and datetime.fromisoformat(e.timestamp) >= since
-        ]
-        total = len(tool_entries)
-        errors = len([e for e in tool_entries if (e.http_status or 0) >= 400])
-        success = total - errors
-        return ToolCallCounts(total=total, success=success, error=errors)
-
-    tool_calls = ToolCallStats(
-        last_5m=tool_counts(windows["last_5m"]),
-        last_1h=tool_counts(windows["last_1h"]),
-        last_24h=tool_counts(windows["last_24h"]),
-        last_7d=tool_counts(windows["last_7d"]),
-    )
+    tool_calls = ToolCallStats(**metrics.get("tool_calls", {}))
 
     return MetricsResponse(
-        timestamp=now.isoformat(),
+        timestamp=metrics.get("timestamp", datetime.now().isoformat()),
         services=services,
         tool_calls=tool_calls,
     )

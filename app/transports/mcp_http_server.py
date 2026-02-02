@@ -35,6 +35,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
+from app.metrics_store import init_metrics_store
 from app.registry import ToolRegistry
 from app.errors import ToolError, ToolNotFoundError
 from app.auth import verify_token, is_auth_enabled
@@ -91,6 +92,8 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
 
     # Add trailing newline to JSON responses for better CLI output
     app.add_middleware(TrailingNewlineMiddleware)
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
+    init_metrics_store(data_dir)
     app.add_middleware(RequestLoggingMiddleware, service_name="mcp")
 
     # Store registry in app state

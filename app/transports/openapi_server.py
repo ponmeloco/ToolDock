@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth import get_bearer_token, is_auth_enabled
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
+from app.metrics_store import init_metrics_store
 from app.registry import ToolRegistry
 from app.reload import ToolReloader
 from app.errors import ToolError, ToolTimeoutError, ToolUnauthorizedError, ToolValidationError
@@ -101,6 +102,8 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
     app.add_middleware(TrailingNewlineMiddleware)
 
     # Add request logging middleware
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
+    init_metrics_store(data_dir)
     app.add_middleware(RequestLoggingMiddleware, service_name="openapi")
 
     # Store registry in app state
@@ -207,4 +210,3 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
 
     logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")
     return app
-

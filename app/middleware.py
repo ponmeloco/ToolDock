@@ -13,6 +13,7 @@ import time
 
 
 from app.utils import generate_request_id, set_request_context, clear_request_context, get_request_id
+from app.metrics_store import get_metrics_store
 
 
 class TrailingNewlineMiddleware:
@@ -178,6 +179,9 @@ class RequestLoggingMiddleware:
                         request_id=request_id,
                         error_detail=error_detail,
                     )
+                    metrics_store = get_metrics_store()
+                    if metrics_store and self.service_name:
+                        metrics_store.record(self.service_name, status_code, tool_name)
                 except ImportError:
                     pass  # Log buffer not available
 

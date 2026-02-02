@@ -26,6 +26,7 @@ from app.auth import is_auth_enabled, verify_token
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.utils import get_cors_origins
 from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router, playground_router
+from app.metrics_store import init_metrics_store
 from app.web.routes.admin import setup_log_buffer
 from app.reload import init_reloader
 
@@ -121,6 +122,9 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     tools_dir = f"{data_dir}/tools"
     init_reloader(registry, tools_dir)
     logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")
+
+    # Initialize metrics store (for admin API aggregation)
+    init_metrics_store(data_dir)
 
     # Add request logging middleware (after log buffer is set up)
     app.add_middleware(RequestLoggingMiddleware, service_name="web")
