@@ -318,6 +318,8 @@ if command -v pytest &> /dev/null || python -m pytest --version &> /dev/null 2>&
     fi
 else
     # Skip tests on production servers
+    print_info "Skipping tests (pytest not installed)"
+    print_info "To run tests: pip install pytest pytest-asyncio"
     TEST_EXIT_CODE=0
 fi
 
