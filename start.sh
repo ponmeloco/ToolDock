@@ -102,7 +102,30 @@ if grep -q "BEARER_TOKEN=change_me" .env 2>/dev/null; then
 fi
 
 # ==================================================
-# Step 2: Build Docker Images
+# Step 2: Create Data Directories
+# ==================================================
+
+print_header "Creating Data Directories"
+
+# Create directories that the container needs write access to
+DATA_DIRS=(
+    "tooldock_data/logs"
+    "tooldock_data/tools/shared"
+    "tooldock_data/external"
+    "tooldock_data/config"
+)
+
+for dir in "${DATA_DIRS[@]}"; do
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
+        print_success "Created $dir"
+    else
+        print_success "$dir exists"
+    fi
+done
+
+# ==================================================
+# Step 3: Build Docker Images
 # ==================================================
 
 print_header "Building Docker Images"
@@ -124,7 +147,7 @@ else
 fi
 
 # ==================================================
-# Step 3: Start Stack
+# Step 4: Start Stack
 # ==================================================
 
 print_header "Starting Stack"
@@ -141,7 +164,7 @@ else
 fi
 
 # ==================================================
-# Step 4: Health Checks
+# Step 5: Health Checks
 # ==================================================
 
 print_header "Running Health Checks"
@@ -237,7 +260,7 @@ else
 fi
 
 # ==================================================
-# Step 5: Run Unit Tests
+# Step 6: Run Unit Tests
 # ==================================================
 
 print_header "Running Unit Tests"
