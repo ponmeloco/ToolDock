@@ -23,7 +23,7 @@ Visit https://registry.modelcontextprotocol.io to browse servers with descriptio
 Search from ToolDock:
 
 ```bash
-curl "http://localhost:8006/admin/servers/search?query=github" \
+curl "http://localhost:18006/admin/servers/search?query=github" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -89,7 +89,7 @@ servers:
 ### Method 2: Admin API
 
 ```bash
-curl -X POST "http://localhost:8006/admin/servers/add" \
+curl -X POST "http://localhost:18006/admin/servers/add" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

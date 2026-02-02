@@ -25,18 +25,18 @@ Option 1 - File system:
 nano tooldock_data/tools/shared/my_tool.py
 
 # Hot reload (no restart needed)
-curl -X POST http://localhost:8080/api/reload/shared \
+curl -X POST http://localhost:18080/api/reload/shared \
   -H "Authorization: Bearer <token>"
 ```
 
 Option 2 - Admin UI:
-1. Open http://localhost:3000
+1. Open http://localhost:13000
 2. Go to Tools page
 3. Upload the Python file
 
 Option 3 - API:
 ```bash
-curl -X POST http://localhost:8080/api/folders/shared/tools \
+curl -X POST http://localhost:18080/api/folders/shared/tools \
   -H "Authorization: Bearer <token>" \
   -F "file=@my_tool.py"
 ```

@@ -30,7 +30,7 @@ ToolDock can connect to external MCP servers and expose their tools alongside yo
     │               │               │
     ▼               ▼               ▼
 OpenAPI         MCP HTTP        Admin API
-:8006           :8007           :8006/admin
+:18006          :18007          :18006/admin
 ```
 
 ## Quick Links

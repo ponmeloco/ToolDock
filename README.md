@@ -37,9 +37,9 @@ docker compose up -d
 **Verify:**
 
 ```bash
-curl http://localhost:8006/health   # OpenAPI
-curl http://localhost:8007/health   # MCP
-curl http://localhost:3000          # Admin UI
+curl http://localhost:18006/health   # OpenAPI
+curl http://localhost:18007/health   # MCP
+curl http://localhost:13000          # Admin UI
 ```
 
 ---
@@ -64,9 +64,9 @@ curl http://localhost:3000          # Admin UI
 ┌──────────────────┐     ┌─────────────────────────────────────┐
 │   Admin UI       │     │         ToolDock Backend             │
 │   (React)        │     ├─────────────────────────────────────┤
-│  Port 3000       │────→│  Port 8006 → OpenAPI/REST           │
-│                  │     │  Port 8007 → MCP HTTP               │
-└──────────────────┘     │  Port 8080 → Backend API            │
+│  Port 13000      │────→│  Port 18006 → OpenAPI/REST          │
+│                  │     │  Port 18007 → MCP HTTP              │
+└──────────────────┘     │  Port 18080 → Backend API           │
                          ├─────────────────────────────────────┤
 LiteLLM ────────────────→│  /mcp/shared    → shared/ tools     │
 Claude Desktop ─────────→│  /mcp/team1     → team1/ tools      │
@@ -84,10 +84,10 @@ Claude Desktop ─────────→│  /mcp/team1     → team1/ tool
 BEARER_TOKEN=your_secure_token_here
 
 # Optional - Ports
-OPENAPI_PORT=8006
-MCP_PORT=8007
-WEB_PORT=8080
-ADMIN_PORT=3000
+OPENAPI_PORT=18006
+MCP_PORT=18007
+WEB_PORT=18080
+ADMIN_PORT=13000
 
 # Optional - Logging
 LOG_RETENTION_DAYS=30  # Auto-delete logs after N days
@@ -114,7 +114,7 @@ Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 
 ### Via Admin UI
 
-1. Open http://localhost:3000
+1. Open http://localhost:13000
 2. **Tools** → select namespace → **New Tool**
 3. Edit the template → **Save** → **Reload**
 
@@ -146,7 +146,7 @@ def register_tools(registry: ToolRegistry) -> None:
 Then reload:
 
 ```bash
-curl -X POST http://localhost:8080/api/reload/shared \
+curl -X POST http://localhost:18080/api/reload/shared \
   -H "Authorization: Bearer change_me"
 ```
 
@@ -159,7 +159,7 @@ curl -X POST http://localhost:8080/api/reload/shared \
 ```yaml
 mcp_servers:
   - server_name: "tooldock"
-    url: "http://localhost:8007/mcp/shared"
+    url: "http://localhost:18007/mcp/shared"
     api_key_header: "Authorization"
     api_key_value: "Bearer change_me"
 ```
@@ -172,7 +172,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:8007/mcp/shared",
+      "url": "http://localhost:18007/mcp/shared",
       "headers": {
         "Authorization": "Bearer change_me"
       }
@@ -185,7 +185,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 
 ## API Reference
 
-### OpenAPI (Port 8006)
+### OpenAPI (Port 18006)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -193,7 +193,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 | `/tools` | GET | List tools |
 | `/tools/{name}` | POST | Execute tool |
 
-### MCP (Port 8007)
+### MCP (Port 18007)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -201,7 +201,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 | `/mcp/namespaces` | GET | List namespaces |
 | `/mcp/{namespace}` | POST | JSON-RPC endpoint |
 
-### Backend API (Port 8080)
+### Backend API (Port 18080)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

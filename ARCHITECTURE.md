@@ -54,7 +54,7 @@ The server implements a **triple-transport architecture**:
 │ Protocol:       │  │ Protocol:       │  │ Protocol:       │
 │ HTTP/REST+JSON  │  │ JSON-RPC 2.0    │  │ HTTP/HTML+JSON  │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ Port: 8006      │  │ Port: 8007      │  │ Port: 8080      │
+│ Port: 18006      │  │ Port: 18007      │  │ Port: 18080      │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
 │ Auth: Bearer    │  │ Auth: Bearer    │  │ Auth: Basic +   │
 │                 │  │                 │  │       Bearer    │
@@ -194,7 +194,7 @@ External servers from the MCP Registry run as subprocesses:
 ```
 ToolDock Container
 ├── Python Process (main)
-│   ├── FastAPI (Ports 8006, 8007, 8080)
+│   ├── FastAPI (Ports 18006, 18007, 18080)
 │   ├── Registry with Namespaces
 │   └── MCPServerProxy Manager
 │
@@ -313,9 +313,9 @@ Environment variables control behavior:
 |----------|---------|-------------|
 | `SERVER_MODE` | `openapi` | `openapi`, `mcp-http`, `both`, `web-gui`, `all` |
 | `DATA_DIR` | `./tooldock_data` | Base directory for all data |
-| `OPENAPI_PORT` | `8006` | OpenAPI server port |
-| `MCP_PORT` | `8007` | MCP server port |
-| `WEB_PORT` | `8080` | Web GUI port |
+| `OPENAPI_PORT` | `18006` | OpenAPI server port |
+| `MCP_PORT` | `18007` | MCP server port |
+| `WEB_PORT` | `18080` | Web GUI port |
 | `BEARER_TOKEN` | - | Auth token (required) |
 | `ADMIN_USERNAME` | `admin` | Web GUI username |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |

@@ -34,13 +34,13 @@ Tools are organized in **namespaces** (folders). Each namespace has its own endp
 
 **Example - List Tools:**
 ```bash
-curl http://localhost:8006/tools \
+curl http://localhost:18006/tools \
   -H "Authorization: Bearer <token>"
 ```
 
 **Example - Execute Tool:**
 ```bash
-curl -X POST http://localhost:8006/tools/hello_world \
+curl -X POST http://localhost:18006/tools/hello_world \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"name": "World"}'
@@ -61,13 +61,13 @@ Uses JSON-RPC 2.0 protocol with namespace-based routing.
 
 **Example - List Namespaces:**
 ```bash
-curl http://localhost:8007/mcp/namespaces \
+curl http://localhost:18007/mcp/namespaces \
   -H "Authorization: Bearer <token>"
 ```
 
 **Example - List Tools (shared namespace):**
 ```bash
-curl -X POST http://localhost:8007/mcp/shared \
+curl -X POST http://localhost:18007/mcp/shared \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -80,7 +80,7 @@ curl -X POST http://localhost:8007/mcp/shared \
 
 **Example - Execute Tool:**
 ```bash
-curl -X POST http://localhost:8007/mcp/shared \
+curl -X POST http://localhost:18007/mcp/shared \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -138,11 +138,11 @@ Tools can be reloaded at runtime without server restart:
 
 ```bash
 # Reload all namespaces
-curl -X POST http://localhost:8080/api/reload \
+curl -X POST http://localhost:18080/api/reload \
   -H "Authorization: Bearer <token>"
 
 # Reload specific namespace
-curl -X POST http://localhost:8080/api/reload/shared \
+curl -X POST http://localhost:18080/api/reload/shared \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -152,7 +152,7 @@ Tools are Python files in `tooldock_data/tools/{namespace}/`.
 
 **Options to add tools:**
 1. **File system**: Create `.py` file in namespace folder, then hot reload
-2. **Admin UI**: Upload via http://localhost:3000 (Tools page)
+2. **Admin UI**: Upload via http://localhost:13000 (Tools page)
 3. **API**: POST to `/api/folders/{namespace}/tools`
 
 See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for detailed instructions on generating tools with an LLM.
@@ -164,7 +164,7 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for detai
 ```yaml
 mcp_servers:
   - server_name: "tooldock-shared"
-    url: "http://localhost:8007/mcp/shared"
+    url: "http://localhost:18007/mcp/shared"
     api_key_header: "Authorization"
     api_key_value: "Bearer <token>"
 ```
@@ -175,7 +175,7 @@ mcp_servers:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:8007/mcp/shared",
+      "url": "http://localhost:18007/mcp/shared",
       "headers": {
         "Authorization": "Bearer <token>"
       }

@@ -12,7 +12,7 @@ Get external MCP servers running in 5 minutes.
 Browse the [MCP Registry](https://registry.modelcontextprotocol.io) or search via API:
 
 ```bash
-curl "http://localhost:8006/admin/servers/search?query=filesystem" \
+curl "http://localhost:18006/admin/servers/search?query=filesystem" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -55,10 +55,10 @@ Check the tools are loaded:
 
 ```bash
 # Via health endpoint
-curl http://localhost:8006/health
+curl http://localhost:18006/health
 
 # Via tools list
-curl http://localhost:8006/tools \
+curl http://localhost:18006/tools \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -68,7 +68,7 @@ You should see tools like `filesystem:read_file`, `filesystem:write_file`, etc.
 
 OpenAPI:
 ```bash
-curl -X POST "http://localhost:8006/tools/filesystem:read_file" \
+curl -X POST "http://localhost:18006/tools/filesystem:read_file" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"path": "/home/user/documents/readme.txt"}'
@@ -92,7 +92,7 @@ MCP:
 No config file editing needed:
 
 ```bash
-curl -X POST "http://localhost:8006/admin/servers/add" \
+curl -X POST "http://localhost:18006/admin/servers/add" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -120,7 +120,7 @@ curl -X POST "http://localhost:8006/admin/servers/add" \
 
 ### Tools not appearing
 - Verify `enabled: true` in config
-- Check server was loaded: `curl http://localhost:8006/admin/servers/installed`
+- Check server was loaded: `curl http://localhost:18006/admin/servers/installed`
 
 ### Tool execution fails
 - Ensure required env vars are set (like `GITHUB_TOKEN`)

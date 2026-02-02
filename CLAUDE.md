@@ -10,9 +10,9 @@
 ┌──────────────────┐     ┌─────────────────────────────────────┐
 │   Admin UI       │     │         ToolDock Backend             │
 │   (React/nginx)  │     ├─────────────────────────────────────┤
-│                  │     │  Port 8006 → OpenAPI/REST           │
-│  Port 3000       │────→│  Port 8007 → MCP HTTP               │
-│                  │     │  Port 8080 → Backend API            │
+│                  │     │  Port 18006 → OpenAPI/REST          │
+│  Port 13000      │────→│  Port 18007 → MCP HTTP              │
+│                  │     │  Port 18080 → Backend API           │
 └──────────────────┘     ├─────────────────────────────────────┤
                          │  /mcp/shared    → shared/ tools     │
 LiteLLM ────────────────→│  /mcp/team1     → team1/ tools      │
@@ -94,10 +94,10 @@ def register_tools(registry: ToolRegistry) -> None:
 |----------|---------|-------------|
 | `BEARER_TOKEN` | (required) | API authentication token |
 | `SERVER_MODE` | `all` | openapi, mcp-http, web-gui, both, all |
-| `OPENAPI_PORT` | `8006` | OpenAPI server port |
-| `MCP_PORT` | `8007` | MCP HTTP server port |
-| `WEB_PORT` | `8080` | Backend API server port |
-| `ADMIN_PORT` | `3000` | Admin UI port (nginx) |
+| `OPENAPI_PORT` | `18006` | OpenAPI server port |
+| `MCP_PORT` | `18007` | MCP HTTP server port |
+| `WEB_PORT` | `18080` | Backend API server port |
+| `ADMIN_PORT` | `13000` | Admin UI port (nginx) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
@@ -136,7 +136,7 @@ docker compose down
 
 ### Hot Reload
 ```bash
-curl -X POST http://localhost:8080/api/reload \
+curl -X POST http://localhost:18080/api/reload \
   -H "Authorization: Bearer change_me"
 ```
 

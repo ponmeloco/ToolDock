@@ -20,8 +20,8 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 # Configuration
-MCP_URL="${MCP_URL:-http://localhost:8007}"
-WEB_URL="${WEB_URL:-http://localhost:8080}"
+MCP_URL="${MCP_URL:-http://localhost:18007}"
+WEB_URL="${WEB_URL:-http://localhost:18080}"
 TOKEN="${BEARER_TOKEN:-change_me}"
 
 # Colors

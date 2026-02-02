@@ -2,7 +2,7 @@
 
 Runtime management of external MCP servers.
 
-**Base URL:** `http://localhost:8006/admin`
+**Base URL:** `http://localhost:18006/admin`
 
 **Authentication:** Bearer token required (same as other endpoints)
 
@@ -37,7 +37,7 @@ GET /admin/servers/search?query={query}&limit={limit}
 
 **Example:**
 ```bash
-curl "http://localhost:8006/admin/servers/search?query=github" \
+curl "http://localhost:18006/admin/servers/search?query=github" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -66,7 +66,7 @@ GET /admin/servers/installed
 
 **Example:**
 ```bash
-curl "http://localhost:8006/admin/servers/installed" \
+curl "http://localhost:18006/admin/servers/installed" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -108,7 +108,7 @@ POST /admin/servers/add
 
 From registry:
 ```bash
-curl -X POST "http://localhost:8006/admin/servers/add" \
+curl -X POST "http://localhost:18006/admin/servers/add" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -121,7 +121,7 @@ curl -X POST "http://localhost:8006/admin/servers/add" \
 
 Custom command:
 ```bash
-curl -X POST "http://localhost:8006/admin/servers/add" \
+curl -X POST "http://localhost:18006/admin/servers/add" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -158,7 +158,7 @@ DELETE /admin/servers/{server_id}?remove_from_config={bool}
 
 **Example:**
 ```bash
-curl -X DELETE "http://localhost:8006/admin/servers/github" \
+curl -X DELETE "http://localhost:18006/admin/servers/github" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -193,7 +193,7 @@ GET /admin/tools
 
 **Example:**
 ```bash
-curl "http://localhost:8006/admin/tools" \
+curl "http://localhost:18006/admin/tools" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -225,7 +225,7 @@ GET /admin/stats
 
 **Example:**
 ```bash
-curl "http://localhost:8006/admin/stats" \
+curl "http://localhost:18006/admin/stats" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 

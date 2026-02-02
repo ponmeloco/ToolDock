@@ -89,13 +89,13 @@ if [ ! -f ".env" ]; then
 BEARER_TOKEN=change_me_to_a_secure_token
 
 # Ports
-OPENAPI_PORT=8006
-MCP_PORT=8007
-WEB_PORT=8080
-ADMIN_PORT=3000
+OPENAPI_PORT=18006
+MCP_PORT=18007
+WEB_PORT=18080
+ADMIN_PORT=13000
 
 # CORS (comma-separated origins, or * for all)
-CORS_ORIGINS=http://localhost:3000
+CORS_ORIGINS=http://localhost:13000
 
 # Server names
 WEB_SERVER_NAME=tooldock-backend
@@ -363,12 +363,12 @@ print_header "Summary"
 
 echo ""
 echo "Services:"
-echo "  Backend API:  http://localhost:${WEB_PORT:-8080}"
-echo "  OpenAPI:      http://localhost:${OPENAPI_PORT:-8006}"
-echo "  MCP HTTP:     http://localhost:${MCP_PORT:-8007}"
-echo "  Admin UI:     http://localhost:${ADMIN_PORT:-3000}"
+echo "  Backend API:  http://localhost:${WEB_PORT:-18080}"
+echo "  OpenAPI:      http://localhost:${OPENAPI_PORT:-18006}"
+echo "  MCP HTTP:     http://localhost:${MCP_PORT:-18007}"
+echo "  Admin UI:     http://localhost:${ADMIN_PORT:-13000}"
 echo ""
-echo "API Docs:       http://localhost:${WEB_PORT:-8080}/docs"
+echo "API Docs:       http://localhost:${WEB_PORT:-18080}/docs"
 echo ""
 
 # Show container status

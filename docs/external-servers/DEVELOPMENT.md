@@ -218,7 +218,7 @@ EXTERNAL_CONFIG=tests/external_config.yaml SERVER_MODE=both python main.py &
 sleep 5
 
 # Test tool execution
-curl -X POST "http://localhost:8006/tools/test:echo" \
+curl -X POST "http://localhost:18006/tools/test:echo" \
   -H "Authorization: Bearer test" \
   -d '{"message": "hello"}'
 ```
