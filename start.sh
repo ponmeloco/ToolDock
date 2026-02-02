@@ -207,16 +207,24 @@ print_info "Stopping existing containers..."
 docker compose down --remove-orphans 2>/dev/null || true
 
 print_info "Starting containers..."
-# Filter out confusing "No services to build" warning
-if docker compose up -d 2>&1 | grep -v "^$" | grep -v "No services to build"; then
-    print_success "Containers started"
-fi
-# Check if containers are actually running
-if docker compose ps --status running -q | grep -q .; then
-    print_success "Containers started"
+# Start containers quietly
+docker compose up -d 2>&1 > /dev/null
+
+# Check if backend is running
+if docker compose ps --status running -q tooldock-backend 2>/dev/null | grep -q .; then
+    print_success "Backend container started"
 else
-    print_error "Failed to start containers"
-    docker compose logs --tail=20
+    print_error "Backend container failed to start"
+    docker compose logs tooldock-backend --tail=10
+    exit 1
+fi
+
+# Check if admin is running
+if docker compose ps --status running -q tooldock-admin 2>/dev/null | grep -q .; then
+    print_success "Admin container started"
+else
+    print_error "Admin container failed to start"
+    docker compose logs tooldock-admin --tail=10
     exit 1
 fi
 
