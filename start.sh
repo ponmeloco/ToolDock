@@ -3,13 +3,29 @@
 # ToolDock Startup Script
 # ==================================================
 # - Checks for .env file
-# - Builds Docker images
+# - Builds Docker images (use --rebuild to force)
 # - Starts the stack
 # - Runs health checks
 # - Runs unit tests (summary only)
+#
+# Usage:
+#   ./start.sh           # Normal start (uses cached images)
+#   ./start.sh --rebuild # Force rebuild all images
+#   ./start.sh -r        # Short form
 # ==================================================
 
 set -e
+
+# Parse arguments
+FORCE_REBUILD=false
+for arg in "$@"; do
+    case $arg in
+        --rebuild|-r)
+            FORCE_REBUILD=true
+            shift
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -134,8 +150,15 @@ print_success "Set permissions on tooldock_data/"
 
 print_header "Building Docker Images"
 
+# Set build options
+BUILD_OPTS="--quiet"
+if [ "$FORCE_REBUILD" = true ]; then
+    BUILD_OPTS="--no-cache --pull"
+    print_info "Force rebuild enabled (--no-cache --pull)"
+fi
+
 print_info "Building tooldock-backend..."
-if docker compose build tooldock-backend --quiet 2>&1; then
+if docker compose build tooldock-backend $BUILD_OPTS 2>&1 | grep -v "^$"; then
     print_success "tooldock-backend image built"
 else
     print_error "Failed to build tooldock-backend"
@@ -143,7 +166,7 @@ else
 fi
 
 print_info "Building tooldock-admin..."
-if docker compose build tooldock-admin --quiet 2>&1; then
+if docker compose build tooldock-admin $BUILD_OPTS 2>&1 | grep -v "^$"; then
     print_success "tooldock-admin image built"
 else
     print_error "Failed to build tooldock-admin"
@@ -160,10 +183,16 @@ print_info "Stopping existing containers..."
 docker compose down --remove-orphans 2>/dev/null || true
 
 print_info "Starting containers..."
-if docker compose up -d 2>&1 | grep -v "^$"; then
+# Filter out confusing "No services to build" warning
+if docker compose up -d 2>&1 | grep -v "^$" | grep -v "No services to build"; then
+    print_success "Containers started"
+fi
+# Check if containers are actually running
+if docker compose ps --status running -q | grep -q .; then
     print_success "Containers started"
 else
     print_error "Failed to start containers"
+    docker compose logs --tail=20
     exit 1
 fi
 
