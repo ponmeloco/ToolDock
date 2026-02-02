@@ -36,9 +36,9 @@ export default function Layout() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="h-screen flex">
       {/* Sidebar */}
-      <aside className="w-64 bg-gray-900 text-white flex flex-col">
+      <aside className="w-64 bg-gray-900 text-white flex flex-col sticky top-0 h-screen">
         {/* Logo */}
         <div className="p-4 border-b border-gray-800">
           <h1 className="text-xl font-bold">ToolDock</h1>
@@ -88,7 +88,7 @@ export default function Layout() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-y-auto">
         <div className="p-6">
           <Outlet />
         </div>
