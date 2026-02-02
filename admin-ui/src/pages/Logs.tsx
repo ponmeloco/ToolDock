@@ -53,7 +53,7 @@ export default function Logs() {
   const [level, setLevel] = useState<string>('')
   const [loggerFilter, setLoggerFilter] = useState('')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-  const [activeTab, setActiveTab] = useState<TabType>('http')
+  const [activeTab, setActiveTab] = useState<TabType>('tools')
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
   const toggleRow = (index: number) => {
@@ -83,7 +83,9 @@ export default function Logs() {
   // Filter logs based on active tab
   const logs = allLogs.filter((log) => {
     if (activeTab === 'http') {
-      return log.http_status !== undefined && log.http_status !== null
+      if (log.http_status === undefined || log.http_status === null) return false
+      if (log.http_path?.endsWith('/health')) return false
+      return true
     } else if (activeTab === 'tools') {
       return log.tool_name !== undefined && log.tool_name !== null
     }
@@ -91,7 +93,9 @@ export default function Logs() {
   })
 
   // Count for tabs
-  const httpCount = allLogs.filter((l) => l.http_status !== undefined && l.http_status !== null).length
+  const httpCount = allLogs.filter(
+    (l) => l.http_status !== undefined && l.http_status !== null && !l.http_path?.endsWith('/health')
+  ).length
   const toolCount = allLogs.filter((l) => l.tool_name !== undefined && l.tool_name !== null).length
 
   const tabs = [
