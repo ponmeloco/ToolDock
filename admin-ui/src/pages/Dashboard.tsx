@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { getSystemHealth, getSystemInfo, getSystemMetrics } from '../api/client'
+import { getSystemHealth, getSystemInfo, getSystemMetrics, getNamespaces, getExternalServers } from '../api/client'
 import {
   CheckCircle,
   XCircle,
@@ -30,6 +30,16 @@ export default function Dashboard() {
   const infoQuery = useQuery({
     queryKey: ['info'],
     queryFn: getSystemInfo,
+  })
+
+  const namespacesQuery = useQuery({
+    queryKey: ['namespaces'],
+    queryFn: getNamespaces,
+  })
+
+  const externalServersQuery = useQuery({
+    queryKey: ['externalServers'],
+    queryFn: getExternalServers,
   })
 
   const metricsQuery = useQuery({
@@ -87,6 +97,36 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tool Calls */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Tool Calls</h2>
+        {metricsQuery.isLoading ? (
+          <div className="text-gray-500">Loading...</div>
+        ) : metricsQuery.error ? (
+          <div className="text-red-500">Failed to load metrics</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {toolCallWindows.map((window) => {
+              const stats = metricsQuery.data?.tool_calls?.[window.key]
+              if (!stats) return null
+              const successRate = stats.total ? (stats.success / stats.total) * 100 : 0
+              return (
+                <div key={window.key} className="p-4 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-gray-500">{window.label}</div>
+                  <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                  <div className="text-xs text-gray-600">
+                    {stats.success} ok / {stats.error} err
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Success {successRate.toFixed(1)}%
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -152,21 +192,65 @@ export default function Dashboard() {
             Namespaces
           </h2>
 
-          {infoQuery.isLoading ? (
+          {namespacesQuery.isLoading ? (
             <div className="text-gray-500">Loading...</div>
-          ) : infoQuery.error ? (
+          ) : namespacesQuery.error ? (
             <div className="text-red-500">Failed to load</div>
           ) : (
             <div>
-              <div className="text-3xl font-bold text-primary-600 mb-2">
-                {infoQuery.data?.namespaces.length || 0}
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-3xl font-bold text-primary-600">
+                  {namespacesQuery.data?.length || 0}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {externalServersQuery.data?.total || 0} external
+                </div>
               </div>
-              <div className="space-y-1">
-                {infoQuery.data?.namespaces.map((ns) => (
-                  <div key={ns} className="text-sm text-gray-600">
-                    • {ns}
-                  </div>
-                ))}
+
+              <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Native</div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {namespacesQuery.data?.length ? (
+                  namespacesQuery.data.map((ns) => (
+                    <span
+                      key={ns.name}
+                      className="inline-flex items-center gap-2 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs"
+                    >
+                      {ns.name}
+                      <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                        {ns.tool_count}
+                      </span>
+                    </span>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-500">No native namespaces</div>
+                )}
+              </div>
+
+              <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">External</div>
+              <div className="flex flex-wrap gap-2">
+                {externalServersQuery.data?.servers?.length ? (
+                  externalServersQuery.data.servers.map((server) => (
+                    <span
+                      key={server.server_id}
+                      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs ${
+                        server.enabled
+                          ? 'bg-purple-50 text-purple-700'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {server.namespace}
+                      <span
+                        className={`px-1.5 py-0.5 rounded-full ${
+                          server.enabled ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {server.enabled ? 'enabled' : 'disabled'}
+                      </span>
+                    </span>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-500">No external servers</div>
+                )}
               </div>
             </div>
           )}

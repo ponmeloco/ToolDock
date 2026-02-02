@@ -58,6 +58,19 @@ export interface Tool {
   size: number
 }
 
+export interface ExternalServerInfo {
+  server_id: string
+  namespace: string
+  endpoint: string
+  config: Record<string, unknown>
+  enabled: boolean
+}
+
+export interface ExternalServerList {
+  servers: ExternalServerInfo[]
+  total: number
+}
+
 export interface ToolContent {
   filename: string
   namespace: string
@@ -175,6 +188,11 @@ export async function getTools(namespace: string): Promise<Tool[]> {
   const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools`)
   const data = await res.json()
   return data.tools || []
+}
+
+export async function getExternalServers(): Promise<ExternalServerList> {
+  const res = await fetchWithAuth(`${API_BASE}/servers`)
+  return res.json()
 }
 
 export async function getTool(namespace: string, filename: string): Promise<ToolContent> {
