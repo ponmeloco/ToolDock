@@ -118,6 +118,14 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
         },
         {
           method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/uninstall',
+          description: 'Uninstall namespace dependencies (pip protected)',
+          auth: true,
+          body: '{"packages": ["requests"]}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
           path: '/api/folders/{namespace}/tools/deps/delete',
           description: 'Delete namespace venv',
           auth: true,

@@ -202,6 +202,15 @@ curl -X POST http://localhost:18080/api/folders/shared/tools/deps/delete \
 
 After install, ToolDock auto-reloads the namespace so imports work immediately.
 
+Uninstall (pip/setuptools/wheel are protected):
+
+```bash
+curl -X POST http://localhost:18080/api/folders/shared/tools/deps/uninstall \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{"packages": ["requests"]}'
+```
+
 ---
 
 ## Connecting Clients

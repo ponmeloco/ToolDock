@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _PKG_PATTERN = re.compile(r"^[A-Za-z0-9_.@+/:=<>!~\\-]+$")
+_PROTECTED_PACKAGES = {"pip", "setuptools", "wheel"}
 
 
 def _get_data_dir() -> Path:
@@ -128,6 +129,32 @@ def install_requirements(namespace: str, requirements_text: str) -> Dict[str, An
     }
 
 
+def uninstall_packages(namespace: str, packages: List[str]) -> Dict[str, Any]:
+    """
+    Uninstall pip packages from the namespace venv.
+    """
+    if not packages:
+        raise ValueError("No packages provided")
+
+    normalized = []
+    for pkg in packages:
+        if not pkg or not _PKG_PATTERN.match(pkg):
+            raise ValueError(f"Invalid package spec: {pkg}")
+        name = pkg.strip().lower()
+        if name in _PROTECTED_PACKAGES:
+            raise ValueError(f"Cannot uninstall protected package: {pkg}")
+        normalized.append(pkg)
+
+    venv_dir = ensure_venv(namespace)
+    cmd = [str(_venv_python(venv_dir)), "-m", "pip", "uninstall", "-y"] + normalized
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-4000:],
+    }
+
+
 def list_packages(namespace: str) -> List[Dict[str, str]]:
     """
     List installed packages for the namespace venv.
@@ -149,6 +176,7 @@ def list_packages(namespace: str) -> List[Dict[str, str]]:
         return [
             {"name": p.get("name", ""), "version": p.get("version", "")}
             for p in data
+            if (p.get("name", "") or "").lower() not in _PROTECTED_PACKAGES
         ]
     except Exception:
         return []

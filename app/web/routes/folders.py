@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth import verify_token
 from app.loader import discover_namespaces
+from app.deps import ensure_venv, delete_venv
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,8 @@ async def create_folder(
 
     try:
         folder_path.mkdir(parents=True, exist_ok=False)
+        # Create namespace venv on folder creation
+        ensure_venv(request.name)
         logger.info(f"Created folder: {folder_path}")
 
         return FolderInfo(
@@ -262,6 +265,8 @@ async def delete_folder(
 
     try:
         shutil.rmtree(folder_path)
+        # Remove namespace venv on folder deletion
+        delete_venv(namespace)
         logger.info(f"Deleted folder: {folder_path}")
 
         return {

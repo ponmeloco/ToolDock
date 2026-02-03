@@ -14,6 +14,7 @@ import {
   createToolFromTemplate,
   getNamespaceDeps,
   installNamespaceDeps,
+  uninstallNamespaceDeps,
   createNamespaceVenv,
   deleteNamespaceVenv,
 } from '../api/client'
@@ -43,6 +44,8 @@ export default function Tools() {
   const [newToolName, setNewToolName] = useState('')
   const [requirementsText, setRequirementsText] = useState('')
   const [installOutput, setInstallOutput] = useState<string | null>(null)
+  const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<'tools' | 'deps'>('tools')
   const [lastValidation, setLastValidation] = useState<{
     is_valid: boolean
     errors: string[]
@@ -172,8 +175,26 @@ export default function Tools() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
+      setRequirementsText('')
       setInstallOutput(
         [data.stdout?.trim(), data.stderr?.trim()].filter(Boolean).join('\n') || 'Install complete'
+      )
+    },
+    onError: (err: Error) => {
+      setInstallOutput(err.message)
+    },
+  })
+
+  const uninstallDepsMutation = useMutation({
+    mutationFn: async (packages: string[]) => {
+      const result = await uninstallNamespaceDeps(namespace!, { packages })
+      await reloadNamespace(namespace!)
+      return result
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
+      setInstallOutput(
+        [data.stdout?.trim(), data.stderr?.trim()].filter(Boolean).join('\n') || 'Uninstall complete'
       )
     },
     onError: (err: Error) => {
@@ -198,11 +219,31 @@ export default function Tools() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
       setInstallOutput('Venv deleted')
+      setSelectedPackages(new Set())
     },
     onError: (err: Error) => {
       setInstallOutput(err.message)
     },
   })
+
+  const togglePackageSelection = (name: string) => {
+    setSelectedPackages((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedPackages(new Set())
+
+  const selectAllPackages = () => {
+    const all = new Set((depsQuery.data?.packages || []).map((p) => p.name))
+    setSelectedPackages(all)
+  }
 
   const createToolMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -358,254 +399,301 @@ export default function Tools() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex gap-4 min-h-0">
-        {/* File List */}
-        <div className="w-64 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
-          <div className="p-3 border-b border-gray-200 font-medium text-gray-900">
-            Tools ({toolsQuery.data?.length || 0})
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          onClick={() => setActiveTab('tools')}
+          className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+            activeTab === 'tools' ? 'bg-primary-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+          }`}
+        >
+          Tools
+        </button>
+        <button
+          onClick={() => setActiveTab('deps')}
+          className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+            activeTab === 'deps' ? 'bg-primary-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+          }`}
+        >
+          Dependencies
+        </button>
+      </div>
+
+      {activeTab === 'tools' ? (
+        <div className="flex-1 flex gap-4 min-h-0">
+          {/* File List */}
+          <div className="w-64 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
+            <div className="p-3 border-b border-gray-200 font-medium text-gray-900">
+              Tools ({toolsQuery.data?.length || 0})
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              {toolsQuery.isLoading ? (
+                <div className="p-3 text-gray-500 text-sm">Loading...</div>
+              ) : toolsQuery.data?.length === 0 ? (
+                <div className="p-3 text-gray-500 text-sm">No tools yet. Create one!</div>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {toolsQuery.data?.map((tool) => (
+                    <li key={tool.filename} className="group">
+                      <div
+                        className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
+                          selectedFile === tool.filename
+                            ? 'bg-primary-50 border-l-2 border-primary-600'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <button
+                          onClick={() => handleSelectFile(tool.filename)}
+                          className="flex items-center gap-2 flex-1 text-left"
+                        >
+                          <File className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm truncate">{tool.filename}</span>
+                          {selectedFile === tool.filename && hasChanges && (
+                            <span className="w-2 h-2 bg-yellow-500 rounded-full" title="Unsaved changes" />
+                          )}
+                        </button>
+
+                        {deleteConfirm === tool.filename ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => deleteMutation.mutate(tool.filename)}
+                              className="p-1 text-red-600 hover:bg-red-100 rounded"
+                              title="Confirm delete"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+                              title="Cancel"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteConfirm(tool.filename)
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Delete tool"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
-          <div className="flex-1 overflow-auto">
-            {toolsQuery.isLoading ? (
-              <div className="p-3 text-gray-500 text-sm">Loading...</div>
-            ) : toolsQuery.data?.length === 0 ? (
-              <div className="p-3 text-gray-500 text-sm">No tools yet. Create one!</div>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {toolsQuery.data?.map((tool) => (
-                  <li key={tool.filename} className="group">
-                    <div
-                      className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
-                        selectedFile === tool.filename
-                          ? 'bg-primary-50 border-l-2 border-primary-600'
-                          : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <button
-                        onClick={() => handleSelectFile(tool.filename)}
-                        className="flex items-center gap-2 flex-1 text-left"
-                      >
-                        <File className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm truncate">{tool.filename}</span>
-                        {selectedFile === tool.filename && hasChanges && (
-                          <span className="w-2 h-2 bg-yellow-500 rounded-full" title="Unsaved changes" />
-                        )}
-                      </button>
+          {/* Editor */}
+          <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-0">
+            {selectedFile ? (
+              <>
+                {/* Editor Header */}
+                <div className="flex items-center justify-between p-3 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900">{selectedFile}</span>
+                    {hasChanges && (
+                      <span className="text-xs text-yellow-600 bg-yellow-100 px-2 py-0.5 rounded">
+                        Modified
+                      </span>
+                    )}
+                  </div>
 
-                      {deleteConfirm === tool.filename ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => deleteMutation.mutate(tool.filename)}
-                            className="p-1 text-red-600 hover:bg-red-100 rounded"
-                            title="Confirm delete"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(null)}
-                            className="p-1 text-gray-600 hover:bg-gray-100 rounded"
-                            title="Cancel"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
+                  <div className="flex items-center gap-2">
+                    {hasChanges && (
+                      <button
+                        onClick={() => {
+                          setEditorContent(originalContent)
+                        }}
+                        className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors"
+                      >
+                        Discard
+                      </button>
+                    )}
+                    <button
+                      onClick={() => validateMutation.mutate()}
+                      disabled={validateMutation.isPending}
+                      className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                    >
+                      Validate
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={
+                        !hasChanges ||
+                        updateMutation.isPending ||
+                        validateMutation.isPending
+                      }
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded transition-colors"
+                    >
+                      <Save className="w-4 h-4" />
+                      {updateMutation.isPending ? 'Saving...' : validateMutation.isPending ? 'Validating...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Validation Messages */}
+                {validation && (
+                  <div className={`p-3 border-b text-sm ${
+                    validation.is_valid
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {validation.is_valid ? (
+                        <Check className="w-4 h-4" />
                       ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDeleteConfirm(tool.filename)
-                          }}
-                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Delete tool"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <AlertCircle className="w-4 h-4" />
                       )}
+                      <span className="font-medium">
+                        {validation.is_valid ? 'Valid' : 'Validation Errors'}
+                      </span>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                    {validation.errors && validation.errors.length > 0 && (
+                      <ul className="mt-1 ml-6 list-disc">
+                        {validation.errors.map((err: string, i: number) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {validation.warnings && validation.warnings.length > 0 && (
+                      <ul className="mt-1 ml-6 list-disc text-yellow-700">
+                        {validation.warnings.map((warn: string, i: number) => (
+                          <li key={i}>{warn}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {/* Editor */}
+                <div className="flex-1 overflow-auto">
+                  {toolContentQuery.isLoading ? (
+                    <div className="p-4 text-gray-500">Loading...</div>
+                  ) : toolContentQuery.isError ? (
+                    <div className="p-4 text-red-500">Failed to load tool content</div>
+                  ) : (
+                    <CodeMirror
+                      value={editorContent}
+                      onChange={handleEditorChange}
+                      extensions={[python()]}
+                      theme="light"
+                      className="h-full text-sm"
+                      basicSetup={{
+                        lineNumbers: true,
+                        highlightActiveLineGutter: true,
+                        highlightActiveLine: true,
+                        foldGutter: true,
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-gray-500">
+                Select a tool to edit or create a new one
+              </div>
             )}
           </div>
         </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Package className="w-5 h-5 text-primary-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Dependencies</h2>
+          </div>
 
-        {/* Editor */}
-        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-0">
-          {selectedFile ? (
-            <>
-              {/* Editor Header */}
-              <div className="flex items-center justify-between p-3 border-b border-gray-200">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-900">{selectedFile}</span>
-                  {hasChanges && (
-                    <span className="text-xs text-yellow-600 bg-yellow-100 px-2 py-0.5 rounded">
-                      Modified
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {hasChanges && (
-                    <button
-                      onClick={() => {
-                        setEditorContent(originalContent)
-                      }}
-                      className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors"
-                    >
-                      Discard
-                    </button>
-                  )}
-                  <button
-                    onClick={() => validateMutation.mutate()}
-                    disabled={validateMutation.isPending}
-                    className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
-                  >
-                    Validate
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={
-                      !hasChanges ||
-                      updateMutation.isPending ||
-                      validateMutation.isPending
-                    }
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded transition-colors"
-                  >
-                    <Save className="w-4 h-4" />
-                    {updateMutation.isPending ? 'Saving...' : validateMutation.isPending ? 'Validating...' : 'Save'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Validation Messages */}
-              {validation && (
-                <div className={`p-3 border-b text-sm ${
-                  validation.is_valid
-                    ? 'bg-green-50 border-green-200 text-green-800'
-                    : 'bg-red-50 border-red-200 text-red-800'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {validation.is_valid ? (
-                      <Check className="w-4 h-4" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4" />
-                    )}
-                    <span className="font-medium">
-                      {validation.is_valid ? 'Valid' : 'Validation Errors'}
-                    </span>
-                  </div>
-                  {validation.errors && validation.errors.length > 0 && (
-                    <ul className="mt-1 ml-6 list-disc">
-                      {validation.errors.map((err: string, i: number) => (
-                        <li key={i}>{err}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {validation.warnings && validation.warnings.length > 0 && (
-                    <ul className="mt-1 ml-6 list-disc text-yellow-700">
-                      {validation.warnings.map((warn: string, i: number) => (
-                        <li key={i}>{warn}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              {/* Editor */}
-              <div className="flex-1 overflow-auto">
-                {toolContentQuery.isLoading ? (
-                  <div className="p-4 text-gray-500">Loading...</div>
-                ) : toolContentQuery.isError ? (
-                  <div className="p-4 text-red-500">Failed to load tool content</div>
-                ) : (
-                  <CodeMirror
-                    value={editorContent}
-                    onChange={handleEditorChange}
-                    extensions={[python()]}
-                    theme="light"
-                    className="h-full text-sm"
-                    basicSetup={{
-                      lineNumbers: true,
-                      highlightActiveLineGutter: true,
-                      highlightActiveLine: true,
-                      foldGutter: true,
-                    }}
-                  />
-                )}
-              </div>
-            </>
+          {depsQuery.isLoading ? (
+            <div className="text-sm text-gray-500">Loading dependencies...</div>
+          ) : depsQuery.error ? (
+            <div className="text-sm text-red-600">Failed to load dependencies</div>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
-              Select a tool to edit or create a new one
-            </div>
-          )}
-        </div>
-      </div>
+            <div className="space-y-4">
+              <div className="text-sm text-gray-600">
+                <div>Venv: <span className="font-mono text-gray-800">{depsQuery.data?.venv_path}</span></div>
+                <div>Status: {depsQuery.data?.exists ? 'Ready' : 'Not created yet'}</div>
+              </div>
 
-      {/* Dependencies */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Package className="w-5 h-5 text-primary-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Dependencies</h2>
-        </div>
-
-        {depsQuery.isLoading ? (
-          <div className="text-sm text-gray-500">Loading dependencies...</div>
-        ) : depsQuery.error ? (
-          <div className="text-sm text-red-600">Failed to load dependencies</div>
-        ) : (
-          <div className="space-y-4">
-            <div className="text-sm text-gray-600">
-              <div>Venv: <span className="font-mono text-gray-800">{depsQuery.data?.venv_path}</span></div>
-              <div>Status: {depsQuery.data?.exists ? 'Ready' : 'Not created yet'}</div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => createVenvMutation.mutate()}
-                disabled={createVenvMutation.isPending || depsQuery.data?.exists}
-                className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg"
-              >
-                {createVenvMutation.isPending ? 'Creating...' : 'Create venv'}
-              </button>
-              <button
-                onClick={() => deleteVenvMutation.mutate()}
-                disabled={deleteVenvMutation.isPending || !depsQuery.data?.exists}
-                className="px-3 py-2 text-sm bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded-lg"
-              >
-                {deleteVenvMutation.isPending ? 'Deleting...' : 'Delete venv'}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Install from requirements.txt
-                </label>
-                <textarea
-                  value={requirementsText}
-                  onChange={(e) => setRequirementsText(e.target.value)}
-                  rows={6}
-                  placeholder="requests==2.32.0&#10;pydantic>=2.7"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                />
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => installDepsMutation.mutate({ requirements: requirementsText })}
-                  disabled={installDepsMutation.isPending || !requirementsText.trim()}
-                  className="mt-2 px-3 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+                  onClick={() => createVenvMutation.mutate()}
+                  disabled={createVenvMutation.isPending || depsQuery.data?.exists}
+                  className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg"
                 >
-                  {installDepsMutation.isPending ? 'Installing...' : 'Install requirements'}
+                  {createVenvMutation.isPending ? 'Creating...' : 'Create venv'}
+                </button>
+                <button
+                  onClick={() => deleteVenvMutation.mutate()}
+                  disabled={deleteVenvMutation.isPending || !depsQuery.data?.exists}
+                  className="px-3 py-2 text-sm bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded-lg"
+                >
+                  {deleteVenvMutation.isPending ? 'Deleting...' : 'Delete venv'}
                 </button>
               </div>
-              <div>
-                <div className="mt-4">
-                  <div className="text-sm font-medium text-gray-700 mb-2">Installed</div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+                <div className="border border-gray-200 rounded-lg p-3 h-[360px] flex flex-col">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Install from requirements.txt
+                  </label>
+                  <textarea
+                    value={requirementsText}
+                    onChange={(e) => setRequirementsText(e.target.value)}
+                    placeholder="requests==2.32.0&#10;pydantic>=2.7"
+                    className="w-full flex-1 min-h-0 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                  />
+                  <button
+                    onClick={() => installDepsMutation.mutate({ requirements: requirementsText })}
+                    disabled={installDepsMutation.isPending || !requirementsText.trim()}
+                    className="mt-2 px-3 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+                  >
+                    {installDepsMutation.isPending ? 'Installing...' : 'Install requirements'}
+                  </button>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-3 h-[360px] flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-medium text-gray-700">Installed</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={selectAllPackages}
+                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        onClick={clearSelection}
+                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        onClick={() => uninstallDepsMutation.mutate(Array.from(selectedPackages))}
+                        disabled={uninstallDepsMutation.isPending || selectedPackages.size === 0}
+                        className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
+                      >
+                        Uninstall selected
+                      </button>
+                    </div>
+                  </div>
                   {depsQuery.data?.packages?.length ? (
-                    <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg">
+                    <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
                       <ul className="divide-y divide-gray-100">
                         {depsQuery.data.packages.map((pkg) => (
                           <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex items-center justify-between gap-3">
-                            <span>{pkg.name}</span>
+                            <label className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedPackages.has(pkg.name)}
+                                onChange={() => togglePackageSelection(pkg.name)}
+                              />
+                              <span>{pkg.name}</span>
+                            </label>
                             <span className="text-gray-500">{pkg.version}</span>
                           </li>
                         ))}
@@ -616,16 +704,17 @@ export default function Tools() {
                   )}
                 </div>
               </div>
-            </div>
 
-            {installOutput && (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap">
-                {installOutput}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+              {installOutput && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap">
+                  {installOutput}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
 
       {/* Unsaved Changes Modal */}
       {showUnsavedModal && (

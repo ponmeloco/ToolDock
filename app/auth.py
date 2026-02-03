@@ -22,7 +22,6 @@ from typing import Optional, Set
 
 from fastapi import Header, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -194,7 +193,7 @@ async def verify_token_or_basic(
 
 # ==================== Middleware ====================
 
-class BearerAuthMiddleware(BaseHTTPMiddleware):
+class BearerAuthMiddleware:
     """
     Middleware for bearer token authentication.
 
@@ -203,22 +202,30 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(self, app, public_paths: Optional[Set[str]] = None):
-        super().__init__(app)
+        self.app = app
         self.public_paths = public_paths or set()
 
-    async def dispatch(self, request: Request, call_next):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
         # Skip auth if disabled
         if not is_auth_enabled():
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         # Allow public paths
         if request.url.path in self.public_paths:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         # Also allow paths that start with any public path (for path params)
         for public_path in self.public_paths:
             if request.url.path.startswith(public_path):
-                return await call_next(request)
+                await self.app(scope, receive, send)
+                return
 
         token = get_bearer_token()
         auth_header = request.headers.get("authorization", "")
@@ -226,16 +233,18 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         # Use constant-time comparison
         if not provided or not token or not _constant_time_compare(provided, token):
-            return Response(
+            response = Response(
                 content="Unauthorized",
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
 
 
-class BasicAuthMiddleware(BaseHTTPMiddleware):
+class BasicAuthMiddleware:
     """
     Middleware for HTTP Basic authentication with Bearer token support for API paths.
 
@@ -253,24 +262,32 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         public_paths: Optional[Set[str]] = None,
         bearer_paths: Optional[Set[str]] = None,
     ):
-        super().__init__(app)
+        self.app = app
         self.public_paths = public_paths or set()
         # Paths that also accept Bearer token (in addition to Basic)
         self.bearer_paths = bearer_paths or {"/api/"}
 
-    async def dispatch(self, request: Request, call_next):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
         # Skip auth if disabled
         if not is_auth_enabled():
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         # Allow public paths
         path = request.url.path
         if path in self.public_paths:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         for public_path in self.public_paths:
             if path.startswith(public_path):
-                return await call_next(request)
+                await self.app(scope, receive, send)
+                return
 
         auth_header = request.headers.get("authorization", "")
         expected_token = get_bearer_token()
@@ -282,30 +299,37 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         if allows_bearer and auth_header.lower().startswith("bearer "):
             provided = _extract_bearer(auth_header)
             if provided and expected_token and _constant_time_compare(provided, expected_token):
-                return await call_next(request)
+                await self.app(scope, receive, send)
+                return
             # Invalid bearer token
-            return Response(
+            response = Response(
                 content='{"detail": "Invalid Bearer token"}',
                 status_code=401,
                 media_type="application/json",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+            await response(scope, receive, send)
+            return
 
         # Check for Basic auth header
         if not auth_header.lower().startswith("basic "):
             # For API paths, indicate both auth methods are accepted
             if allows_bearer:
-                return Response(
+                response = Response(
                     content='{"detail": "Authorization required. Use Bearer token or Basic Auth."}',
                     status_code=401,
                     media_type="application/json",
                     headers={"WWW-Authenticate": 'Bearer, Basic realm="ToolDock"'},
                 )
-            return Response(
+                await response(scope, receive, send)
+                return
+            response = Response(
                 content="Authentication required",
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
             )
+            await response(scope, receive, send)
+            return
 
         # Decode and verify Basic credentials
         try:
@@ -313,21 +337,25 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             decoded = base64.b64decode(encoded).decode("utf-8")
             username, password = decoded.split(":", 1)
         except Exception:
-            return Response(
+            response = Response(
                 content="Invalid authorization header",
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
             )
+            await response(scope, receive, send)
+            return
 
         # Constant-time comparison
         username_valid = _constant_time_compare(username, ADMIN_USERNAME)
         password_valid = _constant_time_compare(password, expected_token or "")
 
         if not (username_valid and password_valid):
-            return Response(
+            response = Response(
                 content="Invalid credentials",
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="ToolDock"'},
             )
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)

@@ -56,3 +56,18 @@ def test_delete_venv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     deleted = deps.delete_venv("shared")
     assert deleted is True
     assert not venv_dir.exists()
+
+
+def test_uninstall_packages_blocks_pip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+
+    def fake_ensure(namespace: str):
+        venv_dir = tmp_path / "venvs" / namespace
+        (venv_dir / "bin").mkdir(parents=True)
+        (venv_dir / "bin" / "python").write_text("")
+        return venv_dir
+
+    monkeypatch.setattr(deps, "ensure_venv", fake_ensure)
+
+    with pytest.raises(ValueError):
+        deps.uninstall_packages("shared", ["pip"])

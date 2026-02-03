@@ -7,8 +7,8 @@ from __future__ import annotations
 import base64
 
 import pytest
+import httpx
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
 from app.auth import (
@@ -283,7 +283,8 @@ class TestVerifyTokenOrBasic:
 class TestBearerAuthMiddleware:
     """Tests for BearerAuthMiddleware."""
 
-    def test_allows_public_paths(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_allows_public_paths(self, monkeypatch: pytest.MonkeyPatch):
         """Test that public paths don't require auth."""
         monkeypatch.setenv("BEARER_TOKEN", "secret")
 
@@ -298,17 +299,18 @@ class TestBearerAuthMiddleware:
         async def protected():
             return {"data": "secret"}
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # Public path should work without auth
+            response = await client.get("/health")
+            assert response.status_code == 200
 
-        # Public path should work without auth
-        response = client.get("/health")
-        assert response.status_code == 200
+            # Protected path should require auth
+            response = await client.get("/protected")
+            assert response.status_code == 401
 
-        # Protected path should require auth
-        response = client.get("/protected")
-        assert response.status_code == 401
-
-    def test_allows_valid_bearer_token(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_allows_valid_bearer_token(self, monkeypatch: pytest.MonkeyPatch):
         """Test that valid bearer token grants access."""
         monkeypatch.setenv("BEARER_TOKEN", "valid_token")
 
@@ -319,14 +321,15 @@ class TestBearerAuthMiddleware:
         async def protected():
             return {"data": "secret"}
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/protected", headers={"Authorization": "Bearer valid_token"}
+            )
+            assert response.status_code == 200
 
-        response = client.get(
-            "/protected", headers={"Authorization": "Bearer valid_token"}
-        )
-        assert response.status_code == 200
-
-    def test_rejects_invalid_bearer_token(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_bearer_token(self, monkeypatch: pytest.MonkeyPatch):
         """Test that invalid bearer token is rejected."""
         monkeypatch.setenv("BEARER_TOKEN", "valid_token")
 
@@ -337,14 +340,15 @@ class TestBearerAuthMiddleware:
         async def protected():
             return {"data": "secret"}
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/protected", headers={"Authorization": "Bearer wrong_token"}
+            )
+            assert response.status_code == 401
 
-        response = client.get(
-            "/protected", headers={"Authorization": "Bearer wrong_token"}
-        )
-        assert response.status_code == 401
-
-    def test_no_auth_when_disabled(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_no_auth_when_disabled(self, monkeypatch: pytest.MonkeyPatch):
         """Test that auth is skipped when BEARER_TOKEN is not set."""
         monkeypatch.delenv("BEARER_TOKEN", raising=False)
 
@@ -355,17 +359,18 @@ class TestBearerAuthMiddleware:
         async def protected():
             return {"data": "secret"}
 
-        client = TestClient(app)
-
-        # Should work without auth header
-        response = client.get("/protected")
-        assert response.status_code == 200
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # Should work without auth header
+            response = await client.get("/protected")
+            assert response.status_code == 200
 
 
 class TestBasicAuthMiddleware:
     """Tests for BasicAuthMiddleware."""
 
-    def test_allows_public_paths(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_allows_public_paths(self, monkeypatch: pytest.MonkeyPatch):
         """Test that public paths don't require auth."""
         monkeypatch.setenv("BEARER_TOKEN", "secret")
 
@@ -376,12 +381,13 @@ class TestBasicAuthMiddleware:
         async def health():
             return {"status": "ok"}
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/health")
+            assert response.status_code == 200
 
-        response = client.get("/health")
-        assert response.status_code == 200
-
-    def test_allows_valid_basic_auth(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_allows_valid_basic_auth(self, monkeypatch: pytest.MonkeyPatch):
         """Test that valid basic auth grants access."""
         monkeypatch.setenv("BEARER_TOKEN", "my_password")
 
@@ -392,17 +398,18 @@ class TestBasicAuthMiddleware:
         async def protected():
             return {"data": "secret"}
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # Encode credentials
+            credentials = base64.b64encode(b"admin:my_password").decode("utf-8")
 
-        # Encode credentials
-        credentials = base64.b64encode(b"admin:my_password").decode("utf-8")
+            response = await client.get(
+                "/protected", headers={"Authorization": f"Basic {credentials}"}
+            )
+            assert response.status_code == 200
 
-        response = client.get(
-            "/protected", headers={"Authorization": f"Basic {credentials}"}
-        )
-        assert response.status_code == 200
-
-    def test_allows_bearer_on_api_paths(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_allows_bearer_on_api_paths(self, monkeypatch: pytest.MonkeyPatch):
         """Test that bearer token works on /api/* paths."""
         monkeypatch.setenv("BEARER_TOKEN", "my_token")
 
@@ -417,14 +424,15 @@ class TestBasicAuthMiddleware:
         async def api_data():
             return {"data": "from api"}
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/data", headers={"Authorization": "Bearer my_token"}
+            )
+            assert response.status_code == 200
 
-        response = client.get(
-            "/api/data", headers={"Authorization": "Bearer my_token"}
-        )
-        assert response.status_code == 200
-
-    def test_rejects_invalid_credentials(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_credentials(self, monkeypatch: pytest.MonkeyPatch):
         """Test that invalid credentials are rejected."""
         monkeypatch.setenv("BEARER_TOKEN", "correct_password")
 
@@ -435,11 +443,11 @@ class TestBasicAuthMiddleware:
         async def protected():
             return {"data": "secret"}
 
-        client = TestClient(app)
-
         credentials = base64.b64encode(b"admin:wrong_password").decode("utf-8")
 
-        response = client.get(
-            "/protected", headers={"Authorization": f"Basic {credentials}"}
-        )
-        assert response.status_code == 401
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/protected", headers={"Authorization": f"Basic {credentials}"}
+            )
+            assert response.status_code == 401

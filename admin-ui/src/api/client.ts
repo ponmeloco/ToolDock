@@ -285,6 +285,21 @@ export async function installNamespaceDeps(
   return res.json()
 }
 
+export async function uninstallNamespaceDeps(
+  namespace: string,
+  payload: { packages: string[] }
+): Promise<InstallDepsResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/uninstall`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to uninstall dependencies')
+  }
+  return res.json()
+}
+
 export async function createNamespaceVenv(namespace: string): Promise<{ success: boolean; venv_path: string }> {
   const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/create`, {
     method: 'POST',
