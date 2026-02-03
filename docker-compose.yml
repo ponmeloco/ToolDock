@@ -34,6 +34,7 @@ services:
     environment:
       - SERVER_MODE=all
       - DATA_DIR=/data
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////data/db/tooldock.db}
       - HOST=0.0.0.0
       - CORS_ORIGINS=*
       # Internal container ports are fixed - only host ports are configurable

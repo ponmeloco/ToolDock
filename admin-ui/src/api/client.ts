@@ -71,6 +71,25 @@ export interface ExternalServerList {
   total: number
 }
 
+export interface FastMCPRegistryResult {
+  servers: Array<Record<string, unknown>>
+  metadata?: Record<string, unknown>
+}
+
+export interface FastMCPServer {
+  id: number
+  server_name: string
+  namespace: string
+  version: string | null
+  install_method: string
+  repo_url: string | null
+  entrypoint: string | null
+  port: number | null
+  status: string
+  pid: number | null
+  last_error: string | null
+}
+
 export interface ToolContent {
   filename: string
   namespace: string
@@ -207,6 +226,62 @@ export async function getTools(namespace: string): Promise<Tool[]> {
 export async function getExternalServers(): Promise<ExternalServerList> {
   const res = await fetchWithAuth(`${API_BASE}/servers`)
   return res.json()
+}
+
+export async function searchRegistryServers(query: string, limit = 20): Promise<FastMCPRegistryResult> {
+  const url = new URL(`${API_BASE}/fastmcp/registry/servers`, window.location.origin)
+  url.searchParams.set('search', query)
+  url.searchParams.set('limit', String(limit))
+  const res = await fetchWithAuth(url.toString())
+  return res.json()
+}
+
+export async function checkRegistryHealth(): Promise<{ status: string; reason?: string }> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/registry/health`)
+  return res.json()
+}
+
+export async function listFastMcpServers(): Promise<FastMCPServer[]> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers`)
+  return res.json()
+}
+
+export async function addFastMcpServer(server_name: string, namespace: string, version?: string): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers`, {
+    method: 'POST',
+    body: JSON.stringify({ server_name, namespace, version }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to add server')
+  }
+  return res.json()
+}
+
+export async function startFastMcpServer(id: number): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/start`, { method: 'POST' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to start server')
+  }
+  return res.json()
+}
+
+export async function stopFastMcpServer(id: number): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/stop`, { method: 'POST' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to stop server')
+  }
+  return res.json()
+}
+
+export async function deleteFastMcpServer(id: number): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to delete server')
+  }
 }
 
 export async function getTool(namespace: string, filename: string): Promise<ToolContent> {

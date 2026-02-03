@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import logging
+import asyncio
 from pathlib import Path
 from typing import Any, Dict
 
@@ -54,6 +55,7 @@ def create_openapi_app(
     registry: ToolRegistry,
     external_manager=None,
     external_config=None,
+    fastmcp_manager=None,
 ) -> FastAPI:
     """
     Create a FastAPI application for OpenAPI transport.
@@ -320,8 +322,15 @@ def create_openapi_app(
 
     # Include admin router and set context
     from app.admin.routes import router as admin_router, set_admin_context
-    set_admin_context(registry, external_manager, external_config, reloader)
+    set_admin_context(registry, external_manager, external_config, reloader, fastmcp_manager)
     app.include_router(admin_router)
+
+    # Sync FastMCP external servers (read from DB, connect + register tools)
+    if fastmcp_manager is not None:
+        try:
+            asyncio.run(fastmcp_manager.sync_from_db())
+        except Exception as exc:
+            logger.warning(f"FastMCP sync failed: {exc}")
 
     logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")
     return app

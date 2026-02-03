@@ -24,15 +24,17 @@ _registry = None
 _external_manager = None
 _config = None
 _reloader = None
+_fastmcp_manager = None
 
 
-def set_admin_context(registry, external_manager, config, reloader=None):
+def set_admin_context(registry, external_manager, config, reloader=None, fastmcp_manager=None):
     """Set the admin context for route handlers."""
-    global _registry, _external_manager, _config, _reloader
+    global _registry, _external_manager, _config, _reloader, _fastmcp_manager
     _registry = registry
     _external_manager = external_manager
     _config = config
     _reloader = reloader
+    _fastmcp_manager = fastmcp_manager
 
 
 def get_manager():
@@ -43,6 +45,30 @@ def get_manager():
             detail="External server manager not initialized"
         )
     return _external_manager
+
+
+def get_fastmcp_manager():
+    """Get the FastMCP manager (optional)."""
+    if _fastmcp_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="FastMCP manager not initialized"
+        )
+    return _fastmcp_manager
+
+
+@router.post("/fastmcp/reload")
+async def reload_fastmcp(_: str = Depends(verify_token)) -> Dict[str, Any]:
+    """Reload FastMCP external servers from the DB and re-register tools."""
+    try:
+        manager = get_fastmcp_manager()
+        result = await manager.sync_from_db()
+        return {"status": "ok", "result": result}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"FastMCP reload failed: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # === Request/Response Models ===

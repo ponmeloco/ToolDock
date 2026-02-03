@@ -305,6 +305,24 @@ class ToolRegistry:
             return True
         return False
 
+    def unregister_external_server(self, server_id: str) -> int:
+        """
+        Remove all external tools belonging to a server.
+
+        Returns:
+            Number of tools removed.
+        """
+        removed = 0
+        to_remove = [name for name, info in self._external_tools.items() if info.get("server_id") == server_id]
+        for name in to_remove:
+            if name in self._external_tools:
+                del self._external_tools[name]
+                self._remove_from_namespace(name)
+                removed += 1
+        if removed:
+            logger.info(f"Unregistered {removed} external tools from server {server_id}")
+        return removed
+
     def list_all(self) -> List[Dict[str, Any]]:
         """
         List all tools (native and external) in a unified format.

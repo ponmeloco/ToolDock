@@ -52,6 +52,7 @@ tooldock_data/external/cache/
 tooldock_data/tools/*/
 !tooldock_data/tools/shared/
 tooldock_data/logs/
+tooldock_data/db/
 tooldock_data/metrics.sqlite
 tooldock_data/metrics.sqlite-wal
 tooldock_data/metrics.sqlite-shm

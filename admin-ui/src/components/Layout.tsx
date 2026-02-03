@@ -7,6 +7,7 @@ import {
   RefreshCw,
   LogOut,
   BookOpen,
+  Server,
 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reloadAll, clearAuthToken } from '../api/client'
@@ -15,6 +16,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Namespaces', href: '/namespaces', icon: FolderTree },
   { name: 'Playground', href: '/playground', icon: Play },
+  { name: 'FastMCP', href: '/fastmcp', icon: Server },
   { name: 'Logs', href: '/logs', icon: ScrollText },
   { name: 'Docs', href: '/docs', icon: BookOpen },
 ]

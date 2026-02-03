@@ -101,6 +101,9 @@ MCP_PROTOCOL_VERSIONS=2025-11-25,2025-03-26
 # CORS (comma-separated origins, or * for all)
 CORS_ORIGINS=*
 
+# Database (SQLite default, Postgres-ready)
+DATABASE_URL=sqlite:////data/db/tooldock.db
+
 # Server names
 WEB_SERVER_NAME=tooldock-backend
 EOF
@@ -144,7 +147,10 @@ DATA_DIRS=(
     "tooldock_data/logs"
     "tooldock_data/tools/shared"
     "tooldock_data/external"
+    "tooldock_data/external/servers"
+    "tooldock_data/external/logs"
     "tooldock_data/config"
+    "tooldock_data/db"
 )
 
 for dir in "${DATA_DIRS[@]}"; do

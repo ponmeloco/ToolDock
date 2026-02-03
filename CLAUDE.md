@@ -50,7 +50,7 @@ All three transports share the same tool registry — **define once, use everywh
 | `app/deps.py` | Per-namespace venv management |
 | `app/transports/` | OpenAPI and MCP transport implementations |
 | `app/web/` | Backend API server and routes |
-| `app/external/` | External MCP server integration |
+| `app/external/` | External MCP + FastMCP server integration |
 | `main.py` | Server entrypoint |
 
 ### Tests
@@ -188,6 +188,10 @@ curl -X POST http://localhost:18080/api/reload \
 - Hybrid metrics store: in-memory queue + `DATA_DIR/metrics.sqlite`
 - Dashboard pulls from `GET /api/admin/metrics`
 - Auto-cleanup after `METRICS_RETENTION_DAYS`
+
+### FastMCP External Servers
+- Managed via `app/external/fastmcp_manager.py` (registry ingest + lifecycle)
+- Exposed via `/api/fastmcp/*` routes (Admin UI → FastMCP tab)
 
 ## Common Pitfalls
 

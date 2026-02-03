@@ -77,11 +77,21 @@ def ensure_data_dirs():
     dirs = [
         data_path / "tools" / "shared",
         data_path / "external",
+        data_path / "external" / "servers",
+        data_path / "external" / "logs",
         data_path / "config",
+        data_path / "db",
     ]
 
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
+
+    # Initialize database (tables + file) for new installs
+    try:
+        from app.db import init_db
+        init_db()
+    except Exception as exc:
+        logger.warning(f"Database init failed: {exc}")
 
     logger.info(f"Data directory: {DATA_DIR}")
 
@@ -170,8 +180,19 @@ def start_openapi_server():
 
     # Create app (with admin routes)
     from app.external.config import ExternalServerConfig
+    try:
+        from app.external.fastmcp_manager import FastMCPServerManager
+        fastmcp_manager = FastMCPServerManager(registry, manage_processes=False)
+    except Exception as exc:
+        logger.warning(f"FastMCP disabled: {exc}")
+        fastmcp_manager = None
     external_config = ExternalServerConfig(EXTERNAL_CONFIG)
-    app = create_openapi_app(registry, external_manager=_external_manager, external_config=external_config)
+    app = create_openapi_app(
+        registry,
+        external_manager=_external_manager,
+        external_config=external_config,
+        fastmcp_manager=fastmcp_manager,
+    )
 
     # Start server
     uvicorn.run(
@@ -199,8 +220,19 @@ def start_mcp_http_server():
 
     # Create app
     from app.external.config import ExternalServerConfig
+    try:
+        from app.external.fastmcp_manager import FastMCPServerManager
+        fastmcp_manager = FastMCPServerManager(registry, manage_processes=False)
+    except Exception as exc:
+        logger.warning(f"FastMCP disabled: {exc}")
+        fastmcp_manager = None
     external_config = ExternalServerConfig(EXTERNAL_CONFIG)
-    app = create_mcp_http_app(registry, external_manager=_external_manager, external_config=external_config)
+    app = create_mcp_http_app(
+        registry,
+        external_manager=_external_manager,
+        external_config=external_config,
+        fastmcp_manager=fastmcp_manager,
+    )
 
     # Start server
     uvicorn.run(

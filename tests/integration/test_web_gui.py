@@ -122,6 +122,20 @@ class TestRootEndpoint:
         assert response.headers["location"] == "/docs"
 
 
+class TestDocsEndpoints:
+    """Tests for backend docs endpoints."""
+
+    def test_docs_endpoints_available(self, client: SyncASGIClient):
+        """Test backend docs endpoints return successfully."""
+        docs_response = client.get("/docs")
+        openapi_response = client.get("/openapi.json")
+        redoc_response = client.get("/redoc")
+
+        assert docs_response.status_code == 200
+        assert openapi_response.status_code == 200
+        assert redoc_response.status_code == 200
+
+
 # ==================== Dashboard Tests ====================
 
 

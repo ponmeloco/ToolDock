@@ -15,6 +15,9 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
 </p>
 
+> **Disclaimer:** ToolDock is still under active development and best treated as a demo/preview.  
+> Use at your own risk, especially in production environments.
+
 ---
 
 ## Quickstart
@@ -44,6 +47,28 @@ curl http://localhost:18006/health   # OpenAPI
 curl http://localhost:18007/health   # MCP
 curl http://localhost:13000          # Admin UI
 ```
+
+---
+
+## Troubleshooting
+
+### Buildx Permission Error
+
+If `./start.sh --rebuild` fails with:
+
+```
+failed to update builder last activity time: ... permission denied
+```
+
+It means Docker Buildx created files in `~/.docker` as `root` (often from a past `sudo docker ...` run).  
+Fix by resetting ownership, then retry:
+
+```bash
+sudo chown -R $USER:$USER ~/.docker
+./start.sh --rebuild
+```
+
+This only fixes Docker’s local metadata directory; it does **not** affect your ToolDock data in `tooldock_data/`.
 
 ---
 
@@ -124,6 +149,21 @@ Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 ---
 
 ## External MCP Servers
+
+### FastMCP (Recommended)
+
+Install FastMCP servers from the MCP Registry and expose them via namespaces.
+Use the **FastMCP** tab in the Admin UI to search, install, start, stop, and delete servers.
+ToolDock uses the FastMCP project under the hood for external server lifecycle management:
+https://github.com/modelcontextprotocol/fastmcp
+
+The default database is SQLite at `/data/db/tooldock.db`. You can switch to Postgres via:
+
+```
+DATABASE_URL=postgresql+psycopg://user:pass@host:5432/tooldock
+```
+
+### Legacy External Config (STDIO)
 
 Configure external servers in `tooldock_data/external/config.yaml` (or `$DATA_DIR/external/config.yaml`) and reload without restart:
 

@@ -64,6 +64,7 @@ def create_mcp_http_app(
     registry: ToolRegistry,
     external_manager=None,
     external_config=None,
+    fastmcp_manager=None,
 ) -> FastAPI:
     """
     Create a FastAPI app for MCP Streamable HTTP Transport.
@@ -119,7 +120,7 @@ def create_mcp_http_app(
 
     # Include admin router for runtime external management
     from app.admin.routes import router as admin_router, set_admin_context
-    set_admin_context(registry, external_manager, external_config, reloader)
+    set_admin_context(registry, external_manager, external_config, reloader, fastmcp_manager)
     app.include_router(admin_router)
 
     # ==================== Handler Functions ====================
@@ -697,6 +698,14 @@ def create_mcp_http_app(
             yield b": ok\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    # Sync FastMCP external servers (read from DB, connect + register tools)
+    if fastmcp_manager is not None:
+        try:
+            import asyncio
+            asyncio.run(fastmcp_manager.sync_from_db())
+        except Exception as exc:
+            logger.warning(f"FastMCP sync failed: {exc}")
 
     stats = registry.get_stats()
     logger.info(

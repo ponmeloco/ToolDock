@@ -25,7 +25,15 @@ from fastapi.responses import RedirectResponse
 from app.auth import is_auth_enabled, verify_token
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.utils import get_cors_origins
-from app.web.routes import folders_router, tools_router, servers_router, reload_router, admin_router, playground_router
+from app.web.routes import (
+    folders_router,
+    tools_router,
+    servers_router,
+    fastmcp_router,
+    reload_router,
+    admin_router,
+    playground_router,
+)
 from app.metrics_store import init_metrics_store
 from app.web.routes.admin import setup_log_buffer
 from app.reload import init_reloader
@@ -146,10 +154,22 @@ def create_web_app(
     from app.web.routes.servers import set_servers_context
     set_servers_context(external_manager, external_config, reloader)
 
+    # FastMCP manager (process control + registry updates)
+    if fastmcp_router is not None:
+        try:
+            from app.external.fastmcp_manager import FastMCPServerManager
+            from app.web.routes.fastmcp import set_fastmcp_context
+            fastmcp_manager = FastMCPServerManager(registry, manage_processes=True)
+            set_fastmcp_context(fastmcp_manager)
+        except Exception as exc:
+            logger.warning(f"FastMCP disabled: {exc}")
+
     # Include API routes
     app.include_router(folders_router)
     app.include_router(tools_router)
     app.include_router(servers_router)
+    if fastmcp_router is not None:
+        app.include_router(fastmcp_router)
     app.include_router(reload_router)
     app.include_router(admin_router)
     app.include_router(playground_router)

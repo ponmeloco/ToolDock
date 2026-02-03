@@ -216,11 +216,44 @@ function buildCategories(
       ],
     },
     {
-      name: 'External Servers',
-      description: 'Manage external MCP servers (same origin)',
+      name: 'FastMCP External',
+      description: 'Manage FastMCP external servers (registry)',
       endpoints: [
-        { method: 'GET', path: '/api/servers', description: 'List external MCP servers', auth: true },
-        { method: 'POST', path: '/api/servers/reload', description: 'Reload external servers from config', auth: true },
+        {
+          method: 'GET',
+          path: '/api/fastmcp/registry/servers?search=github&limit=20',
+          description: 'Search MCP Registry',
+          auth: true,
+        },
+        { method: 'GET', path: '/api/fastmcp/servers', description: 'List FastMCP servers', auth: true },
+        {
+          method: 'POST',
+          path: '/api/fastmcp/servers',
+          description: 'Install FastMCP server',
+          auth: true,
+          body: '{\"server_name\": \"io.github.modelcontextprotocol/server-filesystem\", \"namespace\": \"filesystem\"}',
+        },
+        {
+          method: 'POST',
+          path: '/api/fastmcp/servers/{id}/start',
+          description: 'Start FastMCP server',
+          auth: true,
+          pathParams: [{ name: 'id', description: 'Server ID', default: '1' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/fastmcp/servers/{id}/stop',
+          description: 'Stop FastMCP server',
+          auth: true,
+          pathParams: [{ name: 'id', description: 'Server ID', default: '1' }],
+        },
+        {
+          method: 'DELETE',
+          path: '/api/fastmcp/servers/{id}',
+          description: 'Delete FastMCP server',
+          auth: true,
+          pathParams: [{ name: 'id', description: 'Server ID', default: '1' }],
+        },
       ],
     },
     {
