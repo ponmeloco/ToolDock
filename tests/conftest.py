@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.registry import ToolRegistry, ToolDefinition, reset_registry
 from app.loader import load_tools_from_directory
+from tests.utils.sync_client import SyncASGIClient
 
 
 # ==================== Registry Fixtures ====================
@@ -164,45 +165,54 @@ def register_tools(registry: ToolRegistry) -> None:
 
 
 @pytest.fixture
-def openapi_client(registry: ToolRegistry, auth_env: str):
+def openapi_client(registry: ToolRegistry, auth_env: str, data_dir: Path):
     """
     TestClient for OpenAPI endpoints.
 
     Requires auth_env fixture to set up authentication.
     """
-    from fastapi.testclient import TestClient
     from app.transports.openapi_server import create_openapi_app
 
     app = create_openapi_app(registry)
-    return TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 @pytest.fixture
-def mcp_client(registry: ToolRegistry, auth_env: str):
+def mcp_client(registry: ToolRegistry, auth_env: str, data_dir: Path):
     """
     TestClient for MCP HTTP endpoints.
 
     Requires auth_env fixture to set up authentication.
     """
-    from fastapi.testclient import TestClient
     from app.transports.mcp_http_server import create_mcp_http_app
 
     app = create_mcp_http_app(registry)
-    return TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 @pytest.fixture
-def web_client(registry: ToolRegistry, auth_env: str):
+def web_client(registry: ToolRegistry, auth_env: str, data_dir: Path):
     """
     TestClient for Web GUI endpoints.
 
     Requires auth_env fixture to set up authentication.
     """
-    from fastapi.testclient import TestClient
     from app.web.server import create_web_app
 
     app = create_web_app(registry)
-    return TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 # ==================== Environment Fixtures ====================

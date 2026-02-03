@@ -109,6 +109,9 @@ async def _forward_reload_to_openapi(namespace: Optional[str] = None) -> None:
     Args:
         namespace: Specific namespace to reload, or None for all
     """
+    if os.getenv("PYTEST_CURRENT_TEST") is not None:
+        return
+
     token = get_bearer_token()
     if not token:
         logger.warning("No bearer token configured, skipping OpenAPI server reload")

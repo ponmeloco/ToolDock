@@ -35,7 +35,7 @@ SERVER_NAME = os.getenv("OPENAPI_SERVER_NAME", "tooldock-openapi")
 REGISTRY_NAMESPACE = os.getenv("REGISTRY_NAMESPACE", "default")
 
 
-def bearer_auth_dependency(request: Request) -> None:
+async def bearer_auth_dependency(request: Request) -> None:
     """Validate Bearer token authentication."""
     if not is_auth_enabled():
         return

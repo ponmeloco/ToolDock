@@ -5,11 +5,11 @@ Integration tests for OpenAPI transport.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.registry import ToolRegistry, ToolDefinition, reset_registry
 from app.transports.openapi_server import create_openapi_app
+from tests.utils.sync_client import SyncASGIClient
 
 
 # ==================== Fixtures ====================
@@ -63,11 +63,15 @@ def registry() -> ToolRegistry:
 
 
 @pytest.fixture
-def client(registry: ToolRegistry, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def client(registry: ToolRegistry, monkeypatch: pytest.MonkeyPatch) -> SyncASGIClient:
     """Test client with auth enabled."""
     monkeypatch.setenv("BEARER_TOKEN", "test_token")
     app = create_openapi_app(registry)
-    return TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 @pytest.fixture
@@ -82,7 +86,7 @@ def auth_headers() -> dict:
 class TestHealthEndpoint:
     """Tests for /health endpoint."""
 
-    def test_health_no_auth_required(self, client: TestClient):
+    def test_health_no_auth_required(self, client: SyncASGIClient):
         """Test health endpoint doesn't require auth."""
         response = client.get("/health")
 
@@ -91,7 +95,7 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["transport"] == "openapi"
 
-    def test_health_includes_stats(self, client: TestClient):
+    def test_health_includes_stats(self, client: SyncASGIClient):
         """Test health endpoint includes tool stats."""
         response = client.get("/health")
 
@@ -107,7 +111,7 @@ class TestAuthentication:
     """Tests for authentication behavior."""
 
     def test_list_tools_requires_auth(
-        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+        self, client: SyncASGIClient, monkeypatch: pytest.MonkeyPatch
     ):
         """Test that /tools requires authentication."""
         response = client.get("/tools")
@@ -115,7 +119,7 @@ class TestAuthentication:
         assert response.status_code == 401
 
     def test_list_tools_with_valid_auth(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test /tools works with valid auth."""
         response = client.get("/tools", headers=auth_headers)
@@ -124,7 +128,7 @@ class TestAuthentication:
         data = response.json()
         assert "tools" in data
 
-    def test_invalid_token_rejected(self, client: TestClient):
+    def test_invalid_token_rejected(self, client: SyncASGIClient):
         """Test invalid token is rejected."""
         headers = {"Authorization": "Bearer wrong_token"}
 
@@ -132,7 +136,7 @@ class TestAuthentication:
 
         assert response.status_code == 401
 
-    def test_missing_bearer_prefix_rejected(self, client: TestClient):
+    def test_missing_bearer_prefix_rejected(self, client: SyncASGIClient):
         """Test missing Bearer prefix is rejected."""
         headers = {"Authorization": "test_token"}
 
@@ -147,7 +151,7 @@ class TestAuthentication:
         monkeypatch.delenv("BEARER_TOKEN", raising=False)
 
         app = create_openapi_app(registry)
-        client = TestClient(app)
+        client = SyncASGIClient(app)
 
         response = client.get("/tools")
 
@@ -161,7 +165,7 @@ class TestToolListing:
     """Tests for tool listing endpoint."""
 
     def test_list_tools_returns_all_tools(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test that all registered tools are listed."""
         response = client.get("/tools", headers=auth_headers)
@@ -173,7 +177,7 @@ class TestToolListing:
         assert "add" in tool_names
 
     def test_list_tools_includes_schema(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test that tools include input schemas."""
         response = client.get("/tools", headers=auth_headers)
@@ -185,7 +189,7 @@ class TestToolListing:
         assert echo_tool["input_schema"]["type"] == "object"
 
     def test_list_tools_includes_descriptions(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test that tools include descriptions."""
         response = client.get("/tools", headers=auth_headers)
@@ -203,7 +207,7 @@ class TestToolExecution:
     """Tests for tool execution endpoints."""
 
     def test_call_tool_success(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test successful tool execution."""
         response = client.post(
@@ -218,7 +222,7 @@ class TestToolExecution:
         assert data["result"] == "Echo: Hello World"
 
     def test_call_tool_with_defaults(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test tool execution with default values."""
         response = client.post(
@@ -232,7 +236,7 @@ class TestToolExecution:
         assert data["result"] == "Echo: hello"
 
     def test_call_add_tool(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test calling the add tool."""
         response = client.post(
@@ -246,7 +250,7 @@ class TestToolExecution:
         assert data["result"] == 8
 
     def test_call_nonexistent_tool(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test calling a tool that doesn't exist."""
         response = client.post(
@@ -258,7 +262,7 @@ class TestToolExecution:
         assert response.status_code == 404
 
     def test_call_tool_requires_auth(
-        self, client: TestClient
+        self, client: SyncASGIClient
     ):
         """Test that tool execution requires auth."""
         response = client.post("/tools/echo", json={"message": "test"})
@@ -266,7 +270,7 @@ class TestToolExecution:
         assert response.status_code == 401
 
     def test_call_tool_invalid_payload(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test tool execution with invalid payload type."""
         response = client.post(
@@ -278,7 +282,7 @@ class TestToolExecution:
         assert response.status_code == 422  # Validation error
 
     def test_call_tool_extra_field_rejected(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test that extra fields are rejected (extra=forbid)."""
         response = client.post(
@@ -297,7 +301,7 @@ class TestErrorHandling:
     """Tests for error handling."""
 
     def test_tool_not_found_error(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test error response for nonexistent tool."""
         response = client.post(
@@ -311,7 +315,7 @@ class TestErrorHandling:
         assert "not found" in data["detail"].lower()
 
     def test_validation_error_format(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test validation error response format."""
         response = client.post(

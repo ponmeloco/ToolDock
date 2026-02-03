@@ -9,19 +9,20 @@ Tests:
 """
 
 import pytest
-from fastapi.testclient import TestClient
+
+from tests.utils.sync_client import SyncASGIClient
 
 
 class TestAdminHealth:
     """Tests for /api/admin/health endpoint."""
 
-    def test_health_requires_auth(self, web_client: TestClient):
+    def test_health_requires_auth(self, web_client: SyncASGIClient):
         """Health endpoint requires authentication."""
         response = web_client.get("/api/admin/health")
         assert response.status_code == 401
 
     def test_health_returns_services(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Health endpoint returns service statuses."""
         response = web_client.get("/api/admin/health", headers=auth_headers)
@@ -34,7 +35,7 @@ class TestAdminHealth:
         assert isinstance(data["services"], list)
 
     def test_health_includes_web_service(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Health includes web service which is always healthy."""
         response = web_client.get("/api/admin/health", headers=auth_headers)
@@ -50,13 +51,13 @@ class TestAdminHealth:
 class TestAdminLogs:
     """Tests for /api/admin/logs endpoint."""
 
-    def test_logs_requires_auth(self, web_client: TestClient):
+    def test_logs_requires_auth(self, web_client: SyncASGIClient):
         """Logs endpoint requires authentication."""
         response = web_client.get("/api/admin/logs")
         assert response.status_code == 401
 
     def test_logs_returns_entries(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Logs endpoint returns log entries."""
         response = web_client.get("/api/admin/logs", headers=auth_headers)
@@ -69,7 +70,7 @@ class TestAdminLogs:
         assert isinstance(data["logs"], list)
 
     def test_logs_respects_limit(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Logs endpoint respects limit parameter."""
         response = web_client.get(
@@ -81,7 +82,7 @@ class TestAdminLogs:
         assert len(data["logs"]) <= 5
 
     def test_logs_filters_by_level(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Logs endpoint filters by level."""
         response = web_client.get(
@@ -98,13 +99,13 @@ class TestAdminLogs:
 class TestAdminInfo:
     """Tests for /api/admin/info endpoint."""
 
-    def test_info_requires_auth(self, web_client: TestClient):
+    def test_info_requires_auth(self, web_client: SyncASGIClient):
         """Info endpoint requires authentication."""
         response = web_client.get("/api/admin/info")
         assert response.status_code == 401
 
     def test_info_returns_system_info(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Info endpoint returns system information."""
         response = web_client.get("/api/admin/info", headers=auth_headers)
@@ -121,7 +122,7 @@ class TestAdminInfo:
         assert "host_data_dir" in data["environment"]
 
     def test_info_includes_namespaces(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Info endpoint includes namespace list."""
         response = web_client.get("/api/admin/info", headers=auth_headers)
@@ -133,7 +134,7 @@ class TestAdminInfo:
 class TestToolUpdate:
     """Tests for PUT /api/folders/{ns}/tools/{file} endpoint."""
 
-    def test_update_requires_auth(self, web_client: TestClient):
+    def test_update_requires_auth(self, web_client: SyncASGIClient):
         """Update endpoint requires authentication."""
         response = web_client.put(
             "/api/folders/shared/tools/example.py",
@@ -142,7 +143,7 @@ class TestToolUpdate:
         assert response.status_code == 401
 
     def test_update_nonexistent_tool(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Update returns 404 for nonexistent tool."""
         response = web_client.put(
@@ -153,7 +154,7 @@ class TestToolUpdate:
         assert response.status_code == 404
 
     def test_update_invalid_namespace(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Update returns 400 or 404 for invalid namespace."""
         response = web_client.put(
@@ -165,7 +166,7 @@ class TestToolUpdate:
         assert response.status_code in [400, 404]
 
     def test_update_requires_valid_json(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Update endpoint requires valid JSON body."""
         # Test with invalid JSON format
@@ -182,13 +183,13 @@ class TestToolUpdate:
 class TestLogFiles:
     """Tests for /api/admin/logs/files endpoints."""
 
-    def test_list_log_files_requires_auth(self, web_client: TestClient):
+    def test_list_log_files_requires_auth(self, web_client: SyncASGIClient):
         """Log files listing requires authentication."""
         response = web_client.get("/api/admin/logs/files")
         assert response.status_code == 401
 
     def test_list_log_files_returns_info(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Log files listing returns file information."""
         response = web_client.get("/api/admin/logs/files", headers=auth_headers)
@@ -202,13 +203,13 @@ class TestLogFiles:
         assert isinstance(data["files"], list)
         assert data["retention_days"] > 0
 
-    def test_get_log_file_content_requires_auth(self, web_client: TestClient):
+    def test_get_log_file_content_requires_auth(self, web_client: SyncASGIClient):
         """Log file content requires authentication."""
         response = web_client.get("/api/admin/logs/files/2024-01-01")
         assert response.status_code == 401
 
     def test_get_log_file_not_found(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Nonexistent log file returns 404."""
         response = web_client.get(
@@ -221,7 +222,7 @@ class TestSecurityHeaders:
     """Tests for security-related behavior."""
 
     def test_path_traversal_blocked(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Path traversal attempts are blocked."""
         # Try various path traversal patterns
@@ -241,7 +242,7 @@ class TestSecurityHeaders:
             assert response.status_code in [400, 404], f"Pattern {pattern} was not blocked"
 
     def test_invalid_filename_blocked(
-        self, web_client: TestClient, auth_headers: dict
+        self, web_client: SyncASGIClient, auth_headers: dict
     ):
         """Invalid filenames are blocked."""
         # Note: Null bytes (\x00) cannot be tested because httpx rejects them at URL level

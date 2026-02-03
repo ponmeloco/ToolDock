@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.registry import ToolRegistry, ToolDefinition, reset_registry
 from app.web.server import create_web_app
 from app.reload import init_reloader, reset_reloader
+from tests.utils.sync_client import SyncASGIClient
 
 
 # ==================== Fixtures ====================
@@ -42,7 +42,7 @@ def client(
     registry: ToolRegistry,
     data_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> TestClient:
+) -> SyncASGIClient:
     """Test client with auth enabled."""
     monkeypatch.setenv("BEARER_TOKEN", "test_token")
     monkeypatch.setenv("DATA_DIR", str(data_dir))
@@ -51,7 +51,11 @@ def client(
     init_reloader(registry, str(data_dir / "tools"))
 
     app = create_web_app(registry)
-    yield TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
     reset_reloader()
 
@@ -69,7 +73,7 @@ class TestListServers:
     """Tests for GET /api/servers endpoint."""
 
     def test_list_servers_empty(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test listing servers when none configured."""
         response = client.get("/api/servers", headers=auth_headers)
@@ -80,7 +84,7 @@ class TestListServers:
         assert data["total"] == 0
 
     def test_list_servers_with_config(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test listing servers with config file."""
         config = {
@@ -114,7 +118,7 @@ class TestListServers:
         assert "disabled-server" in server_ids
 
     def test_list_servers_masks_sensitive_data(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test sensitive config values are masked."""
         config = {
@@ -146,7 +150,7 @@ class TestListServers:
         # Normal values should be visible
         assert server["config"]["env"]["NORMAL_VAR"] == "visible"
 
-    def test_list_servers_requires_auth(self, client: TestClient):
+    def test_list_servers_requires_auth(self, client: SyncASGIClient):
         """Test listing servers requires authentication."""
         response = client.get("/api/servers")
         assert response.status_code == 401
@@ -159,7 +163,7 @@ class TestGetServer:
     """Tests for GET /api/servers/{server_id} endpoint."""
 
     def test_get_server_success(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test getting a specific server."""
         config = {
@@ -185,7 +189,7 @@ class TestGetServer:
         assert data["endpoint"] == "/mcp/myserver"
 
     def test_get_server_not_found(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test getting non-existent server."""
         response = client.get("/api/servers/nonexistent", headers=auth_headers)
@@ -193,7 +197,7 @@ class TestGetServer:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
-    def test_get_server_requires_auth(self, client: TestClient):
+    def test_get_server_requires_auth(self, client: SyncASGIClient):
         """Test getting server requires authentication."""
         response = client.get("/api/servers/test")
         assert response.status_code == 401
@@ -206,7 +210,7 @@ class TestAddServer:
     """Tests for POST /api/servers endpoint."""
 
     def test_add_server_custom(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test adding a custom server."""
         request = {
@@ -233,7 +237,7 @@ class TestAddServer:
         assert "newserver" in saved_config["servers"]
 
     def test_add_server_registry(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test adding a registry-sourced server."""
         request = {
@@ -253,7 +257,7 @@ class TestAddServer:
         assert data["config"]["source"] == "registry"
 
     def test_add_server_duplicate(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test adding duplicate server returns 409."""
         # Create existing server
@@ -273,7 +277,7 @@ class TestAddServer:
         assert "already exists" in response.json()["detail"].lower()
 
     def test_add_server_invalid_id(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test adding server with invalid ID."""
         request = {
@@ -285,7 +289,7 @@ class TestAddServer:
 
         assert response.status_code == 422  # Validation error
 
-    def test_add_server_requires_auth(self, client: TestClient):
+    def test_add_server_requires_auth(self, client: SyncASGIClient):
         """Test adding server requires authentication."""
         response = client.post(
             "/api/servers", json={"server_id": "test", "config": {}}
@@ -300,7 +304,7 @@ class TestUpdateServer:
     """Tests for PUT /api/servers/{server_id} endpoint."""
 
     def test_update_server_success(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test updating a server."""
         # Create existing server
@@ -339,7 +343,7 @@ class TestUpdateServer:
         assert saved_config["servers"]["test"]["command"] == "python"
 
     def test_update_server_not_found(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test updating non-existent server."""
         response = client.put(
@@ -350,7 +354,7 @@ class TestUpdateServer:
 
         assert response.status_code == 404
 
-    def test_update_server_requires_auth(self, client: TestClient):
+    def test_update_server_requires_auth(self, client: SyncASGIClient):
         """Test updating server requires authentication."""
         response = client.put(
             "/api/servers/test", json={"source": "custom", "command": "echo"}
@@ -365,7 +369,7 @@ class TestDeleteServer:
     """Tests for DELETE /api/servers/{server_id} endpoint."""
 
     def test_delete_server_success(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test deleting a server."""
         # Create existing server
@@ -386,14 +390,14 @@ class TestDeleteServer:
         assert "todelete" not in saved_config.get("servers", {})
 
     def test_delete_server_not_found(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test deleting non-existent server."""
         response = client.delete("/api/servers/nonexistent", headers=auth_headers)
 
         assert response.status_code == 404
 
-    def test_delete_server_requires_auth(self, client: TestClient):
+    def test_delete_server_requires_auth(self, client: SyncASGIClient):
         """Test deleting server requires authentication."""
         response = client.delete("/api/servers/test")
         assert response.status_code == 401
@@ -406,7 +410,7 @@ class TestEnableDisableServer:
     """Tests for enable/disable server endpoints."""
 
     def test_enable_server(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test enabling a disabled server."""
         config = {"servers": {"test": {"enabled": False}}}
@@ -425,7 +429,7 @@ class TestEnableDisableServer:
         assert saved_config["servers"]["test"]["enabled"] is True
 
     def test_disable_server(
-        self, client: TestClient, auth_headers: dict, data_dir: Path
+        self, client: SyncASGIClient, auth_headers: dict, data_dir: Path
     ):
         """Test disabling an enabled server."""
         config = {"servers": {"test": {"enabled": True}}}
@@ -444,14 +448,14 @@ class TestEnableDisableServer:
         assert saved_config["servers"]["test"]["enabled"] is False
 
     def test_enable_nonexistent_server(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test enabling non-existent server."""
         response = client.post("/api/servers/nonexistent/enable", headers=auth_headers)
         assert response.status_code == 404
 
     def test_disable_nonexistent_server(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test disabling non-existent server."""
         response = client.post("/api/servers/nonexistent/disable", headers=auth_headers)
@@ -465,7 +469,7 @@ class TestReloadServers:
     """Tests for POST /api/servers/reload endpoint."""
 
     def test_reload_servers_skipped_without_manager(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test reload returns skipped if no external manager is set."""
         response = client.post("/api/servers/reload", headers=auth_headers)
@@ -473,7 +477,7 @@ class TestReloadServers:
         data = response.json()
         assert data["status"] == "skipped"
 
-    def test_reload_servers_requires_auth(self, client: TestClient):
+    def test_reload_servers_requires_auth(self, client: SyncASGIClient):
         """Test reload requires authentication."""
         response = client.post("/api/servers/reload")
         assert response.status_code == 401

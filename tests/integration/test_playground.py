@@ -7,12 +7,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.registry import ToolRegistry, ToolDefinition, reset_registry
 from app.web.server import create_web_app
 from app.reload import init_reloader, reset_reloader
+from tests.utils.sync_client import SyncASGIClient
 
 
 # ==================== Fixtures ====================
@@ -59,7 +59,7 @@ def client(
     registry: ToolRegistry,
     tools_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> TestClient:
+) -> SyncASGIClient:
     """Test client with auth enabled."""
     monkeypatch.setenv("BEARER_TOKEN", "test_token")
     monkeypatch.setenv("DATA_DIR", str(tools_dir.parent))
@@ -68,7 +68,11 @@ def client(
     init_reloader(registry, str(tools_dir))
 
     app = create_web_app(registry)
-    yield TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
     reset_reloader()
 
@@ -85,7 +89,7 @@ def auth_headers() -> dict:
 class TestPlaygroundListTools:
     """Tests for GET /api/playground/tools endpoint."""
 
-    def test_list_tools_success(self, client: TestClient, auth_headers: dict):
+    def test_list_tools_success(self, client: SyncASGIClient, auth_headers: dict):
         """Test listing playground tools."""
         response = client.get("/api/playground/tools", headers=auth_headers)
 
@@ -102,7 +106,7 @@ class TestPlaygroundListTools:
         assert "input_schema" in tool
         assert tool["namespace"] == "shared"
 
-    def test_list_tools_requires_auth(self, client: TestClient):
+    def test_list_tools_requires_auth(self, client: SyncASGIClient):
         """Test listing tools requires authentication."""
         response = client.get("/api/playground/tools")
         assert response.status_code == 401
@@ -198,7 +202,7 @@ class TestPlaygroundExecute:
         import sys
         monkeypatch.setitem(sys.modules, "httpx", FakeHttpxModule())
 
-    def test_execute_tool_direct(self, client: TestClient, auth_headers: dict):
+    def test_execute_tool_direct(self, client: SyncASGIClient, auth_headers: dict):
         """Test executing a tool directly."""
         response = client.post(
             "/api/playground/execute",
@@ -217,7 +221,7 @@ class TestPlaygroundExecute:
         assert data["transport"] == "direct"
         assert data["result"]["echo"] == "hello"
 
-    def test_execute_tool_openapi(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+    def test_execute_tool_openapi(self, client: SyncASGIClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
         """Test executing a tool via OpenAPI proxy."""
         self._install_fake_httpx(monkeypatch)
         response = client.post(
@@ -236,7 +240,7 @@ class TestPlaygroundExecute:
         assert data["transport"] == "openapi"
         assert data["result"]["echo"] == "openapi_test"
 
-    def test_execute_tool_mcp(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+    def test_execute_tool_mcp(self, client: SyncASGIClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
         """Test executing a tool via MCP proxy."""
         self._install_fake_httpx(monkeypatch)
         response = client.post(
@@ -256,7 +260,7 @@ class TestPlaygroundExecute:
         assert data["transport"] == "mcp"
         assert "content" in data["result"]
 
-    def test_execute_tool_not_found(self, client: TestClient, auth_headers: dict):
+    def test_execute_tool_not_found(self, client: SyncASGIClient, auth_headers: dict):
         """Test executing non-existent tool."""
         response = client.post(
             "/api/playground/execute",
@@ -270,7 +274,7 @@ class TestPlaygroundExecute:
 
         assert response.status_code == 404
 
-    def test_execute_tool_default_transport(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+    def test_execute_tool_default_transport(self, client: SyncASGIClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
         """Test default transport is 'openapi'."""
         self._install_fake_httpx(monkeypatch)
         response = client.post(
@@ -286,7 +290,7 @@ class TestPlaygroundExecute:
         data = response.json()
         assert data["transport"] == "openapi"
 
-    def test_execute_tool_error_type_network(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+    def test_execute_tool_error_type_network(self, client: SyncASGIClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
         """Test network error classification."""
         self._install_fake_httpx_error(monkeypatch, "network")
         response = client.post(
@@ -304,7 +308,7 @@ class TestPlaygroundExecute:
         assert data["success"] is False
         assert data["error_type"] == "network"
 
-    def test_execute_tool_error_type_server(self, client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
+    def test_execute_tool_error_type_server(self, client: SyncASGIClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch):
         """Test server error classification."""
         self._install_fake_httpx_error(monkeypatch, "server")
         response = client.post(
@@ -322,7 +326,7 @@ class TestPlaygroundExecute:
         assert data["success"] is False
         assert data["error_type"] == "server"
 
-    def test_execute_tool_requires_auth(self, client: TestClient):
+    def test_execute_tool_requires_auth(self, client: SyncASGIClient):
         """Test execution requires authentication."""
         response = client.post(
             "/api/playground/execute",
@@ -337,7 +341,7 @@ class TestPlaygroundExecute:
 class TestPlaygroundMCP:
     """Tests for POST /api/playground/mcp endpoint."""
 
-    def test_mcp_initialize(self, client: TestClient, auth_headers: dict):
+    def test_mcp_initialize(self, client: SyncASGIClient, auth_headers: dict):
         """Test MCP initialize method."""
         response = client.post(
             "/api/playground/mcp",
@@ -357,7 +361,7 @@ class TestPlaygroundMCP:
         assert "protocolVersion" in data["result"]
         assert "capabilities" in data["result"]
 
-    def test_mcp_tools_list(self, client: TestClient, auth_headers: dict):
+    def test_mcp_tools_list(self, client: SyncASGIClient, auth_headers: dict):
         """Test MCP tools/list method."""
         response = client.post(
             "/api/playground/mcp",
@@ -376,7 +380,7 @@ class TestPlaygroundMCP:
         assert "tools" in data["result"]
         assert len(data["result"]["tools"]) >= 1
 
-    def test_mcp_tools_call(self, client: TestClient, auth_headers: dict):
+    def test_mcp_tools_call(self, client: SyncASGIClient, auth_headers: dict):
         """Test MCP tools/call method."""
         response = client.post(
             "/api/playground/mcp",
@@ -399,7 +403,7 @@ class TestPlaygroundMCP:
         assert "content" in data["result"]
         assert data["result"]["isError"] is False
 
-    def test_mcp_tools_call_missing_name(self, client: TestClient, auth_headers: dict):
+    def test_mcp_tools_call_missing_name(self, client: SyncASGIClient, auth_headers: dict):
         """Test MCP tools/call without name returns error."""
         response = client.post(
             "/api/playground/mcp",
@@ -417,7 +421,7 @@ class TestPlaygroundMCP:
         assert "error" in data
         assert data["error"]["code"] == -32602
 
-    def test_mcp_unknown_method(self, client: TestClient, auth_headers: dict):
+    def test_mcp_unknown_method(self, client: SyncASGIClient, auth_headers: dict):
         """Test MCP with unknown method returns error."""
         response = client.post(
             "/api/playground/mcp",
@@ -435,7 +439,7 @@ class TestPlaygroundMCP:
         assert data["error"]["code"] == -32601
         assert "not found" in data["error"]["message"].lower()
 
-    def test_mcp_tool_not_found(self, client: TestClient, auth_headers: dict):
+    def test_mcp_tool_not_found(self, client: SyncASGIClient, auth_headers: dict):
         """Test MCP tools/call with non-existent tool."""
         response = client.post(
             "/api/playground/mcp",
@@ -455,7 +459,7 @@ class TestPlaygroundMCP:
         data = response.json()
         assert "error" in data
 
-    def test_mcp_requires_auth(self, client: TestClient):
+    def test_mcp_requires_auth(self, client: SyncASGIClient):
         """Test MCP endpoint requires authentication."""
         response = client.post(
             "/api/playground/mcp",

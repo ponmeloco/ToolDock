@@ -7,12 +7,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.registry import ToolRegistry, ToolDefinition, reset_registry
 from app.web.server import create_web_app
 from app.reload import init_reloader, reset_reloader
+from tests.utils.sync_client import SyncASGIClient
 
 
 # ==================== Fixtures ====================
@@ -59,7 +59,7 @@ def client(
     registry: ToolRegistry,
     tools_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> TestClient:
+) -> SyncASGIClient:
     """Test client with auth enabled."""
     monkeypatch.setenv("BEARER_TOKEN", "test_token")
     monkeypatch.setenv("DATA_DIR", str(tools_dir.parent))
@@ -69,7 +69,11 @@ def client(
     init_reloader(registry, str(tools_dir))
 
     app = create_web_app(registry)
-    yield TestClient(app)
+    client = SyncASGIClient(app)
+    try:
+        yield client
+    finally:
+        client.close()
 
     reset_reloader()
 
@@ -86,7 +90,7 @@ def auth_headers() -> dict:
 class TestHealthEndpoint:
     """Tests for /health endpoint."""
 
-    def test_health_no_auth_required(self, client: TestClient):
+    def test_health_no_auth_required(self, client: SyncASGIClient):
         """Test health endpoint doesn't require auth."""
         response = client.get("/health")
 
@@ -95,7 +99,7 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["service"] == "backend-api"
 
-    def test_health_includes_stats(self, client: TestClient):
+    def test_health_includes_stats(self, client: SyncASGIClient):
         """Test health includes tool statistics."""
         response = client.get("/health")
 
@@ -110,7 +114,7 @@ class TestHealthEndpoint:
 class TestRootEndpoint:
     """Tests for / root endpoint."""
 
-    def test_root_redirects_to_docs(self, client: TestClient):
+    def test_root_redirects_to_docs(self, client: SyncASGIClient):
         """Test root redirects to API docs."""
         response = client.get("/", follow_redirects=False)
 
@@ -124,7 +128,7 @@ class TestRootEndpoint:
 class TestDashboard:
     """Tests for dashboard API endpoint."""
 
-    def test_dashboard_api(self, client: TestClient, auth_headers: dict):
+    def test_dashboard_api(self, client: SyncASGIClient, auth_headers: dict):
         """Test dashboard API returns overview data."""
         response = client.get("/api/dashboard", headers=auth_headers)
 
@@ -134,7 +138,7 @@ class TestDashboard:
         assert "namespaces" in data
         assert "endpoints" in data
 
-    def test_dashboard_requires_auth(self, client: TestClient):
+    def test_dashboard_requires_auth(self, client: SyncASGIClient):
         """Test dashboard requires authentication."""
         response = client.get("/api/dashboard")
 
@@ -147,7 +151,7 @@ class TestDashboard:
 class TestFoldersAPI:
     """Tests for folders/namespaces API."""
 
-    def test_list_folders(self, client: TestClient, auth_headers: dict):
+    def test_list_folders(self, client: SyncASGIClient, auth_headers: dict):
         """Test listing folders/namespaces."""
         response = client.get("/api/folders", headers=auth_headers)
 
@@ -157,7 +161,7 @@ class TestFoldersAPI:
         folder_names = [f["name"] for f in data["folders"]]
         assert "shared" in folder_names
 
-    def test_list_folders_requires_auth(self, client: TestClient):
+    def test_list_folders_requires_auth(self, client: SyncASGIClient):
         """Test listing folders requires auth."""
         response = client.get("/api/folders")
 
@@ -170,7 +174,7 @@ class TestFoldersAPI:
 class TestReloadAPI:
     """Tests for reload API endpoints."""
 
-    def test_reload_status(self, client: TestClient, auth_headers: dict):
+    def test_reload_status(self, client: SyncASGIClient, auth_headers: dict):
         """Test getting reload status."""
         response = client.get("/api/reload/status", headers=auth_headers)
 
@@ -179,7 +183,7 @@ class TestReloadAPI:
         assert data["enabled"] is True
         assert "namespaces" in data
 
-    def test_reload_all(self, client: TestClient, auth_headers: dict):
+    def test_reload_all(self, client: SyncASGIClient, auth_headers: dict):
         """Test reloading all namespaces."""
         response = client.post("/api/reload", headers=auth_headers)
 
@@ -190,7 +194,7 @@ class TestReloadAPI:
 
     def test_reload_namespace(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -226,7 +230,7 @@ def register_tools(registry):
         assert data["success"] is True
 
     def test_reload_invalid_namespace(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test reloading invalid namespace returns error."""
         response = client.post(
@@ -235,7 +239,7 @@ def register_tools(registry):
 
         assert response.status_code == 400
 
-    def test_reload_requires_auth(self, client: TestClient):
+    def test_reload_requires_auth(self, client: SyncASGIClient):
         """Test reload requires authentication."""
         response = client.post("/api/reload")
 
@@ -248,7 +252,7 @@ def register_tools(registry):
 class TestToolsAPI:
     """Tests for tools API endpoints."""
 
-    def test_list_tools(self, client: TestClient, auth_headers: dict):
+    def test_list_tools(self, client: SyncASGIClient, auth_headers: dict):
         """Test listing tools in a namespace."""
         response = client.get("/api/folders/shared/tools", headers=auth_headers)
 
@@ -257,14 +261,14 @@ class TestToolsAPI:
         assert "tools" in data
         assert data["namespace"] == "shared"
 
-    def test_list_tools_requires_auth(self, client: TestClient):
+    def test_list_tools_requires_auth(self, client: SyncASGIClient):
         """Test listing tools requires auth."""
         response = client.get("/api/folders/shared/tools")
 
         assert response.status_code == 401
 
     def test_list_tools_nonexistent_namespace(
-        self, client: TestClient, auth_headers: dict
+        self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test listing tools in nonexistent namespace."""
         response = client.get(
@@ -280,7 +284,7 @@ class TestToolsAPI:
 class TestSecurity:
     """Security-related tests."""
 
-    def test_invalid_bearer_token(self, client: TestClient):
+    def test_invalid_bearer_token(self, client: SyncASGIClient):
         """Test invalid bearer token is rejected."""
         response = client.get(
             "/api/folders",
@@ -289,13 +293,13 @@ class TestSecurity:
 
         assert response.status_code == 401
 
-    def test_missing_auth_header(self, client: TestClient):
+    def test_missing_auth_header(self, client: SyncASGIClient):
         """Test missing auth header is rejected."""
         response = client.get("/api/folders")
 
         assert response.status_code == 401
 
-    def test_malformed_auth_header(self, client: TestClient):
+    def test_malformed_auth_header(self, client: SyncASGIClient):
         """Test malformed auth header is rejected."""
         response = client.get(
             "/api/folders",
@@ -313,7 +317,7 @@ class TestCreateToolFromTemplate:
 
     def test_create_tool_from_template(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -346,7 +350,7 @@ class TestCreateToolFromTemplate:
 
     def test_create_tool_requires_snake_case(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test tool name must be snake_case."""
@@ -361,7 +365,7 @@ class TestCreateToolFromTemplate:
 
     def test_create_tool_rejects_invalid_chars(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test tool name rejects invalid characters."""
@@ -375,7 +379,7 @@ class TestCreateToolFromTemplate:
 
     def test_create_tool_rejects_existing(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -394,7 +398,7 @@ class TestCreateToolFromTemplate:
         assert response.status_code == 400
         assert "already exists" in response.json()["detail"]
 
-    def test_create_tool_requires_auth(self, client: TestClient):
+    def test_create_tool_requires_auth(self, client: SyncASGIClient):
         """Test create-from-template requires authentication."""
         response = client.post(
             "/api/folders/shared/tools/create-from-template",
@@ -405,7 +409,7 @@ class TestCreateToolFromTemplate:
 
     def test_create_tool_nonexistent_namespace(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test creating tool in nonexistent namespace."""
@@ -426,7 +430,7 @@ class TestGetTool:
 
     def test_get_tool_success(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -463,7 +467,7 @@ def register_tools(registry):
 
     def test_get_tool_not_found(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -480,7 +484,7 @@ def register_tools(registry):
 
     def test_get_tool_path_traversal(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -506,7 +510,7 @@ def register_tools(registry):
 
     def test_get_tool_invalid_filename(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test invalid filename is rejected."""
@@ -526,7 +530,7 @@ class TestUpdateTool:
 
     def test_update_tool_success(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -578,7 +582,7 @@ def register_tools(registry):
 
     def test_update_tool_not_found(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -596,7 +600,7 @@ def register_tools(registry):
 
     def test_update_tool_validation_failure(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -620,7 +624,7 @@ def register_tools(registry):
 
     def test_update_requires_valid_json(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test update requires valid JSON body."""
@@ -641,7 +645,7 @@ class TestDeleteTool:
 
     def test_delete_tool_success(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -667,7 +671,7 @@ class TestDeleteTool:
 
     def test_delete_tool_not_found(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -691,7 +695,7 @@ class TestValidateTool:
 
     def test_validate_valid_tool(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test validating a valid tool file."""
@@ -719,7 +723,7 @@ def register_tools(registry):
 
     def test_validate_invalid_tool(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test validating an invalid tool file."""
@@ -745,7 +749,7 @@ class TestFoldersCRUD:
 
     def test_create_folder(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test creating a new folder."""
@@ -762,7 +766,7 @@ class TestFoldersCRUD:
 
     def test_create_folder_reserved_name(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test creating folder with reserved name fails."""
@@ -777,7 +781,7 @@ class TestFoldersCRUD:
 
     def test_create_folder_duplicate(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test creating duplicate folder fails."""
@@ -799,7 +803,7 @@ class TestFoldersCRUD:
 
     def test_get_folder(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -819,7 +823,7 @@ class TestFoldersCRUD:
 
     def test_get_folder_not_found(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test getting non-existent folder."""
@@ -829,7 +833,7 @@ class TestFoldersCRUD:
 
     def test_delete_folder_empty(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -848,7 +852,7 @@ class TestFoldersCRUD:
 
     def test_delete_folder_with_tools_requires_force(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
@@ -877,7 +881,7 @@ class TestFoldersCRUD:
 
     def test_delete_reserved_folder(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
     ):
         """Test deleting reserved folder fails."""
@@ -891,7 +895,7 @@ class TestFoldersCRUD:
 
     def test_namespace_info(
         self,
-        client: TestClient,
+        client: SyncASGIClient,
         auth_headers: dict,
         tools_dir: Path,
     ):
