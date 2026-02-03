@@ -27,6 +27,7 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
                          │  external/config.yaml         │  ($DATA_DIR/external/config.yaml)
                          │  logs/YYYY-MM-DD.jsonl        │
                          │  metrics.sqlite               │
+                         │  venvs/{namespace}/           │
                          └───────────────────────────────┘
 ```
 
@@ -46,6 +47,7 @@ All three transports share the same tool registry — **define once, use everywh
 | `app/reload.py` | Hot reload functionality |
 | `app/auth.py` | Bearer token authentication |
 | `app/metrics_store.py` | Metrics ingestion + SQLite persistence |
+| `app/deps.py` | Per-namespace venv management |
 | `app/transports/` | OpenAPI and MCP transport implementations |
 | `app/web/` | Backend API server and routes |
 | `app/external/` | External MCP server integration |

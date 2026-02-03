@@ -94,6 +94,21 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
             { name: 'filename', description: 'Tool filename (e.g., example.py)' },
           ],
         },
+        {
+          method: 'GET',
+          path: '/api/folders/{namespace}/tools/deps',
+          description: 'Get namespace dependencies (venv + packages)',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/install',
+          description: 'Install namespace dependencies',
+          auth: true,
+          body: '{"packages": ["requests==2.32.0"]}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
       ],
     },
     {

@@ -79,6 +79,20 @@ export interface ToolContent {
   validation: ValidationResult
 }
 
+export interface NamespaceDeps {
+  namespace: string
+  venv_path: string
+  requirements: string | null
+  packages: { name: string; version: string }[]
+  exists: boolean
+}
+
+export interface InstallDepsResponse {
+  success: boolean
+  stdout: string
+  stderr: string
+}
+
 export interface ValidationResult {
   is_valid: boolean
   errors: string[]
@@ -245,6 +259,30 @@ export async function deleteTool(namespace: string, filename: string): Promise<v
     const error = await res.json()
     throw new Error(error.detail || 'Failed to delete tool')
   }
+}
+
+export async function getNamespaceDeps(namespace: string): Promise<NamespaceDeps> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get dependencies')
+  }
+  return res.json()
+}
+
+export async function installNamespaceDeps(
+  namespace: string,
+  payload: { packages?: string[]; requirements?: string }
+): Promise<InstallDepsResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/install`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to install dependencies')
+  }
+  return res.json()
 }
 
 export async function createToolFromTemplate(

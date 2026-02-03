@@ -55,6 +55,7 @@ tooldock_data/logs/
 tooldock_data/metrics.sqlite
 tooldock_data/metrics.sqlite-wal
 tooldock_data/metrics.sqlite-shm
+tooldock_data/venvs/
 
 # LiteLLM (local stack)
 LiteLLM/

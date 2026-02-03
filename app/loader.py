@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.registry import ToolRegistry
+from app.deps import get_venv_dir, get_site_packages_path
 
 logger = logging.getLogger("loader")
 
@@ -92,6 +93,14 @@ def load_tools_from_directory(
     )
 
     loaded_count = 0
+    # Add namespace venv site-packages to sys.path (if present)
+    import sys
+    if ns:
+        venv_dir = get_venv_dir(ns)
+        site_path = get_site_packages_path(venv_dir)
+        if site_path.exists() and str(site_path) not in sys.path:
+            sys.path.insert(0, str(site_path))
+
     for py_file in files:
         try:
             module = _import_module_from_path(py_file)

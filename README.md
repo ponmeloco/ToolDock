@@ -178,6 +178,22 @@ curl -X POST http://localhost:18080/api/reload/shared \
 
 ---
 
+## Dependencies (Per Namespace)
+
+Each namespace gets its own Python venv stored in `tooldock_data/venvs/{namespace}`.  
+Install dependencies via the Admin UI **Tools → Dependencies**, or via API:
+
+```bash
+curl -X POST http://localhost:18080/api/folders/shared/tools/deps/install \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{"packages": ["requests==2.32.0"]}'
+```
+
+After install, ToolDock auto-reloads the namespace so imports work immediately.
+
+---
+
 ## Connecting Clients
 
 ### LiteLLM

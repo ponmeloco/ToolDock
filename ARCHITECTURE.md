@@ -171,6 +171,8 @@ tooldock_data/tools/
 - `GET /api/folders/{namespace}/tools` - List tools
 - `POST /api/folders/{namespace}/tools` - Upload tool
 - `DELETE /api/folders/{namespace}/tools/{file}` - Delete tool
+- `GET /api/folders/{namespace}/tools/deps` - Get namespace dependencies
+- `POST /api/folders/{namespace}/tools/deps/install` - Install dependencies
 - `GET /api/servers` - List external servers
 - `POST /api/servers` - Add external server
 - `DELETE /api/servers/{server_id}` - Remove external server

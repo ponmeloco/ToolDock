@@ -12,6 +12,8 @@ import {
   validateTool,
   reloadNamespace,
   createToolFromTemplate,
+  getNamespaceDeps,
+  installNamespaceDeps,
 } from '../api/client'
 import {
   ArrowLeft,
@@ -24,6 +26,7 @@ import {
   RefreshCw,
   Upload,
   Plus,
+  Package,
 } from 'lucide-react'
 
 export default function Tools() {
@@ -36,6 +39,9 @@ export default function Tools() {
   const [showUnsavedModal, setShowUnsavedModal] = useState(false)
   const [pendingFileSelect, setPendingFileSelect] = useState<string | null>(null)
   const [newToolName, setNewToolName] = useState('')
+  const [requirementsText, setRequirementsText] = useState('')
+  const [packageInput, setPackageInput] = useState('')
+  const [installOutput, setInstallOutput] = useState<string | null>(null)
   const [lastValidation, setLastValidation] = useState<{
     is_valid: boolean
     errors: string[]
@@ -50,6 +56,12 @@ export default function Tools() {
   const toolsQuery = useQuery({
     queryKey: ['tools', namespace],
     queryFn: () => getTools(namespace!),
+    enabled: !!namespace,
+  })
+
+  const depsQuery = useQuery({
+    queryKey: ['deps', namespace],
+    queryFn: () => getNamespaceDeps(namespace!),
     enabled: !!namespace,
   })
 
@@ -68,6 +80,12 @@ export default function Tools() {
       setLastValidation(toolContentQuery.data.validation ?? null)
     }
   }, [toolContentQuery.data?.content, selectedFile])
+
+  useEffect(() => {
+    if (depsQuery.data?.requirements !== undefined && depsQuery.data?.requirements !== null) {
+      setRequirementsText(depsQuery.data.requirements)
+    }
+  }, [depsQuery.data?.requirements])
 
   // Warn before leaving page with unsaved changes
   useEffect(() => {
@@ -141,6 +159,24 @@ export default function Tools() {
     mutationFn: () => validateTool(namespace!, editorContent, selectedFile || 'tool.py'),
     onSuccess: (data) => {
       setLastValidation(data)
+    },
+  })
+
+  const installDepsMutation = useMutation({
+    mutationFn: async (payload: { packages?: string[]; requirements?: string }) => {
+      const result = await installNamespaceDeps(namespace!, payload)
+      // Reload namespace to pick up newly installed deps
+      await reloadNamespace(namespace!)
+      return result
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
+      setInstallOutput(
+        [data.stdout?.trim(), data.stderr?.trim()].filter(Boolean).join('\n') || 'Install complete'
+      )
+    },
+    onError: (err: Error) => {
+      setInstallOutput(err.message)
     },
   })
 
@@ -480,6 +516,96 @@ export default function Tools() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Dependencies */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Package className="w-5 h-5 text-primary-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Dependencies</h2>
+        </div>
+
+        {depsQuery.isLoading ? (
+          <div className="text-sm text-gray-500">Loading dependencies...</div>
+        ) : depsQuery.error ? (
+          <div className="text-sm text-red-600">Failed to load dependencies</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-600">
+              <div>Venv: <span className="font-mono text-gray-800">{depsQuery.data?.venv_path}</span></div>
+              <div>Status: {depsQuery.data?.exists ? 'Ready' : 'Not created yet'}</div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Install from requirements.txt
+                </label>
+                <textarea
+                  value={requirementsText}
+                  onChange={(e) => setRequirementsText(e.target.value)}
+                  rows={6}
+                  placeholder="requests==2.32.0&#10;pydantic>=2.7"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                />
+                <button
+                  onClick={() => installDepsMutation.mutate({ requirements: requirementsText })}
+                  disabled={installDepsMutation.isPending || !requirementsText.trim()}
+                  className="mt-2 px-3 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+                >
+                  {installDepsMutation.isPending ? 'Installing...' : 'Install requirements'}
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Install packages (comma separated)
+                </label>
+                <input
+                  value={packageInput}
+                  onChange={(e) => setPackageInput(e.target.value)}
+                  placeholder="requests==2.32.0, httpx"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                />
+                <button
+                  onClick={() =>
+                    installDepsMutation.mutate({
+                      packages: packageInput.split(',').map((p) => p.trim()).filter(Boolean),
+                    })
+                  }
+                  disabled={installDepsMutation.isPending || !packageInput.trim()}
+                  className="mt-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg transition-colors"
+                >
+                  {installDepsMutation.isPending ? 'Installing...' : 'Install packages'}
+                </button>
+
+                <div className="mt-4">
+                  <div className="text-sm font-medium text-gray-700 mb-2">Installed</div>
+                  {depsQuery.data?.packages?.length ? (
+                    <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg">
+                      <ul className="divide-y divide-gray-100">
+                        {depsQuery.data.packages.map((pkg) => (
+                          <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex justify-between">
+                            <span>{pkg.name}</span>
+                            <span className="text-gray-500">{pkg.version}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">No packages installed</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {installOutput && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap">
+                {installOutput}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Unsaved Changes Modal */}

@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
+from app.deps import install_packages, install_requirements, list_packages, read_requirements, get_venv_dir
 from app.web.validation import validate_tool_file, ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,25 @@ class ToolListResponse(BaseModel):
     namespace: str
     tools: List[ToolInfo]
     total: int
+
+
+class DependenciesRequest(BaseModel):
+    """Request to install dependencies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    packages: Optional[List[str]] = None
+    requirements: Optional[str] = None
+
+
+class DependenciesResponse(BaseModel):
+    """Response for dependency install."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    success: bool
+    stdout: str
+    stderr: str
 
 
 def _get_base_tools_dir() -> Path:
@@ -138,6 +158,50 @@ def _safe_file_path(tools_dir: Path, filename: str) -> Path:
         raise HTTPException(status_code=400, detail="Invalid file path")
 
     return file_path
+
+
+@router.get("/deps")
+async def get_dependencies(
+    namespace: str,
+    _: str = Depends(verify_token),
+) -> dict:
+    """
+    Get dependency info for a namespace (venv + packages).
+    """
+    _ = _get_tools_dir(namespace)  # Validate namespace
+    venv_dir = get_venv_dir(namespace)
+    return {
+        "namespace": namespace,
+        "venv_path": str(venv_dir),
+        "requirements": read_requirements(namespace),
+        "packages": list_packages(namespace),
+        "exists": (venv_dir / "bin" / "python").exists(),
+    }
+
+
+@router.post("/deps/install", response_model=DependenciesResponse)
+async def install_dependencies(
+    namespace: str,
+    request: DependenciesRequest,
+    _: str = Depends(verify_token),
+) -> DependenciesResponse:
+    """
+    Install dependencies into the namespace venv.
+    """
+    _ = _get_tools_dir(namespace)  # Validate namespace
+
+    if request.requirements:
+        result = install_requirements(namespace, request.requirements)
+    elif request.packages:
+        result = install_packages(namespace, request.packages)
+    else:
+        raise HTTPException(status_code=400, detail="packages or requirements is required")
+
+    return DependenciesResponse(
+        success=bool(result.get("success")),
+        stdout=result.get("stdout", ""),
+        stderr=result.get("stderr", ""),
+    )
 
 
 @router.get("", response_model=ToolListResponse)
