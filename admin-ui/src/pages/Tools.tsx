@@ -46,6 +46,7 @@ export default function Tools() {
   const [installOutput, setInstallOutput] = useState<string | null>(null)
   const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'tools' | 'deps'>('tools')
+  const [packageFilter, setPackageFilter] = useState('')
   const [lastValidation, setLastValidation] = useState<{
     is_valid: boolean
     errors: string[]
@@ -398,24 +399,39 @@ export default function Tools() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex items-center gap-2 mb-4">
-        <button
-          onClick={() => setActiveTab('tools')}
-          className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-            activeTab === 'tools' ? 'bg-primary-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-          }`}
-        >
-          Tools
-        </button>
-        <button
-          onClick={() => setActiveTab('deps')}
-          className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-            activeTab === 'deps' ? 'bg-primary-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-          }`}
-        >
-          Dependencies
-        </button>
+      {/* Tabs */}
+      <div className="sticky top-0 z-10 -mx-4 px-4 pb-4 bg-gray-50">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+          {[
+            { id: 'tools' as const, label: 'Tools', icon: File, count: toolsQuery.data?.length || 0 },
+            {
+              id: 'deps' as const,
+              label: 'Dependencies',
+              icon: Package,
+              count: depsQuery.data?.packages?.length || 0,
+            },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+              <span
+                className={`px-1.5 py-0.5 text-xs rounded-full ${
+                  activeTab === tab.id ? 'bg-primary-100 text-primary-700' : 'bg-gray-200 text-gray-600'
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {activeTab === 'tools' ? (
@@ -603,115 +619,159 @@ export default function Tools() {
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Package className="w-5 h-5 text-primary-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Dependencies</h2>
-          </div>
-
-          {depsQuery.isLoading ? (
-            <div className="text-sm text-gray-500">Loading dependencies...</div>
-          ) : depsQuery.error ? (
-            <div className="text-sm text-red-600">Failed to load dependencies</div>
-          ) : (
-            <div className="space-y-4">
-              <div className="text-sm text-gray-600">
-                <div>Venv: <span className="font-mono text-gray-800">{depsQuery.data?.venv_path}</span></div>
-                <div>Status: {depsQuery.data?.exists ? 'Ready' : 'Not created yet'}</div>
-              </div>
-
+        <div className="flex-1 flex flex-col gap-4 min-h-0">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => createVenvMutation.mutate()}
-                  disabled={createVenvMutation.isPending || depsQuery.data?.exists}
-                  className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg"
-                >
-                  {createVenvMutation.isPending ? 'Creating...' : 'Create venv'}
-                </button>
-                <button
-                  onClick={() => deleteVenvMutation.mutate()}
-                  disabled={deleteVenvMutation.isPending || !depsQuery.data?.exists}
-                  className="px-3 py-2 text-sm bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded-lg"
-                >
-                  {deleteVenvMutation.isPending ? 'Deleting...' : 'Delete venv'}
-                </button>
+                <Package className="w-5 h-5 text-primary-600" />
+                <h2 className="text-lg font-semibold text-gray-900">Dependencies</h2>
               </div>
+              <span
+                className={`text-xs px-2 py-1 rounded-full ${
+                  depsQuery.data?.exists
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-yellow-100 text-yellow-700'
+                }`}
+              >
+                {depsQuery.data?.exists ? 'Venv ready' : 'Venv missing'}
+              </span>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                <div className="border border-gray-200 rounded-lg p-3 h-[360px] flex flex-col">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Install from requirements.txt
-                  </label>
-                  <textarea
-                    value={requirementsText}
-                    onChange={(e) => setRequirementsText(e.target.value)}
-                    placeholder="requests==2.32.0&#10;pydantic>=2.7"
-                    className="w-full flex-1 min-h-0 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                  />
-                  <button
-                    onClick={() => installDepsMutation.mutate({ requirements: requirementsText })}
-                    disabled={installDepsMutation.isPending || !requirementsText.trim()}
-                    className="mt-2 px-3 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
-                  >
-                    {installDepsMutation.isPending ? 'Installing...' : 'Install requirements'}
-                  </button>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-3 h-[360px] flex flex-col">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-medium text-gray-700">Installed</div>
-                    <div className="flex items-center gap-2">
+            {depsQuery.isLoading ? (
+              <div className="text-sm text-gray-500 mt-4">Loading dependencies...</div>
+            ) : depsQuery.error ? (
+              <div className="text-sm text-red-600 mt-4">Failed to load dependencies</div>
+            ) : (
+              <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-1 space-y-4">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Venv</div>
+                    <div className="text-sm text-gray-700">
+                      <div className="font-medium text-gray-900">{depsQuery.data?.exists ? 'Ready' : 'Not created'}</div>
+                      <div className="mt-1 font-mono text-xs break-all text-gray-600">{depsQuery.data?.venv_path}</div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
                       <button
-                        onClick={selectAllPackages}
-                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        onClick={() => createVenvMutation.mutate()}
+                        disabled={createVenvMutation.isPending || depsQuery.data?.exists}
+                        className="px-3 py-2 text-sm bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-50 rounded-lg"
                       >
-                        Select all
+                        {createVenvMutation.isPending ? 'Creating...' : 'Create venv'}
                       </button>
                       <button
-                        onClick={clearSelection}
-                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        onClick={() => deleteVenvMutation.mutate()}
+                        disabled={deleteVenvMutation.isPending || !depsQuery.data?.exists}
+                        className="px-3 py-2 text-sm bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded-lg"
                       >
-                        Clear
-                      </button>
-                      <button
-                        onClick={() => uninstallDepsMutation.mutate(Array.from(selectedPackages))}
-                        disabled={uninstallDepsMutation.isPending || selectedPackages.size === 0}
-                        className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
-                      >
-                        Uninstall selected
+                        {deleteVenvMutation.isPending ? 'Deleting...' : 'Delete venv'}
                       </button>
                     </div>
                   </div>
-                  {depsQuery.data?.packages?.length ? (
-                    <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
-                      <ul className="divide-y divide-gray-100">
-                        {depsQuery.data.packages.map((pkg) => (
-                          <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex items-center justify-between gap-3">
-                            <label className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedPackages.has(pkg.name)}
-                                onChange={() => togglePackageSelection(pkg.name)}
-                              />
-                              <span>{pkg.name}</span>
-                            </label>
-                            <span className="text-gray-500">{pkg.version}</span>
-                          </li>
-                        ))}
-                      </ul>
+
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Install</div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      requirements.txt
+                    </label>
+                    <textarea
+                      value={requirementsText}
+                      onChange={(e) => setRequirementsText(e.target.value)}
+                      placeholder="requests==2.32.0&#10;pydantic>=2.7"
+                      className="w-full h-48 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    />
+                    <button
+                      onClick={() => installDepsMutation.mutate({ requirements: requirementsText })}
+                      disabled={installDepsMutation.isPending || !requirementsText.trim()}
+                      className="mt-3 w-full px-3 py-2 text-sm bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+                    >
+                      {installDepsMutation.isPending ? 'Installing...' : 'Install requirements'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2 flex flex-col gap-4 min-h-0">
+                  <div className="rounded-xl border border-gray-200 p-4 flex-1 flex flex-col min-h-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Installed</div>
+                        <div className="text-sm text-gray-700">
+                          {depsQuery.data?.packages?.length || 0} packages
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          value={packageFilter}
+                          onChange={(e) => setPackageFilter(e.target.value)}
+                          placeholder="Filter packages..."
+                          className="px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg"
+                        />
+                        <button
+                          onClick={selectAllPackages}
+                          className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          onClick={clearSelection}
+                          className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          onClick={() => uninstallDepsMutation.mutate(Array.from(selectedPackages))}
+                          disabled={uninstallDepsMutation.isPending || selectedPackages.size === 0}
+                          className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
+                        >
+                          Uninstall selected
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="text-sm text-gray-500">No packages installed</div>
+                    {depsQuery.data?.packages?.length ? (
+                      <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 text-gray-500 sticky top-0">
+                            <tr>
+                              <th className="text-left px-3 py-2 w-8"></th>
+                              <th className="text-left px-3 py-2">Package</th>
+                              <th className="text-right px-3 py-2">Version</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {depsQuery.data.packages
+                              .filter((pkg) =>
+                                pkg.name.toLowerCase().includes(packageFilter.toLowerCase())
+                              )
+                              .map((pkg) => (
+                                <tr key={`${pkg.name}-${pkg.version}`} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedPackages.has(pkg.name)}
+                                      onChange={() => togglePackageSelection(pkg.name)}
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">{pkg.name}</td>
+                                  <td className="px-3 py-2 text-right text-gray-500">{pkg.version}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500">No packages installed</div>
+                    )}
+                  </div>
+
+                  {installOutput && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap">
+                      {installOutput}
+                    </div>
                   )}
                 </div>
               </div>
-
-              {installOutput && (
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap">
-                  {installOutput}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 

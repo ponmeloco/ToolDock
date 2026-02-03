@@ -91,6 +91,72 @@ def create_openapi_app(
                 "description": "Enter your Bearer token",
             }
         }
+        existing_schemas = openapi_schema["components"].get("schemas", {})
+        openapi_schema["components"]["schemas"] = {
+            **existing_schemas,
+            "ToolError": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {"type": "string"},
+                            "message": {"type": "string"},
+                            "details": {"type": "object"},
+                        },
+                        "required": ["code", "message"],
+                    }
+                },
+                "required": ["error"],
+            },
+            "ToolResult": {
+                "type": "object",
+                "properties": {
+                    "tool": {"type": "string"},
+                    "result": {},
+                },
+                "required": ["tool", "result"],
+            },
+            "ToolList": {
+                "type": "object",
+                "properties": {
+                    "namespace": {"type": "string"},
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "description": {"type": "string"},
+                                "input_schema": {"type": "object"},
+                                "type": {"type": "string"},
+                                "namespace": {"type": "string"},
+                            },
+                            "required": ["name", "description", "input_schema"],
+                        },
+                    },
+                },
+                "required": ["namespace", "tools"],
+            },
+            "Health": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "namespace": {"type": "string"},
+                    "transport": {"type": "string"},
+                    "tools": {"type": "object"},
+                },
+                "required": ["status", "transport", "tools"],
+            },
+        }
+        openapi_schema["tags"] = [
+            {"name": "Health", "description": "Health and readiness endpoints"},
+            {"name": "Tools", "description": "List and execute registered tools"},
+            {"name": "Admin", "description": "Admin endpoints (reload, servers, logs)"},
+        ]
+        openapi_schema["servers"] = [
+            {"url": f"http://localhost:{os.getenv('OPENAPI_PUBLIC_PORT', os.getenv('OPENAPI_PORT', '8006'))}"},
+        ]
         # Apply security to all endpoints except health
         for path in openapi_schema["paths"]:
             if path != "/health":
@@ -136,7 +202,7 @@ def create_openapi_app(
         logger.exception("Unhandled exception")
         return JSONResponse({"error": {"code": "internal_error", "message": str(exc)}}, status_code=500)
 
-    @app.get("/health")
+    @app.get("/health", tags=["Health"], responses={200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}}})
     async def health():
         stats = registry.get_stats()
         return {
@@ -146,7 +212,15 @@ def create_openapi_app(
             "tools": stats,
         }
 
-    @app.get("/tools", dependencies=[Depends(bearer_auth_dependency)])
+    @app.get(
+        "/tools",
+        dependencies=[Depends(bearer_auth_dependency)],
+        tags=["Tools"],
+        responses={
+            200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolList"}}}},
+            401: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+        },
+    )
     async def list_tools():
         # Use list_all() to include both native and external tools
         all_tools = app.state.registry.list_all()
@@ -184,16 +258,33 @@ def create_openapi_app(
             name=tool.name,
             operation_id=f"{REGISTRY_NAMESPACE}__{tool.name}",
             description=tool.description,
+            tags=["Tools"],
             openapi_extra={
                 "requestBody": {
                     "required": True,
                     "content": {"application/json": {"schema": tool.input_model.model_json_schema()}},
-                }
+                },
+                "responses": {
+                    "200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolResult"}}}},
+                    "400": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+                    "401": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+                    "422": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+                    "500": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+                },
             },
         )
 
     # Add dynamic endpoint for external tools (and any tool by name)
-    @app.post("/tools/{tool_name}", dependencies=[Depends(bearer_auth_dependency)])
+    @app.post(
+        "/tools/{tool_name}",
+        dependencies=[Depends(bearer_auth_dependency)],
+        tags=["Tools"],
+        responses={
+            200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolResult"}}}},
+            401: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+            404: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+        },
+    )
     async def call_tool_dynamic(
         tool_name: str,
         payload: Dict[str, Any] = Body(default={}),

@@ -27,13 +27,16 @@ interface EndpointCategory {
   baseUrl?: string
 }
 
-function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory[] {
-  const openapiBase = `http://localhost:${openapiPort}`
-  const mcpBase = `http://localhost:${mcpPort}`
+function buildCategories(
+  openapiPort: string,
+  mcpPort: string,
+  openapiBase: string,
+  mcpBase: string
+): EndpointCategory[] {
   return [
     {
-      name: 'Health',
-      description: 'Health check endpoints for all services',
+      name: 'Backend Health',
+      description: 'Backend API health checks (same origin)',
       endpoints: [
         { method: 'GET', path: '/health', description: 'Backend API health check', auth: false },
         { method: 'GET', path: '/api/admin/health', description: 'Aggregated health of all services', auth: true },
@@ -41,7 +44,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
     },
     {
       name: 'Namespaces',
-      description: 'Manage tool namespaces (folders)',
+      description: 'Manage tool namespaces (folders) in ToolDock',
       endpoints: [
         { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true },
         { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name": "my_namespace"}' },
@@ -56,7 +59,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
     },
     {
       name: 'Tools',
-      description: 'Manage tools within namespaces',
+      description: 'Manage tools within namespaces (files, content, templates)',
       endpoints: [
         {
           method: 'GET',
@@ -149,8 +152,8 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
       ],
     },
     {
-      name: 'OpenAPI Server',
-      description: `OpenAPI endpoints (port ${openapiPort})`,
+      name: 'OpenAPI Transport',
+      description: `OpenAPI endpoints (public port ${openapiPort})`,
       baseUrl: openapiBase,
       endpoints: [
         { method: 'GET', path: '/health', description: 'OpenAPI health check', auth: false },
@@ -167,7 +170,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
     },
     {
       name: 'Admin',
-      description: 'System administration endpoints',
+      description: 'System administration endpoints (same origin)',
       endpoints: [
         { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
         { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
@@ -177,7 +180,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
     },
     {
       name: 'MCP',
-      description: `MCP Streamable HTTP endpoints (port ${mcpPort})`,
+      description: `MCP Streamable HTTP endpoints (public port ${mcpPort})`,
       baseUrl: mcpBase,
       endpoints: [
         { method: 'GET', path: '/health', description: 'MCP health check', auth: false },
@@ -260,12 +263,12 @@ function getStatusColor(status: number): string {
 
 export default function Docs() {
   const [token, setToken] = useState('')
+  const [openapiBaseUrl, setOpenapiBaseUrl] = useState('')
+  const [mcpBaseUrl, setMcpBaseUrl] = useState('')
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['Health', 'OpenAPI Tools'])
+    new Set(['Backend Health', 'OpenAPI Transport', 'MCP'])
   )
-  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint; baseUrl?: string } | null>(
-    null
-  )
+  const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint } | null>(null)
   const [pathParamValues, setPathParamValues] = useState<Record<string, string>>({})
   const [requestBody, setRequestBody] = useState('')
   const [response, setResponse] = useState<{ status: number; data: string; time: number } | null>(null)
@@ -288,7 +291,19 @@ export default function Docs() {
   const namespaces = namespacesQuery.data?.map((ns) => ns.name) || []
   const openapiPort = String(infoQuery.data?.environment?.openapi_port || 'unknown')
   const mcpPort = String(infoQuery.data?.environment?.mcp_port || 'unknown')
-  const categories = buildCategories(openapiPort, mcpPort)
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:'
+  const defaultOpenapiBase = openapiPort !== 'unknown' ? `${protocol}//${host}:${openapiPort}` : ''
+  const defaultMcpBase = mcpPort !== 'unknown' ? `${protocol}//${host}:${mcpPort}` : ''
+
+  useEffect(() => {
+    if (!openapiBaseUrl && defaultOpenapiBase) setOpenapiBaseUrl(defaultOpenapiBase)
+    if (!mcpBaseUrl && defaultMcpBase) setMcpBaseUrl(defaultMcpBase)
+  }, [defaultOpenapiBase, defaultMcpBase, openapiBaseUrl, mcpBaseUrl])
+
+  const resolvedOpenapiBase = openapiBaseUrl || defaultOpenapiBase
+  const resolvedMcpBase = mcpBaseUrl || defaultMcpBase
+  const categories = buildCategories(openapiPort, mcpPort, resolvedOpenapiBase, resolvedMcpBase)
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -317,8 +332,7 @@ export default function Docs() {
   }
 
   const selectEndpoint = (category: string, endpoint: Endpoint) => {
-    const categoryInfo = categories.find((c) => c.name === category)
-    setActiveEndpoint({ category, endpoint, baseUrl: categoryInfo?.baseUrl })
+    setActiveEndpoint({ category, endpoint })
     setRequestBody(endpoint.body || '')
     setResponse(null)
 
@@ -347,6 +361,11 @@ export default function Docs() {
     return path
   }
 
+  const getBaseUrlForCategory = (categoryName: string): string => {
+    const categoryInfo = categories.find((c) => c.name === categoryName)
+    return categoryInfo?.baseUrl || window.location.origin
+  }
+
   const executeRequest = async () => {
     if (!activeEndpoint) return
 
@@ -357,7 +376,7 @@ export default function Docs() {
     const endpoint = activeEndpoint.endpoint
 
     try {
-    const baseUrl = activeEndpoint.baseUrl || window.location.origin
+    const baseUrl = getBaseUrlForCategory(activeEndpoint.category)
     const url = `${baseUrl}${getResolvedPath()}`
 
       const headers: Record<string, string> = {}
@@ -414,7 +433,7 @@ export default function Docs() {
     if (!activeEndpoint) return
 
     const endpoint = activeEndpoint.endpoint
-    const baseUrl = activeEndpoint.baseUrl || window.location.origin
+    const baseUrl = getBaseUrlForCategory(activeEndpoint.category)
     const url = `${baseUrl}${getResolvedPath()}`
 
     let curl = `curl -X ${endpoint.method} "${url}"`
@@ -451,19 +470,23 @@ export default function Docs() {
         <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Quick Links</div>
         <div className="flex flex-wrap gap-2">
           <a
-            href={`http://localhost:${openapiPort}/docs`}
+            href={resolvedOpenapiBase ? `${resolvedOpenapiBase}/docs` : '#'}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium transition-colors"
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+              resolvedOpenapiBase ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+            }`}
           >
             OpenAPI Docs
             <ExternalLink className="w-3 h-3" />
           </a>
           <a
-            href={`http://localhost:${openapiPort}/openapi.json`}
+            href={resolvedOpenapiBase ? `${resolvedOpenapiBase}/openapi.json` : '#'}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium transition-colors"
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+              resolvedOpenapiBase ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+            }`}
           >
             OpenAPI Schema
             <ExternalLink className="w-3 h-3" />
@@ -492,6 +515,36 @@ export default function Docs() {
             </span>
           )}
         </div>
+      </div>
+
+      {/* Base URLs */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Base URLs</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">OpenAPI Base URL</label>
+            <input
+              type="text"
+              value={openapiBaseUrl}
+              onChange={(e) => setOpenapiBaseUrl(e.target.value)}
+              placeholder={defaultOpenapiBase || 'http://localhost:18006'}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">MCP Base URL</label>
+            <input
+              type="text"
+              value={mcpBaseUrl}
+              onChange={(e) => setMcpBaseUrl(e.target.value)}
+              placeholder={defaultMcpBase || 'http://localhost:18007'}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Use your server hostname (not localhost) if you access the UI remotely.
+        </p>
       </div>
 
       <div className="flex-1 flex gap-4 min-h-0">
