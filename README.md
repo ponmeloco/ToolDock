@@ -220,10 +220,14 @@ curl -X POST http://localhost:18080/api/folders/shared/tools/deps/uninstall \
 ```yaml
 mcp_servers:
   - server_name: "tooldock"
-    url: "http://localhost:18007/mcp/shared"
+    # If LiteLLM runs in Docker on the same network, use the service name:
+    url: "http://tooldock-backend:8007/mcp/shared"
     api_key_header: "Authorization"
     api_key_value: "Bearer change_me"
 ```
+
+If LiteLLM runs on the host (not in Docker), use:
+`http://localhost:18007/mcp/shared`
 
 ### Claude Desktop
 

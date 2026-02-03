@@ -321,6 +321,8 @@ export default function Docs() {
   const [pathParamValues, setPathParamValues] = useState<Record<string, string>>({})
   const [requestBody, setRequestBody] = useState('')
   const [response, setResponse] = useState<{ status: number; data: string; time: number } | null>(null)
+  const [lastRequestUrl, setLastRequestUrl] = useState<string>('')
+  const [useAdminProxy, setUseAdminProxy] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -364,6 +366,8 @@ export default function Docs() {
     const savedMcpBase = localStorage.getItem('tooldock_mcp_base') || ''
     if (savedOpenapiBase) setOpenapiBaseUrl(savedOpenapiBase)
     if (savedMcpBase) setMcpBaseUrl(savedMcpBase)
+    const savedProxy = localStorage.getItem('tooldock_use_admin_proxy')
+    if (savedProxy !== null) setUseAdminProxy(savedProxy === 'true')
   }, [])
 
   // Save token to localStorage when changed
@@ -418,7 +422,12 @@ export default function Docs() {
 
   const getBaseUrlForCategory = (categoryName: string): string => {
     const categoryInfo = categories.find((c) => c.name === categoryName)
-    return categoryInfo?.baseUrl || window.location.origin
+    const isTransport = categoryName === 'OpenAPI Transport' || categoryName === 'MCP Transport'
+    if (isTransport && useAdminProxy) {
+      return window.location.origin
+    }
+    const rawBase = categoryInfo?.baseUrl || window.location.origin
+    return rawBase.replace(/\/+$/, '')
   }
 
   const executeRequest = async () => {
@@ -426,6 +435,7 @@ export default function Docs() {
 
     setIsLoading(true)
     setResponse(null)
+    setLastRequestUrl('')
 
     const startTime = Date.now()
     const endpoint = activeEndpoint.endpoint
@@ -433,6 +443,7 @@ export default function Docs() {
     try {
     const baseUrl = getBaseUrlForCategory(activeEndpoint.category)
     const url = `${baseUrl}${getResolvedPath()}`
+    setLastRequestUrl(url)
 
       const headers: Record<string, string> = {}
       if (endpoint.headers) {
@@ -571,6 +582,22 @@ export default function Docs() {
       {/* Base URLs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
         <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Base URLs</div>
+        <div className="flex items-center gap-3 mb-3">
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={useAdminProxy}
+              onChange={(e) => {
+                setUseAdminProxy(e.target.checked)
+                localStorage.setItem('tooldock_use_admin_proxy', String(e.target.checked))
+              }}
+            />
+            Use Admin Proxy for OpenAPI/MCP
+          </label>
+          <span className="text-xs text-gray-500">
+            Routes through <span className="font-mono">{window.location.origin}</span> using `/tools` and `/mcp`.
+          </span>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">OpenAPI Base URL</label>
@@ -581,8 +608,13 @@ export default function Docs() {
                 setOpenapiBaseUrl(e.target.value)
                 localStorage.setItem('tooldock_openapi_base', e.target.value)
               }}
+              disabled={useAdminProxy}
               placeholder={defaultOpenapiBase || 'http://localhost:18006'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
+              className={`w-full px-3 py-2 border rounded-lg outline-none font-mono text-sm ${
+                useAdminProxy
+                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+              }`}
             />
           </div>
           <div>
@@ -594,13 +626,20 @@ export default function Docs() {
                 setMcpBaseUrl(e.target.value)
                 localStorage.setItem('tooldock_mcp_base', e.target.value)
               }}
+              disabled={useAdminProxy}
               placeholder={defaultMcpBase || 'http://localhost:18007'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
+              className={`w-full px-3 py-2 border rounded-lg outline-none font-mono text-sm ${
+                useAdminProxy
+                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+              }`}
             />
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-2">
-          Use your server hostname (not localhost) if you access the UI remotely.
+          Use your server hostname (not localhost) if you access the UI remotely. If your client runs in Docker on the
+          same network, use <span className="font-mono">http://tooldock-backend:8007</span> for MCP and{' '}
+          <span className="font-mono">http://tooldock-backend:8006</span> for OpenAPI.
         </p>
       </div>
 
@@ -687,6 +726,11 @@ export default function Docs() {
                     </span>
                     <code className="text-sm text-gray-700">{getResolvedPath()}</code>
                   </div>
+                  {lastRequestUrl && (
+                    <div className="text-xs text-gray-500">
+                      Request URL: <span className="font-mono">{lastRequestUrl}</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={copyCurl}

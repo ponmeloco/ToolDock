@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException, Body, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.auth import get_bearer_token, is_auth_enabled, _constant_time_compare
@@ -28,6 +29,7 @@ from app.metrics_store import init_metrics_store
 from app.registry import ToolRegistry
 from app.reload import ToolReloader
 from app.errors import ToolError, ToolTimeoutError, ToolUnauthorizedError, ToolValidationError
+from app.utils import get_cors_origins
 
 logger = logging.getLogger("openapi")
 
@@ -69,6 +71,16 @@ def create_openapi_app(
         swagger_ui_parameters={
             "persistAuthorization": True,
         },
+    )
+
+    # Configure CORS with environment-based origins
+    cors_origins = get_cors_origins()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=cors_origins != ["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     # Add OpenAPI security scheme for Bearer token

@@ -99,7 +99,7 @@ MCP_PROTOCOL_VERSION=2025-11-25
 MCP_PROTOCOL_VERSIONS=2025-11-25,2025-03-26
 
 # CORS (comma-separated origins, or * for all)
-CORS_ORIGINS=http://localhost:13000
+CORS_ORIGINS=*
 
 # Server names
 WEB_SERVER_NAME=tooldock-backend

@@ -35,6 +35,7 @@ services:
       - SERVER_MODE=all
       - DATA_DIR=/data
       - HOST=0.0.0.0
+      - CORS_ORIGINS=*
       # Internal container ports are fixed - only host ports are configurable
       - OPENAPI_PORT=8006
       - MCP_PORT=8007
