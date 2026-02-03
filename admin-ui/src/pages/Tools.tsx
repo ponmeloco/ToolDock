@@ -14,7 +14,6 @@ import {
   createToolFromTemplate,
   getNamespaceDeps,
   installNamespaceDeps,
-  uninstallNamespaceDeps,
   createNamespaceVenv,
   deleteNamespaceVenv,
 } from '../api/client'
@@ -43,9 +42,7 @@ export default function Tools() {
   const [pendingFileSelect, setPendingFileSelect] = useState<string | null>(null)
   const [newToolName, setNewToolName] = useState('')
   const [requirementsText, setRequirementsText] = useState('')
-  const [packageInput, setPackageInput] = useState('')
   const [installOutput, setInstallOutput] = useState<string | null>(null)
-  const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
   const [lastValidation, setLastValidation] = useState<{
     is_valid: boolean
     errors: string[]
@@ -167,7 +164,7 @@ export default function Tools() {
   })
 
   const installDepsMutation = useMutation({
-    mutationFn: async (payload: { packages?: string[]; requirements?: string }) => {
+    mutationFn: async (payload: { requirements: string }) => {
       const result = await installNamespaceDeps(namespace!, payload)
       // Reload namespace to pick up newly installed deps
       await reloadNamespace(namespace!)
@@ -184,22 +181,6 @@ export default function Tools() {
     },
   })
 
-  const uninstallDepsMutation = useMutation({
-    mutationFn: async (packages: string[]) => {
-      const result = await uninstallNamespaceDeps(namespace!, { packages })
-      await reloadNamespace(namespace!)
-      return result
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
-      setInstallOutput(
-        [data.stdout?.trim(), data.stderr?.trim()].filter(Boolean).join('\n') || 'Uninstall complete'
-      )
-    },
-    onError: (err: Error) => {
-      setInstallOutput(err.message)
-    },
-  })
 
   const createVenvMutation = useMutation({
     mutationFn: () => createNamespaceVenv(namespace!),
@@ -217,31 +198,11 @@ export default function Tools() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
       setInstallOutput('Venv deleted')
-      setSelectedPackages(new Set())
     },
     onError: (err: Error) => {
       setInstallOutput(err.message)
     },
   })
-
-  const togglePackageSelection = (name: string) => {
-    setSelectedPackages((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) {
-        next.delete(name)
-      } else {
-        next.add(name)
-      }
-      return next
-    })
-  }
-
-  const clearSelection = () => setSelectedPackages(new Set())
-
-  const selectAllPackages = () => {
-    const all = new Set((depsQuery.data?.packages || []).map((p) => p.name))
-    setSelectedPackages(all)
-  }
 
   const createToolMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -636,67 +597,15 @@ export default function Tools() {
                   {installDepsMutation.isPending ? 'Installing...' : 'Install requirements'}
                 </button>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Bulk install packages (comma separated)
-                </label>
-                <input
-                  value={packageInput}
-                  onChange={(e) => setPackageInput(e.target.value)}
-                  placeholder="requests==2.32.0, httpx"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                />
-                <button
-                  onClick={() =>
-                    installDepsMutation.mutate({
-                      packages: packageInput.split(',').map((p) => p.trim()).filter(Boolean),
-                    })
-                  }
-                  disabled={installDepsMutation.isPending || !packageInput.trim()}
-                  className="mt-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg transition-colors"
-                >
-                  {installDepsMutation.isPending ? 'Installing...' : 'Install packages'}
-                </button>
-
                 <div className="mt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-medium text-gray-700">Installed</div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={selectAllPackages}
-                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
-                      >
-                        Select all
-                      </button>
-                      <button
-                        onClick={clearSelection}
-                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
-                      >
-                        Clear
-                      </button>
-                      <button
-                        onClick={() => uninstallDepsMutation.mutate(Array.from(selectedPackages))}
-                        disabled={uninstallDepsMutation.isPending || selectedPackages.size === 0}
-                        className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
-                      >
-                        Uninstall selected
-                      </button>
-                    </div>
-                  </div>
+                  <div className="text-sm font-medium text-gray-700 mb-2">Installed</div>
                   {depsQuery.data?.packages?.length ? (
                     <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg">
                       <ul className="divide-y divide-gray-100">
                         {depsQuery.data.packages.map((pkg) => (
                           <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex items-center justify-between gap-3">
-                            <label className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedPackages.has(pkg.name)}
-                                onChange={() => togglePackageSelection(pkg.name)}
-                              />
-                              <span>{pkg.name}</span>
-                            </label>
+                            <span>{pkg.name}</span>
                             <span className="text-gray-500">{pkg.version}</span>
                           </li>
                         ))}

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
-from app.deps import install_packages, install_requirements, uninstall_packages, list_packages, read_requirements, get_venv_dir, ensure_venv, delete_venv
+from app.deps import install_requirements, list_packages, read_requirements, get_venv_dir, ensure_venv, delete_venv
 from app.web.validation import validate_tool_file, ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,6 @@ class DependenciesRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packages: Optional[List[str]] = None
     requirements: Optional[str] = None
 
 
@@ -218,10 +217,8 @@ async def install_dependencies(
 
     if request.requirements:
         result = install_requirements(namespace, request.requirements)
-    elif request.packages:
-        result = install_packages(namespace, request.packages)
     else:
-        raise HTTPException(status_code=400, detail="packages or requirements is required")
+        raise HTTPException(status_code=400, detail="requirements is required")
 
     return DependenciesResponse(
         success=bool(result.get("success")),
@@ -230,27 +227,6 @@ async def install_dependencies(
     )
 
 
-@router.post("/deps/uninstall", response_model=DependenciesResponse)
-async def uninstall_dependencies(
-    namespace: str,
-    request: DependenciesRequest,
-    _: str = Depends(verify_token),
-) -> DependenciesResponse:
-    """
-    Uninstall dependencies from the namespace venv.
-    """
-    _ = _get_tools_dir(namespace)  # Validate namespace
-
-    if request.packages:
-        result = uninstall_packages(namespace, request.packages)
-    else:
-        raise HTTPException(status_code=400, detail="packages is required")
-
-    return DependenciesResponse(
-        success=bool(result.get("success")),
-        stdout=result.get("stdout", ""),
-        stderr=result.get("stderr", ""),
-    )
 
 
 @router.get("", response_model=ToolListResponse)
