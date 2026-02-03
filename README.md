@@ -57,7 +57,9 @@ curl http://localhost:13000          # Admin UI
 | **Hot Reload** | Reload tools without server restart |
 | **Playground** | Test tools via OpenAPI or MCP (real servers) |
 | **Persistent Logs** | Daily JSON log files with auto-cleanup |
+| **Metrics** | Fast dashboard metrics via SQLite + in-memory queue |
 | **External MCP** | Integrate GitHub, Filesystem, etc. from MCP Registry |
+| **Metrics** | Error rates + tool call counts via `/api/admin/metrics` |
 
 ---
 
@@ -94,6 +96,7 @@ ADMIN_PORT=13000
 
 # Optional - Logging
 LOG_RETENTION_DAYS=30  # Auto-delete logs after N days
+METRICS_RETENTION_DAYS=30  # SQLite metrics retention window
 
 # Optional - MCP Protocol (strict mode)
 MCP_PROTOCOL_VERSION=2025-11-25
@@ -126,7 +129,7 @@ Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 
 1. Open http://localhost:13000
 2. **Tools** → select namespace → **New Tool**
-3. Edit the template → **Save** → **Reload**
+3. Edit the template → **Save** (valid code required; auto-reloads)
 
 ### Via File
 
@@ -224,6 +227,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 | `/api/reload/{ns}` | POST | Hot reload namespace |
 | `/api/admin/logs` | GET | View logs |
 | `/api/admin/logs/files` | GET | List log files |
+| `/api/admin/metrics` | GET | Metrics for dashboard (error rates + tool calls) |
 | `/api/playground/tools` | GET | List tools for playground |
 | `/api/playground/execute` | POST | Execute tool (OpenAPI/MCP via real servers) |
 
@@ -237,6 +241,14 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 - Notifications-only requests return **202** with no body.
 - `Origin` header is validated against `CORS_ORIGINS`.
 - `MCP-Protocol-Version` is validated if present; supported versions configured via `MCP_PROTOCOL_VERSIONS`.
+
+---
+
+## Metrics
+
+- Metrics are aggregated from a hybrid in-memory queue + SQLite store at `tooldock_data/metrics.sqlite`.
+- Dashboard reads `GET /api/admin/metrics` for error rates and tool call counts.
+- Retention is controlled by `METRICS_RETENTION_DAYS` (default 30 days).
 
 ---
 

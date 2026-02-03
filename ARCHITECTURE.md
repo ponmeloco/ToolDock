@@ -164,7 +164,7 @@ tooldock_data/tools/
 - `GET /health` - Health check (no auth)
 
 **API Endpoints:**
-- `GET /api/dashboard` - Dashboard data
+- `GET /api/admin/metrics` - Dashboard metrics (error rates + tool calls)
 - `GET /api/folders` - List namespaces
 - `POST /api/folders` - Create namespace
 - `DELETE /api/folders/{namespace}` - Delete namespace
@@ -331,9 +331,19 @@ Environment variables control behavior:
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `LOG_LEVEL` | `INFO` | Logging level |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
+| `METRICS_RETENTION_DAYS` | `30` | Days to keep metrics in SQLite |
 | `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
 | `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
+
+---
+
+## Metrics & Logging
+
+- **Logs:** `DATA_DIR/logs/YYYY-MM-DD.jsonl` with retention via `LOG_RETENTION_DAYS`.
+- **Metrics:** Hybrid in-memory queue + SQLite at `DATA_DIR/metrics.sqlite`.
+- **Dashboard API:** `GET /api/admin/metrics` returns error rates and tool call counts.
+- **Retention:** SQLite cleanup uses `METRICS_RETENTION_DAYS` (default 30 days).
 
 ---
 

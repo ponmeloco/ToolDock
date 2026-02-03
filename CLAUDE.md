@@ -26,6 +26,7 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
                          │  tools/team1/*.py             │
                          │  external/config.yaml         │
                          │  logs/YYYY-MM-DD.jsonl        │
+                         │  metrics.sqlite               │
                          └───────────────────────────────┘
 ```
 
@@ -44,6 +45,7 @@ All three transports share the same tool registry — **define once, use everywh
 | `app/loader.py` | Loads tools from `tooldock_data/tools/` |
 | `app/reload.py` | Hot reload functionality |
 | `app/auth.py` | Bearer token authentication |
+| `app/metrics_store.py` | Metrics ingestion + SQLite persistence |
 | `app/transports/` | OpenAPI and MCP transport implementations |
 | `app/web/` | Backend API server and routes |
 | `app/external/` | External MCP server integration |
@@ -101,6 +103,7 @@ def register_tools(registry: ToolRegistry) -> None:
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
+| `METRICS_RETENTION_DAYS` | `30` | Days to keep metrics in SQLite |
 | `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
 | `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
@@ -178,6 +181,11 @@ curl -X POST http://localhost:18080/api/reload \
 - Daily log files: `DATA_DIR/logs/YYYY-MM-DD.jsonl`
 - Auto-cleanup after `LOG_RETENTION_DAYS`
 - In-memory buffer for live viewing
+
+### Metrics
+- Hybrid metrics store: in-memory queue + `DATA_DIR/metrics.sqlite`
+- Dashboard pulls from `GET /api/admin/metrics`
+- Auto-cleanup after `METRICS_RETENTION_DAYS`
 
 ## Common Pitfalls
 
