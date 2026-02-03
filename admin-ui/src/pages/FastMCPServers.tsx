@@ -15,7 +15,7 @@ export default function FastMCPServers() {
   const [search, setSearch] = useState('')
   const [namespace, setNamespace] = useState('')
   const [version, setVersion] = useState('')
-  const [selectedServer, setSelectedServer] = useState<{ id: string; name: string } | null>(null)
+  const [selectedServer, setSelectedServer] = useState<{ id: string | null; name: string } | null>(null)
 
   const suggestNamespace = (serverName: string): string => {
     const raw = serverName.split('/').pop() || serverName
@@ -79,10 +79,7 @@ export default function FastMCPServers() {
       if (!selectedServer || !namespace) {
         throw new Error('Select a server and enter a namespace')
       }
-      if (!selectedServer.id) {
-        throw new Error('Selected server is missing a registry id')
-      }
-      return addFastMcpServer(selectedServer.id, selectedServer.name, namespace, version || undefined)
+      return addFastMcpServer(selectedServer.id || null, selectedServer.name, namespace, version || undefined)
     },
     onSuccess: () => {
       setNamespace('')
@@ -141,13 +138,13 @@ export default function FastMCPServers() {
               const id = getRegistryId(server)
               const description = getRegistryDescription(server)
               const isSelected = selectedServer?.id === id
-              const isSelectable = Boolean(name && id)
+              const isSelectable = Boolean(name)
               return (
               <button
                 key={id || name || JSON.stringify(server)}
                 onClick={() => {
                   if (!isSelectable) return
-                  setSelectedServer({ id, name })
+                  setSelectedServer({ id: id || null, name })
                   if (!namespace.trim()) {
                     setNamespace(suggestNamespace(name))
                   }

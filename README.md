@@ -48,15 +48,21 @@ curl http://localhost:18007/health   # MCP
 curl http://localhost:13000          # Admin UI
 ```
 
+On first start, ToolDock installs and auto-starts a demo FastMCP weather server
+from the MCP registry (search term: `axians-mcp`). You can disable or change it
+via `FASTMCP_DEMO_*` in `.env`.
+
 ---
 
 ## Screenshots
 
-Add screenshots to `docs/images/` and update these filenames as needed:
+Screenshots (from `docs/images/`):
 
-![Admin Dashboard](docs/images/dashboard.png)
-![Playground](docs/images/playground.png)
-![FastMCP Registry](docs/images/fastmcp-registry.png)
+![Admin Dashboard](docs/images/Dashboard.png)
+![Playground](docs/images/Playground.png)
+![FastMCP Registry](docs/images/FastMCP.png)
+![Logs](docs/images/Logs.png)
+![Namespaces](docs/images/Namespaces_Tool_Create_Edit.png)
 
 ---
 

@@ -35,6 +35,75 @@ class FastMCPServerManager:
         self.manage_processes = manage_processes
         self._proxies: Dict[int, FastMCPHttpProxy] = {}
 
+    async def seed_demo_server(self) -> None:
+        """
+        Install and start a demo FastMCP server on first run.
+        Controlled by FASTMCP_DEMO_ENABLED (default true).
+        """
+        if os.getenv("FASTMCP_DEMO_ENABLED", "true").lower() not in {"1", "true", "yes"}:
+            return
+
+        data_dir = _get_data_dir()
+        marker = data_dir / "external" / ".fastmcp_demo_seeded"
+        if marker.exists():
+            return
+
+        namespace = os.getenv("FASTMCP_DEMO_NAMESPACE", "weather")
+        search = os.getenv("FASTMCP_DEMO_SEARCH", "axians-mcp")
+
+        with get_db() as db:
+            existing = db.execute(
+                select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == namespace)
+            ).scalar_one_or_none()
+            if existing:
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text("exists")
+                return
+
+        try:
+            client = MCPRegistryClient()
+            result = await client.list_servers(limit=20, search=search)
+            servers = result.get("servers", [])
+        except Exception as exc:
+            logger.warning(f"FastMCP demo registry search failed: {exc}")
+            return
+
+        def pick_candidate(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            server = entry.get("server", entry)
+            if not isinstance(server, dict):
+                return None
+            server_id = server.get("id") or entry.get("id")
+            server_name = server.get("name") or entry.get("name")
+            if not server_id or not server_name:
+                return None
+            pkg = _pick_package(entry)
+            if pkg and str(pkg.get("registryType", "")).lower() != "pypi":
+                return None
+            return {"id": str(server_id), "name": str(server_name)}
+
+        candidate = None
+        for entry in servers:
+            candidate = pick_candidate(entry)
+            if candidate:
+                break
+
+        if not candidate:
+            logger.warning("FastMCP demo server not found in registry search results")
+            return
+
+        try:
+            record = await self.add_server_from_registry(
+                server_name=candidate["name"],
+                namespace=namespace,
+                server_id=candidate["id"],
+            )
+            self.start_server(record.id)
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(f"{candidate['name']}\n")
+            logger.info(f"FastMCP demo server installed: {candidate['name']} (namespace={namespace})")
+        except Exception as exc:
+            logger.warning(f"FastMCP demo server install failed: {exc}")
+
     # =========================
     # Registry helpers
     # =========================
@@ -305,15 +374,23 @@ class FastMCPServerManager:
             record = db.get(ExternalFastMCPServer, server_id)
             if not record:
                 return
+            namespace = record.namespace
             if record.pid:
                 _terminate_pid(record.pid)
             db.delete(record)
             db.commit()
 
         # Optionally cleanup repo folder
-        repo_path = _get_server_dir(record.namespace)
+        repo_path = _get_server_dir(namespace)
         if repo_path.exists():
             shutil.rmtree(repo_path, ignore_errors=True)
+
+        # Cleanup namespace venv (removes all packages for this namespace)
+        try:
+            from app.deps import delete_venv
+            delete_venv(namespace)
+        except Exception as exc:
+            logger.warning(f"Failed to delete venv for namespace {namespace}: {exc}")
 
     # =========================
     # Sync running servers into registry

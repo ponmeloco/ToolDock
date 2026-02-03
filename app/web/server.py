@@ -165,6 +165,10 @@ def create_web_app(
                 fastmcp_manager.sync_from_db()
             except Exception as exc:
                 logger.warning(f"FastMCP sync failed (web): {exc}")
+
+            @app.on_event("startup")
+            async def _seed_fastmcp_demo() -> None:
+                await fastmcp_manager.seed_demo_server()
         except Exception as exc:
             logger.warning(f"FastMCP disabled: {exc}")
 

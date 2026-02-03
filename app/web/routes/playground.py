@@ -205,9 +205,14 @@ async def execute_tool(
                 "method": "tools/call",
                 "params": {"name": body.tool_name, "arguments": body.arguments},
             }
+            mcp_headers = {
+                **headers,
+                "Accept": "application/json",
+                "MCP-Protocol-Version": "2025-11-25",
+            }
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
-                    res = await client.post(url, json=payload, headers=headers)
+                    res = await client.post(url, json=payload, headers=mcp_headers)
             except httpx.RequestError as e:
                 return ToolExecuteResponse(
                     tool=body.tool_name,
