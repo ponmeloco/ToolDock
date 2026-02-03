@@ -228,7 +228,7 @@ async def add_server(
         from app.external.registry_client import MCPRegistryClient
 
         client = MCPRegistryClient()
-        server_data = await client.get_server(request.name)
+        server_data = await client.get_server_by_name(request.name)
 
         if not server_data:
             raise HTTPException(

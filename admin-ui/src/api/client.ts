@@ -246,10 +246,15 @@ export async function listFastMcpServers(): Promise<FastMCPServer[]> {
   return res.json()
 }
 
-export async function addFastMcpServer(server_name: string, namespace: string, version?: string): Promise<FastMCPServer> {
+export async function addFastMcpServer(
+  server_id: string,
+  server_name: string | null,
+  namespace: string,
+  version?: string,
+): Promise<FastMCPServer> {
   const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers`, {
     method: 'POST',
-    body: JSON.stringify({ server_name, namespace, version }),
+    body: JSON.stringify({ server_id, server_name, namespace, version }),
   })
   if (!res.ok) {
     const error = await res.json()

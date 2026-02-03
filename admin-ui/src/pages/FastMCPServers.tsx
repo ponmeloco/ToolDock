@@ -15,7 +15,7 @@ export default function FastMCPServers() {
   const [search, setSearch] = useState('')
   const [namespace, setNamespace] = useState('')
   const [version, setVersion] = useState('')
-  const [selectedServer, setSelectedServer] = useState<string | null>(null)
+  const [selectedServer, setSelectedServer] = useState<{ id: string; name: string } | null>(null)
 
   const suggestNamespace = (serverName: string): string => {
     const raw = serverName.split('/').pop() || serverName
@@ -31,6 +31,14 @@ export default function FastMCPServers() {
       server?.name ||
       server?.server?.name ||
       server?.id ||
+      ''
+    )
+  }
+
+  const getRegistryId = (server: any): string => {
+    return (
+      server?.id ||
+      server?.server?.id ||
       ''
     )
   }
@@ -71,7 +79,10 @@ export default function FastMCPServers() {
       if (!selectedServer || !namespace) {
         throw new Error('Select a server and enter a namespace')
       }
-      return addFastMcpServer(selectedServer, namespace, version || undefined)
+      if (!selectedServer.id) {
+        throw new Error('Selected server is missing a registry id')
+      }
+      return addFastMcpServer(selectedServer.id, selectedServer.name, namespace, version || undefined)
     },
     onSuccess: () => {
       setNamespace('')
@@ -105,6 +116,9 @@ export default function FastMCPServers() {
 
       <div className={`bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-3 ${registryOnline ? '' : 'opacity-60'}`}>
         <div className="text-xs text-gray-400 uppercase tracking-wide">Registry Search</div>
+        <div className="text-xs text-gray-500">
+          Showing installable servers only (PyPI or repo-based).
+        </div>
         {!registryOnline ? (
           <div className="text-sm text-gray-600">
             {registryHealthError?.message?.toLowerCase().includes('unauthorized')
@@ -124,22 +138,24 @@ export default function FastMCPServers() {
           <div className="max-h-64 overflow-auto border border-gray-200 rounded-lg">
             {registryQuery.data.servers.map((server: any) => {
               const name = getRegistryName(server)
+              const id = getRegistryId(server)
               const description = getRegistryDescription(server)
-              const isSelected = selectedServer === name
+              const isSelected = selectedServer?.id === id
+              const isSelectable = Boolean(name && id)
               return (
               <button
-                key={name || JSON.stringify(server)}
+                key={id || name || JSON.stringify(server)}
                 onClick={() => {
-                  if (name) {
-                    setSelectedServer(name)
-                    if (!namespace.trim()) {
-                      setNamespace(suggestNamespace(name))
-                    }
+                  if (!isSelectable) return
+                  setSelectedServer({ id, name })
+                  if (!namespace.trim()) {
+                    setNamespace(suggestNamespace(name))
                   }
                 }}
+                disabled={!isSelectable}
                 className={`w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-gray-50 ${
                   isSelected ? 'bg-primary-50' : ''
-                }`}
+                } ${!isSelectable ? 'cursor-not-allowed opacity-60' : ''}`}
               >
                 <div className="font-medium text-gray-800">{name || 'Unknown server'}</div>
                 <div className="text-xs text-gray-500">{description}</div>
@@ -157,7 +173,7 @@ export default function FastMCPServers() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <input
             type="text"
-            value={selectedServer || ''}
+            value={selectedServer?.name || ''}
             readOnly
             placeholder="Select a registry server"
             className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700"

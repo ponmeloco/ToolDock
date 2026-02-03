@@ -6,6 +6,7 @@ import { getAllTools, executePlaygroundTool, PlaygroundTool } from '../api/clien
 import { Play, Check, X, Loader2, RefreshCw, FolderTree, Wrench, Server, Globe } from 'lucide-react'
 
 type Transport = 'openapi' | 'mcp'
+type ToolScope = 'internal' | 'external'
 
 export default function Playground() {
   const [selectedNamespace, setSelectedNamespace] = useState<string | null>(null)
@@ -13,6 +14,7 @@ export default function Playground() {
   const [inputJson, setInputJson] = useState('{}')
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [transport, setTransport] = useState<Transport>('openapi')
+  const [scope, setScope] = useState<ToolScope>('internal')
   const queryClient = useQueryClient()
 
   const toolsQuery = useQuery({
@@ -28,11 +30,17 @@ export default function Playground() {
   })
 
   const tools = toolsQuery.data?.tools || []
+  const scopedTools = useMemo(() => {
+    if (scope === 'external') {
+      return tools.filter((tool) => tool.type === 'external')
+    }
+    return tools.filter((tool) => tool.type !== 'external')
+  }, [tools, scope])
 
   // Group tools by namespace
   const namespaces = useMemo(() => {
     const grouped: Record<string, PlaygroundTool[]> = {}
-    for (const tool of tools) {
+    for (const tool of scopedTools) {
       const ns = tool.namespace || 'shared'
       if (!grouped[ns]) {
         grouped[ns] = []
@@ -42,7 +50,7 @@ export default function Playground() {
     return Object.entries(grouped)
       .map(([name, tools]) => ({ name, tools, count: tools.length }))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [tools])
+  }, [scopedTools])
 
   // Tools in selected namespace
   const namespacedTools = useMemo(() => {
@@ -50,10 +58,17 @@ export default function Playground() {
     return namespaces.find((ns) => ns.name === selectedNamespace)?.tools || []
   }, [namespaces, selectedNamespace])
 
-  const selectedToolInfo = tools.find((t) => t.name === selectedTool)
+  const selectedToolInfo = scopedTools.find((t) => t.name === selectedTool)
 
   const handleNamespaceSelect = (name: string) => {
     setSelectedNamespace(name)
+    setSelectedTool(null)
+    executeMutation.reset()
+  }
+
+  const handleScopeSelect = (nextScope: ToolScope) => {
+    setScope(nextScope)
+    setSelectedNamespace(null)
     setSelectedTool(null)
     executeMutation.reset()
   }
@@ -65,7 +80,7 @@ export default function Playground() {
     executeMutation.reset()
 
     // Generate example input from schema
-    const tool = tools.find((t) => t.name === name)
+    const tool = scopedTools.find((t) => t.name === name)
     if (tool?.input_schema?.properties) {
       const example: Record<string, unknown> = {}
       for (const [key, prop] of Object.entries(
@@ -160,11 +175,38 @@ export default function Playground() {
             Namespaces
           </div>
 
+          <div className="p-2 border-b border-gray-200">
+            <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => handleScopeSelect('internal')}
+                className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                  scope === 'internal'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Internal
+              </button>
+              <button
+                onClick={() => handleScopeSelect('external')}
+                className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                  scope === 'external'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                External
+              </button>
+            </div>
+          </div>
+
           <div className="flex-1 overflow-auto">
             {toolsQuery.isLoading ? (
               <div className="p-3 text-gray-500 text-sm">Loading...</div>
             ) : namespaces.length === 0 ? (
-              <div className="p-3 text-gray-500 text-sm">No namespaces</div>
+              <div className="p-3 text-gray-500 text-sm">
+                {scope === 'external' ? 'No external namespaces' : 'No internal namespaces'}
+              </div>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {namespaces.map((ns) => (

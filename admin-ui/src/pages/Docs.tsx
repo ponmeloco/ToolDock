@@ -231,7 +231,8 @@ function buildCategories(
           path: '/api/fastmcp/servers',
           description: 'Install FastMCP server',
           auth: true,
-          body: '{\"server_name\": \"io.github.modelcontextprotocol/server-filesystem\", \"namespace\": \"filesystem\"}',
+          body:
+            '{\"server_id\": \"<registry-id>\", \"server_name\": \"io.github.modelcontextprotocol/server-filesystem\", \"namespace\": \"filesystem\"}',
         },
         {
           method: 'POST',

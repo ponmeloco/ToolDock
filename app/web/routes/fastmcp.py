@@ -24,6 +24,15 @@ router = APIRouter(prefix="/api/fastmcp", tags=["fastmcp"])
 _fastmcp_manager: Optional[FastMCPServerManager] = None
 
 
+def _sync_fastmcp_registry() -> None:
+    if _fastmcp_manager is None:
+        return
+    try:
+        _fastmcp_manager.sync_from_db()
+    except Exception as exc:
+        logger.warning(f"FastMCP registry sync failed (web): {exc}")
+
+
 async def _fanout_fastmcp_reload() -> Dict[str, Any]:
     if os.getenv("PYTEST_CURRENT_TEST") is not None:
         return {"status": "skipped", "reason": "test_mode"}
@@ -63,7 +72,8 @@ def set_fastmcp_context(manager: FastMCPServerManager) -> None:
 class AddFastMCPServerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    server_name: str = Field(..., min_length=3)
+    server_name: Optional[str] = Field(None, min_length=3)
+    server_id: Optional[str] = Field(None, min_length=8)
     namespace: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     version: Optional[str] = None
 
@@ -137,11 +147,15 @@ async def add_fastmcp_server(request: AddFastMCPServerRequest, _: str = Depends(
     if _fastmcp_manager is None:
         raise HTTPException(status_code=500, detail="FastMCP manager not initialized")
 
+    if not request.server_name and not request.server_id:
+        raise HTTPException(status_code=422, detail="Either 'server_name' or 'server_id' is required")
+
     try:
         record = await _fastmcp_manager.add_server_from_registry(
             server_name=request.server_name,
             namespace=request.namespace,
             version=request.version,
+            server_id=request.server_id,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -159,6 +173,7 @@ async def add_fastmcp_server(request: AddFastMCPServerRequest, _: str = Depends(
         pid=record.pid,
         last_error=record.last_error,
     )
+    _sync_fastmcp_registry()
     await _fanout_fastmcp_reload()
     return response
 
@@ -186,6 +201,7 @@ async def start_fastmcp_server(server_id: int, _: str = Depends(verify_token)) -
         pid=record.pid,
         last_error=record.last_error,
     )
+    _sync_fastmcp_registry()
     await _fanout_fastmcp_reload()
     return response
 
@@ -200,7 +216,7 @@ async def stop_fastmcp_server(server_id: int, _: str = Depends(verify_token)) ->
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return FastMCPServerResponse(
+    response = FastMCPServerResponse(
         id=record.id,
         server_name=record.server_name,
         namespace=record.namespace,
@@ -213,6 +229,9 @@ async def stop_fastmcp_server(server_id: int, _: str = Depends(verify_token)) ->
         pid=record.pid,
         last_error=record.last_error,
     )
+    _sync_fastmcp_registry()
+    await _fanout_fastmcp_reload()
+    return response
 
 
 @router.delete("/servers/{server_id}")
@@ -225,4 +244,5 @@ async def delete_fastmcp_server(server_id: int, _: str = Depends(verify_token)) 
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    _sync_fastmcp_registry()
     return {"success": True, "fanout": await _fanout_fastmcp_reload()}

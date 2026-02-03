@@ -50,6 +50,16 @@ curl http://localhost:13000          # Admin UI
 
 ---
 
+## Screenshots
+
+Add screenshots to `docs/images/` and update these filenames as needed:
+
+![Admin Dashboard](docs/images/dashboard.png)
+![Playground](docs/images/playground.png)
+![FastMCP Registry](docs/images/fastmcp-registry.png)
+
+---
+
 ## Troubleshooting
 
 ### Buildx Permission Error

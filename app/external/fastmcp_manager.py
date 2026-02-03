@@ -41,13 +41,57 @@ class FastMCPServerManager:
 
     async def list_registry_servers(self, limit: int = 30, cursor: str | None = None, search: str | None = None):
         client = MCPRegistryClient()
-        return await client.list_servers(limit=limit, cursor=cursor, search=search)
+        result = await client.list_servers(limit=limit, cursor=cursor, search=search)
+        servers = result.get("servers", [])
 
-    async def get_registry_server(self, name: str) -> Dict[str, Any]:
+        def is_installable(entry: Dict[str, Any]) -> bool:
+            pkg = _pick_package(entry)
+            repo_url = _extract_repo_url(entry)
+            if pkg is None:
+                return repo_url is not None
+            registry_type = str(pkg.get("registryType", "")).lower()
+            if registry_type == "pypi":
+                return True
+            return repo_url is not None
+
+        filtered = [s for s in servers if is_installable(s)]
+        normalized: list[Dict[str, Any]] = []
+        for entry in filtered:
+            server = entry.get("server", entry)
+            if isinstance(server, dict):
+                name = server.get("name") or entry.get("name")
+                description = server.get("description") or entry.get("description")
+                server_id = server.get("id") or entry.get("id")
+                if name:
+                    entry = dict(entry)
+                    entry["name"] = name
+                    if description:
+                        entry["description"] = description
+                    if server_id:
+                        entry["id"] = server_id
+            normalized.append(entry)
+        if filtered != servers:
+            result = dict(result)
+            result["servers"] = normalized
+            metadata = dict(result.get("metadata") or {})
+            metadata["filtered"] = True
+            metadata["filtered_out"] = len(servers) - len(filtered)
+            result["metadata"] = metadata
+        else:
+            result = dict(result)
+            result["servers"] = normalized
+        return result
+
+    async def get_registry_server(self, name: Optional[str] = None, server_id: Optional[str] = None) -> Dict[str, Any]:
         client = MCPRegistryClient()
-        data = await client.get_server(name)
+        data: Optional[Dict[str, Any]] = None
+        if server_id:
+            data = await client.get_server_by_id(server_id)
+        elif name:
+            data = await client.get_server_by_name(name)
         if not data:
-            raise ValueError(f"Registry server not found: {name}")
+            identifier = server_id or name or "unknown"
+            raise ValueError(f"Registry server not found: {identifier}")
         return data
 
     def _cache_registry_server(self, name: str, data: Dict[str, Any]) -> None:
@@ -67,12 +111,14 @@ class FastMCPServerManager:
 
     async def add_server_from_registry(
         self,
-        server_name: str,
+        server_name: Optional[str],
         namespace: str,
         version: Optional[str] = None,
+        server_id: Optional[str] = None,
     ) -> ExternalFastMCPServer:
-        data = await self.get_registry_server(server_name)
-        self._cache_registry_server(server_name, data)
+        data = await self.get_registry_server(server_name, server_id=server_id)
+        resolved_name = _get_server_name(data) or server_name or server_id or "unknown"
+        self._cache_registry_server(resolved_name, data)
 
         pkg = _pick_package(data)
         repo_url = _extract_repo_url(data)
@@ -97,7 +143,7 @@ class FastMCPServerManager:
                 raise ValueError(f"Namespace already exists: {namespace}")
 
             record = ExternalFastMCPServer(
-                server_name=server_name,
+                server_name=resolved_name,
                 namespace=namespace,
                 version=version or _get_latest_version(data),
                 install_method=install_method,
@@ -444,6 +490,16 @@ def _terminate_pid(pid: int) -> None:
 def _get_latest_version(data: Dict[str, Any]) -> Optional[str]:
     server = data.get("server", data)
     return server.get("version")
+
+
+def _get_server_name(data: Dict[str, Any]) -> Optional[str]:
+    server = data.get("server", data)
+    name = server.get("name") if isinstance(server, dict) else None
+    if name:
+        return name
+    if isinstance(data, dict):
+        return data.get("name")
+    return None
 
 
 def _pick_package(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:

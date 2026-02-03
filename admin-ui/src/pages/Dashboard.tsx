@@ -1,5 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { getSystemHealth, getSystemInfo, getSystemMetrics, getNamespaces, getExternalServers } from '../api/client'
+import {
+  getSystemHealth,
+  getSystemInfo,
+  getSystemMetrics,
+  getNamespaces,
+  getExternalServers,
+  listFastMcpServers,
+} from '../api/client'
 import {
   CheckCircle,
   XCircle,
@@ -40,6 +47,11 @@ export default function Dashboard() {
   const externalServersQuery = useQuery({
     queryKey: ['externalServers'],
     queryFn: getExternalServers,
+  })
+
+  const fastmcpServersQuery = useQuery({
+    queryKey: ['fastmcpServers'],
+    queryFn: listFastMcpServers,
   })
 
   const metricsQuery = useQuery({
@@ -202,9 +214,9 @@ export default function Dashboard() {
                 <div className="text-3xl font-bold text-primary-600">
                   {namespacesQuery.data?.length || 0}
                 </div>
-                {(externalServersQuery.data?.total || 0) > 0 && (
+                {(externalServersQuery.data?.total || 0) + (fastmcpServersQuery.data?.length || 0) > 0 && (
                   <div className="text-xs text-gray-500">
-                    {externalServersQuery.data?.total} external
+                    {(externalServersQuery.data?.total || 0) + (fastmcpServersQuery.data?.length || 0)} external
                   </div>
                 )}
               </div>
@@ -230,26 +242,47 @@ export default function Dashboard() {
 
               <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">External</div>
               <div className="flex flex-wrap gap-2">
-                {externalServersQuery.data?.servers?.length ? (
-                  externalServersQuery.data.servers.map((server) => (
-                    <span
-                      key={server.server_id}
-                      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs ${
-                        server.enabled
-                          ? 'bg-purple-50 text-purple-700'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {server.namespace}
+                {externalServersQuery.data?.servers?.length || fastmcpServersQuery.data?.length ? (
+                  <>
+                    {fastmcpServersQuery.data?.map((server) => (
                       <span
-                        className={`px-1.5 py-0.5 rounded-full ${
-                          server.enabled ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'
+                        key={`fastmcp-${server.id}`}
+                        className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs ${
+                          server.status === 'running'
+                            ? 'bg-purple-50 text-purple-700'
+                            : 'bg-gray-100 text-gray-500'
                         }`}
                       >
-                        {server.enabled ? 'enabled' : 'disabled'}
+                        {server.namespace}
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full ${
+                            server.status === 'running' ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          fastmcp {server.status}
+                        </span>
                       </span>
-                    </span>
-                  ))
+                    ))}
+                    {externalServersQuery.data?.servers?.map((server) => (
+                      <span
+                        key={`legacy-${server.server_id}`}
+                        className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs ${
+                          server.enabled
+                            ? 'bg-indigo-50 text-indigo-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {server.namespace}
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full ${
+                            server.enabled ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          legacy {server.enabled ? 'enabled' : 'disabled'}
+                        </span>
+                      </span>
+                    ))}
+                  </>
                 ) : (
                   <div className="text-sm text-gray-500">No external servers</div>
                 )}

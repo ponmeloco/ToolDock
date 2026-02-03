@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-REGISTRY_BASE_URL = "https://registry.modelcontextprotocol.io/v0"
+REGISTRY_BASE_URL = "https://registry.modelcontextprotocol.io/v0.1"
 DEFAULT_TIMEOUT = 30.0
 
 
@@ -63,9 +64,35 @@ class MCPRegistryClient:
                 logger.error(f"Registry request failed: {e}")
                 raise
 
-    async def get_server(self, name: str) -> Optional[Dict[str, Any]]:
+    async def get_server_by_id(self, server_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get a specific server by name.
+        Get a specific server by registry ID.
+
+        Args:
+            server_id: Registry server ID (UUID)
+
+        Returns:
+            Server metadata dict or None if not found
+        """
+        encoded_id = quote(server_id, safe="")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                response = await client.get(f"{self.base_url}/servers/{encoded_id}")
+                if response.status_code == 404:
+                    logger.warning(f"Server not found: {server_id}")
+                    return None
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Failed to get server {server_id}: {e.response.status_code}")
+                raise
+            except httpx.RequestError as e:
+                logger.error(f"Request failed for server {server_id}: {e}")
+                raise
+
+    async def get_server_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Resolve a server by name via search.
 
         Args:
             name: Full server name (e.g., 'io.github.modelcontextprotocol/server-filesystem')
@@ -73,20 +100,16 @@ class MCPRegistryClient:
         Returns:
             Server metadata dict or None if not found
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.get(f"{self.base_url}/servers/{name}")
-                if response.status_code == 404:
-                    logger.warning(f"Server not found: {name}")
-                    return None
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Failed to get server {name}: {e.response.status_code}")
-                raise
-            except httpx.RequestError as e:
-                logger.error(f"Request failed for server {name}: {e}")
-                raise
+        result = await self.list_servers(limit=10, search=name)
+        for entry in result.get("servers", []):
+            server = entry.get("server", entry)
+            if isinstance(server, dict) and server.get("name") == name:
+                server_id = server.get("id") or entry.get("id")
+                if server_id:
+                    return await self.get_server_by_id(str(server_id))
+                return entry
+        logger.warning(f"Server not found by name: {name}")
+        return None
 
     async def search_servers(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """

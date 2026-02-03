@@ -26,11 +26,12 @@ class _StubFastMCPManager:
         }
         return {"servers": [{"name": "demo"}], "next_cursor": None}
 
-    async def add_server_from_registry(self, server_name, namespace, version=None):
+    async def add_server_from_registry(self, server_name, namespace, version=None, server_id=None):
         self.calls["add_server_from_registry"] = {
             "server_name": server_name,
             "namespace": namespace,
             "version": version,
+            "server_id": server_id,
         }
         return SimpleNamespace(
             id=1,
@@ -86,7 +87,7 @@ class _FailingFastMCPManager:
     async def list_registry_servers(self, limit=30, cursor=None, search=None):
         raise RuntimeError("registry unavailable")
 
-    async def add_server_from_registry(self, server_name, namespace, version=None):
+    async def add_server_from_registry(self, server_name, namespace, version=None, server_id=None):
         raise RuntimeError("install failed")
 
     def start_server(self, server_id):
@@ -164,7 +165,7 @@ def test_add_fastmcp_server(
     response = web_client.post(
         "/api/fastmcp/servers",
         headers=auth_headers,
-        json={"server_name": "demo", "namespace": "demo_ns"},
+        json={"server_id": "server-1234", "server_name": "demo", "namespace": "demo_ns"},
     )
 
     assert response.status_code == 200
@@ -172,6 +173,7 @@ def test_add_fastmcp_server(
     assert payload["server_name"] == "demo"
     assert payload["namespace"] == "demo_ns"
     assert fastmcp_stub.calls["add_server_from_registry"]["server_name"] == "demo"
+    assert fastmcp_stub.calls["add_server_from_registry"]["server_id"] == "server-1234"
 
 
 def test_start_fastmcp_server(
@@ -234,6 +236,14 @@ def test_fastmcp_validation_error(
 
     assert response.status_code == 422
 
+    response = web_client.post(
+        "/api/fastmcp/servers",
+        headers=auth_headers,
+        json={"namespace": "demo_ns"},
+    )
+
+    assert response.status_code == 422
+
 
 def test_fastmcp_error_paths(
     web_client: SyncASGIClient,
@@ -248,7 +258,7 @@ def test_fastmcp_error_paths(
     response = web_client.post(
         "/api/fastmcp/servers",
         headers=auth_headers,
-        json={"server_name": "demo", "namespace": "demo_ns"},
+        json={"server_id": "server-1234", "server_name": "demo", "namespace": "demo_ns"},
     )
     assert response.status_code == 400
 
