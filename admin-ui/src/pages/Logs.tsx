@@ -87,7 +87,9 @@ export default function Logs() {
       if (log.http_path?.endsWith('/health')) return false
       return true
     } else if (activeTab === 'tools') {
-      return log.tool_name !== undefined && log.tool_name !== null
+      if (log.tool_name === undefined || log.tool_name === null) return false
+      if (log.http_path?.startsWith('/api/playground')) return false
+      return true
     }
     return true
   })
@@ -96,7 +98,12 @@ export default function Logs() {
   const httpCount = allLogs.filter(
     (l) => l.http_status !== undefined && l.http_status !== null && !l.http_path?.endsWith('/health')
   ).length
-  const toolCount = allLogs.filter((l) => l.tool_name !== undefined && l.tool_name !== null).length
+  const toolCount = allLogs.filter(
+    (l) =>
+      l.tool_name !== undefined &&
+      l.tool_name !== null &&
+      !l.http_path?.startsWith('/api/playground')
+  ).length
 
   const tabs = [
     { id: 'tools' as TabType, label: 'Tool Calls', icon: Wrench, count: toolCount },
