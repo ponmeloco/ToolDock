@@ -18,6 +18,8 @@ interface Endpoint {
   auth: boolean
   body?: string
   pathParams?: PathParam[]
+  headers?: Record<string, string>
+  note?: string
 }
 
 interface EndpointCategory {
@@ -35,11 +37,13 @@ function buildCategories(
 ): EndpointCategory[] {
   return [
     {
-      name: 'Backend Health',
-      description: 'Backend API health checks (same origin)',
+      name: 'Backend API',
+      description: 'Core ToolDock API (same origin)',
       endpoints: [
         { method: 'GET', path: '/health', description: 'Backend API health check', auth: false },
         { method: 'GET', path: '/api/admin/health', description: 'Aggregated health of all services', auth: true },
+        { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
+        { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
       ],
     },
     {
@@ -137,6 +141,49 @@ function buildCategories(
       ],
     },
     {
+      name: 'Dependencies',
+      description: 'Manage per-namespace Python dependencies',
+      endpoints: [
+        {
+          method: 'GET',
+          path: '/api/folders/{namespace}/tools/deps',
+          description: 'Get namespace dependencies (venv + packages)',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/create',
+          description: 'Create namespace venv',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/install',
+          description: 'Install namespace dependencies',
+          auth: true,
+          body: '{"packages": ["requests==2.32.0"]}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/uninstall',
+          description: 'Uninstall namespace dependencies (pip protected)',
+          auth: true,
+          body: '{"packages": ["requests"]}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/delete',
+          description: 'Delete namespace venv',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+      ],
+    },
+    {
       name: 'Reload',
       description: 'Hot reload tools without server restart',
       endpoints: [
@@ -169,17 +216,15 @@ function buildCategories(
       ],
     },
     {
-      name: 'Admin',
-      description: 'System administration endpoints (same origin)',
+      name: 'External Servers',
+      description: 'Manage external MCP servers (same origin)',
       endpoints: [
-        { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
-        { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
         { method: 'GET', path: '/api/servers', description: 'List external MCP servers', auth: true },
         { method: 'POST', path: '/api/servers/reload', description: 'Reload external servers from config', auth: true },
       ],
     },
     {
-      name: 'MCP',
+      name: 'MCP Transport',
       description: `MCP Streamable HTTP endpoints (public port ${mcpPort})`,
       baseUrl: mcpBase,
       endpoints: [
@@ -190,6 +235,8 @@ function buildCategories(
           path: '/mcp',
           description: 'SSE stream (requires Accept: text/event-stream)',
           auth: true,
+          headers: { Accept: 'text/event-stream' },
+          note: 'This keeps a streaming connection open.',
         },
         {
           method: 'GET',
@@ -216,6 +263,8 @@ function buildCategories(
           path: '/mcp/{namespace}',
           description: 'SSE stream (requires Accept: text/event-stream)',
           auth: true,
+          headers: { Accept: 'text/event-stream' },
+          note: 'This keeps a streaming connection open.',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
@@ -293,8 +342,10 @@ export default function Docs() {
   const mcpPort = String(infoQuery.data?.environment?.mcp_port || 'unknown')
   const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
   const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:'
-  const defaultOpenapiBase = openapiPort !== 'unknown' ? `${protocol}//${host}:${openapiPort}` : ''
-  const defaultMcpBase = mcpPort !== 'unknown' ? `${protocol}//${host}:${mcpPort}` : ''
+  const isSecure = protocol === 'https:'
+  const defaultScheme = isSecure ? 'https:' : 'http:'
+  const defaultOpenapiBase = openapiPort !== 'unknown' ? `${defaultScheme}//${host}:${openapiPort}` : ''
+  const defaultMcpBase = mcpPort !== 'unknown' ? `${defaultScheme}//${host}:${mcpPort}` : ''
 
   useEffect(() => {
     if (!openapiBaseUrl && defaultOpenapiBase) setOpenapiBaseUrl(defaultOpenapiBase)
@@ -309,6 +360,10 @@ export default function Docs() {
   useEffect(() => {
     const savedToken = localStorage.getItem('tooldock_token') || ''
     setToken(savedToken)
+    const savedOpenapiBase = localStorage.getItem('tooldock_openapi_base') || ''
+    const savedMcpBase = localStorage.getItem('tooldock_mcp_base') || ''
+    if (savedOpenapiBase) setOpenapiBaseUrl(savedOpenapiBase)
+    if (savedMcpBase) setMcpBaseUrl(savedMcpBase)
   }, [])
 
   // Save token to localStorage when changed
@@ -380,6 +435,11 @@ export default function Docs() {
     const url = `${baseUrl}${getResolvedPath()}`
 
       const headers: Record<string, string> = {}
+      if (endpoint.headers) {
+        for (const [key, value] of Object.entries(endpoint.headers)) {
+          headers[key] = value
+        }
+      }
       if (endpoint.auth && token) {
         headers['Authorization'] = `Bearer ${token}`
       }
@@ -454,15 +514,6 @@ export default function Docs() {
     <div className="h-[calc(100vh-3rem)] flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900">API Documentation</h1>
-        <a
-          href="/docs"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <ExternalLink className="w-4 h-4" />
-          Swagger UI
-        </a>
       </div>
 
       {/* Quick Links */}
@@ -477,7 +528,7 @@ export default function Docs() {
               resolvedOpenapiBase ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
             }`}
           >
-            OpenAPI Docs
+            OpenAPI Swagger
             <ExternalLink className="w-3 h-3" />
           </a>
           <a
@@ -526,7 +577,10 @@ export default function Docs() {
             <input
               type="text"
               value={openapiBaseUrl}
-              onChange={(e) => setOpenapiBaseUrl(e.target.value)}
+              onChange={(e) => {
+                setOpenapiBaseUrl(e.target.value)
+                localStorage.setItem('tooldock_openapi_base', e.target.value)
+              }}
               placeholder={defaultOpenapiBase || 'http://localhost:18006'}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
             />
@@ -536,7 +590,10 @@ export default function Docs() {
             <input
               type="text"
               value={mcpBaseUrl}
-              onChange={(e) => setMcpBaseUrl(e.target.value)}
+              onChange={(e) => {
+                setMcpBaseUrl(e.target.value)
+                localStorage.setItem('tooldock_mcp_base', e.target.value)
+              }}
               placeholder={defaultMcpBase || 'http://localhost:18007'}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
             />
@@ -650,6 +707,9 @@ export default function Docs() {
                 </div>
                 <div className="p-3">
                   <p className="text-sm text-gray-600 mb-2">{activeEndpoint.endpoint.description}</p>
+                  {activeEndpoint.endpoint.note && (
+                    <p className="text-xs text-gray-500 mb-2">{activeEndpoint.endpoint.note}</p>
+                  )}
                   {activeEndpoint.endpoint.auth && !token && (
                     <p className="text-sm text-yellow-600 mb-2">
                       This endpoint requires authentication. Enter a token above.
