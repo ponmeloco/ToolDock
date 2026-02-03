@@ -16,7 +16,7 @@ const navigation = [
   { name: 'Namespaces', href: '/namespaces', icon: FolderTree },
   { name: 'Playground', href: '/playground', icon: Play },
   { name: 'Logs', href: '/logs', icon: ScrollText },
-  { name: 'API Docs', href: '/docs', icon: BookOpen },
+  { name: 'Docs', href: '/docs', icon: BookOpen },
 ]
 
 export default function Layout() {

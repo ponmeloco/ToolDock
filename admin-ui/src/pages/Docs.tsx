@@ -408,6 +408,31 @@ export default function Docs() {
         </a>
       </div>
 
+      {/* Quick Links */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Quick Links</div>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`http://localhost:${openapiPort}/docs`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium transition-colors"
+          >
+            OpenAPI Docs
+            <ExternalLink className="w-3 h-3" />
+          </a>
+          <a
+            href={`http://localhost:${openapiPort}/openapi.json`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium transition-colors"
+          >
+            OpenAPI Schema
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      </div>
+
       {/* Token Input */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
         <div className="flex items-center gap-4">

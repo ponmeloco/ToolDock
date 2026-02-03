@@ -317,28 +317,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick Links */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Links</h2>
-        <div className="flex flex-wrap gap-3">
-          <a
-            href={`http://localhost:${healthQuery.data?.services.find(s => s.name === 'openapi')?.port || 18006}/docs`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-          >
-            OpenAPI Docs
-          </a>
-          <a
-            href={`http://localhost:${healthQuery.data?.services.find(s => s.name === 'openapi')?.port || 18006}/openapi.json`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-          >
-            OpenAPI Schema
-          </a>
-        </div>
-      </div>
     </div>
   )
 }

@@ -9,6 +9,7 @@ Hybrid design:
 from __future__ import annotations
 
 import atexit
+import os
 import sqlite3
 import threading
 import time
@@ -24,6 +25,8 @@ class MetricsStore:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._flush_loop, daemon=True)
+        self._retention_days = int(os.getenv("METRICS_RETENTION_DAYS", "30"))
+        self._last_cleanup = 0.0
         self._init_db()
         self._thread.start()
         atexit.register(self.close)
@@ -84,6 +87,21 @@ class MetricsStore:
             time.sleep(1.0)
             with self._lock:
                 self._flush_locked()
+            self._maybe_cleanup()
+
+    def _maybe_cleanup(self) -> None:
+        # Run cleanup at most once per hour
+        now = time.time()
+        if now - self._last_cleanup < 3600:
+            return
+        self._last_cleanup = now
+        cutoff = now - (self._retention_days * 24 * 60 * 60)
+        try:
+            with sqlite3.connect(self._db_path, timeout=2.0) as conn:
+                conn.execute("DELETE FROM request_logs WHERE ts < ?", (cutoff,))
+                conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     def close(self) -> None:
         self._stop.set()
