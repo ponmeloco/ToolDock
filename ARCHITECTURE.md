@@ -174,6 +174,7 @@ tooldock_data/tools/
 - `GET /api/servers` - List external servers
 - `POST /api/servers` - Add external server
 - `DELETE /api/servers/{server_id}` - Remove external server
+- `POST /api/servers/reload` - Reload external servers from config
 
 ---
 
@@ -217,7 +218,7 @@ ToolDock Container
 ### Configuration
 
 ```yaml
-# tooldock_data/external/config.yaml
+# tooldock_data/external/config.yaml (or $DATA_DIR/external/config.yaml)
 servers:
   github:
     source: registry

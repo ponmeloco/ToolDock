@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +36,19 @@ SENSITIVE_PATTERNS = [
     re.compile(r".*credential.*", re.IGNORECASE),
     re.compile(r".*connection.*string.*", re.IGNORECASE),
 ]
+
+# Optional runtime context for live reloading
+_external_manager = None
+_external_config = None
+_reloader = None
+
+
+def set_servers_context(external_manager, external_config, reloader=None) -> None:
+    """Set runtime context for external server management."""
+    global _external_manager, _external_config, _reloader
+    _external_manager = external_manager
+    _external_config = external_config
+    _reloader = reloader
 
 
 class ServerConfig(BaseModel):
@@ -176,6 +190,65 @@ def _save_config(config: Dict[str, Any]) -> None:
     logger.info(f"Saved config to {config_path}")
 
 
+async def _apply_external_config() -> Dict[str, Any]:
+    """
+    Apply external config to running manager (if available).
+
+    Returns:
+        Summary dict with sync results or skipped reason
+    """
+    if _external_manager is None or _external_config is None:
+        return {"status": "skipped", "reason": "External manager not initialized"}
+
+    try:
+        desired = await _external_config.build_enabled_configs()
+        results = await _external_manager.sync_servers(desired)
+
+        if _reloader is not None:
+            _reloader.set_external_namespaces(set(desired.keys()))
+
+        fanout = await _fanout_external_reload()
+        return {"status": "ok", "results": results, "fanout": fanout}
+    except Exception as e:
+        logger.error(f"Failed to apply external config: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+async def _fanout_external_reload() -> Dict[str, Any]:
+    """
+    Notify OpenAPI and MCP servers to reload external config.
+    """
+    if os.getenv("PYTEST_CURRENT_TEST") is not None:
+        return {"status": "skipped", "reason": "test_mode"}
+
+    token = os.getenv("BEARER_TOKEN", "")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    host = os.getenv("HOST", "127.0.0.1")
+    if host in {"0.0.0.0", ""}:
+        host = "127.0.0.1"
+    openapi_port = os.getenv("OPENAPI_PORT", "8006")
+    mcp_port = os.getenv("MCP_PORT", "8007")
+
+    targets = {
+        "openapi": f"http://{host}:{openapi_port}/admin/servers/reload",
+        "mcp": f"http://{host}:{mcp_port}/admin/servers/reload",
+    }
+
+    results: Dict[str, Any] = {}
+    async with httpx.AsyncClient(timeout=0.5) as client:
+        for name, url in targets.items():
+            try:
+                resp = await client.post(url, headers=headers)
+                if resp.status_code >= 400:
+                    results[name] = {"status": "error", "code": resp.status_code}
+                else:
+                    results[name] = {"status": "ok"}
+            except Exception as e:
+                results[name] = {"status": "error", "error": str(e)}
+
+    return results
+
+
 @router.get("", response_model=ServerListResponse)
 async def list_servers(_: str = Depends(verify_token)) -> ServerListResponse:
     """
@@ -265,6 +338,9 @@ async def add_server(
 
     _save_config(config)
     logger.info(f"Added server: {request.server_id}")
+    apply_result = await _apply_external_config()
+    if apply_result.get("status") == "error":
+        logger.warning(f"External reload failed after add: {apply_result.get('error')}")
 
     # Return masked config
     masked_config = _mask_sensitive_data(server_config)
@@ -304,6 +380,9 @@ async def update_server(
 
     _save_config(config)
     logger.info(f"Updated server: {server_id}")
+    apply_result = await _apply_external_config()
+    if apply_result.get("status") == "error":
+        logger.warning(f"External reload failed after update: {apply_result.get('error')}")
 
     # Return masked config
     masked_config = _mask_sensitive_data(new_config)
@@ -339,6 +418,9 @@ async def delete_server(
 
     _save_config(config)
     logger.info(f"Deleted server: {server_id}")
+    apply_result = await _apply_external_config()
+    if apply_result.get("status") == "error":
+        logger.warning(f"External reload failed after delete: {apply_result.get('error')}")
 
     return {
         "success": True,
@@ -366,6 +448,9 @@ async def enable_server(
 
     _save_config(config)
     logger.info(f"Enabled server: {server_id}")
+    apply_result = await _apply_external_config()
+    if apply_result.get("status") == "error":
+        logger.warning(f"External reload failed after enable: {apply_result.get('error')}")
 
     return {"success": True, "message": f"Enabled server: {server_id}"}
 
@@ -390,5 +475,19 @@ async def disable_server(
 
     _save_config(config)
     logger.info(f"Disabled server: {server_id}")
+    apply_result = await _apply_external_config()
+    if apply_result.get("status") == "error":
+        logger.warning(f"External reload failed after disable: {apply_result.get('error')}")
 
     return {"success": True, "message": f"Disabled server: {server_id}"}
+
+
+@router.post("/reload")
+async def reload_external_servers(_: str = Depends(verify_token)) -> dict:
+    """
+    Reload external servers from config.yaml without restarting.
+    """
+    result = await _apply_external_config()
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("error", "Reload failed"))
+    return result

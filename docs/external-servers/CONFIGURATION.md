@@ -1,11 +1,11 @@
 # Configuration Reference
 
-Complete reference for `tools/external/config.yaml`.
+Complete reference for `tooldock_data/external/config.yaml` (or `$DATA_DIR/external/config.yaml`).
 
 ## File Location
 
 ```
-tools/external/config.yaml
+tooldock_data/external/config.yaml
 ```
 
 Override with environment variable:
@@ -144,7 +144,7 @@ settings:
   cache_schemas: true
 ```
 
-Cache tool schemas in `tools/external/cache/` for faster startup.
+Cache tool schemas in `tooldock_data/external/cache/` for faster startup.
 
 ### connection_timeout
 

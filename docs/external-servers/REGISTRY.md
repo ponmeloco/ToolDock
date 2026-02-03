@@ -76,7 +76,7 @@ Some servers are hosted remotely:
 ### Method 1: Config File
 
 ```yaml
-# tools/external/config.yaml
+# tooldock_data/external/config.yaml
 servers:
   github:
     source: registry

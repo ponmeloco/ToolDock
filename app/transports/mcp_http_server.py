@@ -37,6 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.metrics_store import init_metrics_store
 from app.registry import ToolRegistry
+from app.reload import ToolReloader
 from app.errors import ToolError, ToolNotFoundError
 from app.auth import verify_token, is_auth_enabled
 from app.utils import get_cors_origins
@@ -59,7 +60,11 @@ SUPPORTED_PROTOCOL_VERSIONS = [
 ]
 
 
-def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
+def create_mcp_http_app(
+    registry: ToolRegistry,
+    external_manager=None,
+    external_config=None,
+) -> FastAPI:
     """
     Create a FastAPI app for MCP Streamable HTTP Transport.
 
@@ -91,13 +96,31 @@ def create_mcp_http_app(registry: ToolRegistry) -> FastAPI:
     )
 
     # Add trailing newline to JSON responses for better CLI output
-    app.add_middleware(TrailingNewlineMiddleware)
+    if os.getenv("PYTEST_CURRENT_TEST") is None:
+        app.add_middleware(TrailingNewlineMiddleware)
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     init_metrics_store(data_dir)
-    app.add_middleware(RequestLoggingMiddleware, service_name="mcp")
+    if os.getenv("PYTEST_CURRENT_TEST") is None:
+        app.add_middleware(RequestLoggingMiddleware, service_name="mcp")
 
     # Store registry in app state
     app.state.registry = registry
+
+    # Initialize reloader (for admin endpoints)
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
+    tools_dir = os.path.join(data_dir, "tools")
+    external_namespaces = None
+    if external_manager is not None:
+        try:
+            external_namespaces = set(external_manager.get_stats().get("namespaces", []))
+        except Exception:
+            external_namespaces = None
+    reloader = ToolReloader(registry, tools_dir, external_namespaces=external_namespaces)
+
+    # Include admin router for runtime external management
+    from app.admin.routes import router as admin_router, set_admin_context
+    set_admin_context(registry, external_manager, external_config, reloader)
+    app.include_router(admin_router)
 
     # ==================== Handler Functions ====================
 

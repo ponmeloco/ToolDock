@@ -169,7 +169,9 @@ def start_openapi_server():
     asyncio.run(init_external_servers(registry))
 
     # Create app (with admin routes)
-    app = create_openapi_app(registry)
+    from app.external.config import ExternalServerConfig
+    external_config = ExternalServerConfig(EXTERNAL_CONFIG)
+    app = create_openapi_app(registry, external_manager=_external_manager, external_config=external_config)
 
     # Start server
     uvicorn.run(
@@ -196,7 +198,9 @@ def start_mcp_http_server():
     asyncio.run(init_external_servers(registry))
 
     # Create app
-    app = create_mcp_http_app(registry)
+    from app.external.config import ExternalServerConfig
+    external_config = ExternalServerConfig(EXTERNAL_CONFIG)
+    app = create_mcp_http_app(registry, external_manager=_external_manager, external_config=external_config)
 
     # Start server
     uvicorn.run(
@@ -223,7 +227,9 @@ def start_web_gui_server():
     asyncio.run(init_external_servers(registry))
 
     # Create app
-    app = create_web_app(registry)
+    from app.external.config import ExternalServerConfig
+    external_config = ExternalServerConfig(EXTERNAL_CONFIG)
+    app = create_web_app(registry, external_manager=_external_manager, external_config=external_config)
 
     # Start server
     uvicorn.run(

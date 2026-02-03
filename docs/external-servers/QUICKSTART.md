@@ -18,7 +18,7 @@ curl "http://localhost:18006/admin/servers/search?query=filesystem" \
 
 ## Step 2: Configure the Server
 
-Edit `tools/external/config.yaml`:
+Edit `tooldock_data/external/config.yaml` (or `$DATA_DIR/external/config.yaml`):
 
 ```yaml
 servers:
@@ -39,14 +39,15 @@ servers:
       - "/home/user/documents"
 ```
 
-## Step 3: Restart ToolDock
+## Step 3: Reload External Servers
 
 ```bash
-# Docker
-docker compose restart
+# Apply config without restart
+curl -X POST http://localhost:18080/api/servers/reload \
+  -H "Authorization: Bearer YOUR_TOKEN"
 
-# Manual
-SERVER_MODE=both python main.py
+# Or restart the stack
+docker compose restart
 ```
 
 ## Step 4: Verify

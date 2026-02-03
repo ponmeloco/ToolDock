@@ -123,6 +123,19 @@ Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 
 ---
 
+## External MCP Servers
+
+Configure external servers in `tooldock_data/external/config.yaml` (or `$DATA_DIR/external/config.yaml`) and reload without restart:
+
+```bash
+curl -X POST http://localhost:18080/api/servers/reload \
+  -H "Authorization: Bearer change_me"
+```
+
+These servers are exposed as namespaces like `/mcp/github`.
+
+---
+
 ## Adding Tools
 
 ### Via Admin UI

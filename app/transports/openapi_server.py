@@ -48,7 +48,11 @@ def bearer_auth_dependency(request: Request) -> None:
         raise ToolUnauthorizedError("Bearer Token ist ungültig")
 
 
-def create_openapi_app(registry: ToolRegistry) -> FastAPI:
+def create_openapi_app(
+    registry: ToolRegistry,
+    external_manager=None,
+    external_config=None,
+) -> FastAPI:
     """
     Create a FastAPI application for OpenAPI transport.
 
@@ -99,12 +103,14 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
     app.openapi = custom_openapi
 
     # Add trailing newline to JSON responses for better CLI output
-    app.add_middleware(TrailingNewlineMiddleware)
+    if os.getenv("PYTEST_CURRENT_TEST") is None:
+        app.add_middleware(TrailingNewlineMiddleware)
 
     # Add request logging middleware
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     init_metrics_store(data_dir)
-    app.add_middleware(RequestLoggingMiddleware, service_name="openapi")
+    if os.getenv("PYTEST_CURRENT_TEST") is None:
+        app.add_middleware(RequestLoggingMiddleware, service_name="openapi")
 
     # Store registry in app state
     app.state.registry = registry
@@ -201,11 +207,17 @@ def create_openapi_app(registry: ToolRegistry) -> FastAPI:
     # Initialize reloader for this registry
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = Path(data_dir) / "tools"
-    reloader = ToolReloader(registry, str(tools_dir))
+    external_namespaces = None
+    if external_manager is not None:
+        try:
+            external_namespaces = set(external_manager.get_stats().get("namespaces", []))
+        except Exception:
+            external_namespaces = None
+    reloader = ToolReloader(registry, str(tools_dir), external_namespaces=external_namespaces)
 
     # Include admin router and set context
     from app.admin.routes import router as admin_router, set_admin_context
-    set_admin_context(registry, None, None, reloader)
+    set_admin_context(registry, external_manager, external_config, reloader)
     app.include_router(admin_router)
 
     logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")

@@ -456,3 +456,24 @@ class TestEnableDisableServer:
         """Test disabling non-existent server."""
         response = client.post("/api/servers/nonexistent/disable", headers=auth_headers)
         assert response.status_code == 404
+
+
+# ==================== Reload Servers Tests ====================
+
+
+class TestReloadServers:
+    """Tests for POST /api/servers/reload endpoint."""
+
+    def test_reload_servers_skipped_without_manager(
+        self, client: TestClient, auth_headers: dict
+    ):
+        """Test reload returns skipped if no external manager is set."""
+        response = client.post("/api/servers/reload", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "skipped"
+
+    def test_reload_servers_requires_auth(self, client: TestClient):
+        """Test reload requires authentication."""
+        response = client.post("/api/servers/reload")
+        assert response.status_code == 401

@@ -38,7 +38,11 @@ logger = logging.getLogger("backend-api")
 SERVER_NAME = os.getenv("WEB_SERVER_NAME", "tooldock-backend")
 
 
-def create_web_app(registry: "ToolRegistry") -> FastAPI:
+def create_web_app(
+    registry: "ToolRegistry",
+    external_manager=None,
+    external_config=None,
+) -> FastAPI:
     """
     Create the Backend API FastAPI application.
 
@@ -109,7 +113,8 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     )
 
     # Add trailing newline to JSON responses for better CLI output
-    app.add_middleware(TrailingNewlineMiddleware)
+    if os.getenv("PYTEST_CURRENT_TEST") is None:
+        app.add_middleware(TrailingNewlineMiddleware)
 
     # Store registry in app state
     app.state.registry = registry
@@ -120,14 +125,25 @@ def create_web_app(registry: "ToolRegistry") -> FastAPI:
     # Initialize hot reload
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = f"{data_dir}/tools"
-    init_reloader(registry, tools_dir)
+    external_namespaces = None
+    if external_manager is not None:
+        try:
+            external_namespaces = set(external_manager.get_stats().get("namespaces", []))
+        except Exception:
+            external_namespaces = None
+    reloader = init_reloader(registry, tools_dir, external_namespaces=external_namespaces)
     logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")
 
     # Initialize metrics store (for admin API aggregation)
     init_metrics_store(data_dir)
 
     # Add request logging middleware (after log buffer is set up)
-    app.add_middleware(RequestLoggingMiddleware, service_name="web")
+    if os.getenv("PYTEST_CURRENT_TEST") is None:
+        app.add_middleware(RequestLoggingMiddleware, service_name="web")
+
+    # Set external server context (for reload/sync)
+    from app.web.routes.servers import set_servers_context
+    set_servers_context(external_manager, external_config, reloader)
 
     # Include API routes
     app.include_router(folders_router)

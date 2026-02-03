@@ -250,6 +250,46 @@ class ExternalServerManager:
 
         logger.info("All external servers shut down")
 
+    async def sync_servers(self, desired: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Sync the running external servers with a desired config mapping.
+
+        Args:
+            desired: Mapping of server_id -> config dict
+
+        Returns:
+            Summary dict with added/removed/failed
+        """
+        current_ids = set(self.servers.keys())
+        desired_ids = set(desired.keys())
+
+        to_remove = current_ids - desired_ids
+        to_add = desired_ids - current_ids
+
+        results = {
+            "added": [],
+            "removed": [],
+            "failed": [],
+        }
+
+        for server_id in sorted(to_remove):
+            try:
+                await self.remove_server(server_id)
+                results["removed"].append(server_id)
+            except Exception as e:
+                logger.error(f"Failed to remove external server {server_id}: {e}")
+                results["failed"].append({"server_id": server_id, "error": str(e)})
+
+        for server_id in sorted(to_add):
+            try:
+                await self.add_server(server_id, desired[server_id])
+                results["added"].append(server_id)
+            except Exception as e:
+                logger.error(f"Failed to add external server {server_id}: {e}")
+                results["failed"].append({"server_id": server_id, "error": str(e)})
+
+        return results
+
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about external servers."""
         total_tools = sum(len(proxy.tools) for proxy in self.servers.values())

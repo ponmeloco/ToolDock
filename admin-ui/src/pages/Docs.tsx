@@ -135,6 +135,7 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
         { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
         { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
         { method: 'GET', path: '/api/servers', description: 'List external MCP servers', auth: true },
+        { method: 'POST', path: '/api/servers/reload', description: 'Reload external servers from config', auth: true },
       ],
     },
     {

@@ -215,6 +215,35 @@ class ExternalServerConfig:
 
         return results
 
+    async def build_enabled_configs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Build configs for all enabled servers.
+
+        Returns:
+            Dict mapping server_id -> config dict
+        """
+        config = self.load()
+        servers_config = config.get("servers") or {}
+
+        enabled: Dict[str, Dict[str, Any]] = {}
+
+        if not servers_config:
+            logger.info("No external servers configured")
+            return enabled
+
+        for server_id, server_def in servers_config.items():
+            if not server_def:
+                continue
+
+            if not server_def.get("enabled", True):
+                logger.debug(f"Server {server_id} is disabled, skipping")
+                continue
+
+            server_config = await self.get_server_config(server_id, server_def)
+            enabled[server_id] = server_config
+
+        return enabled
+
     def add_server_to_config(
         self,
         server_id: str,

@@ -24,7 +24,7 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
                          ├───────────────────────────────┤
                          │  tools/shared/*.py            │
                          │  tools/team1/*.py             │
-                         │  external/config.yaml         │
+                         │  external/config.yaml         │  ($DATA_DIR/external/config.yaml)
                          │  logs/YYYY-MM-DD.jsonl        │
                          │  metrics.sqlite               │
                          └───────────────────────────────┘

@@ -333,6 +333,29 @@ async def get_stats(
         "servers": manager_stats,
     }
 
+@router.post("/servers/reload")
+async def reload_external_servers(
+    _: str = Depends(verify_token),
+) -> Dict[str, Any]:
+    """
+    Reload external servers from config.yaml without restarting.
+    """
+    manager = get_manager()
+    if _config is None:
+        raise HTTPException(status_code=503, detail="External config not initialized")
+
+    try:
+        desired = await _config.build_enabled_configs()
+        results = await manager.sync_servers(desired)
+
+        if _reloader is not None:
+            _reloader.set_external_namespaces(set(desired.keys()))
+
+        return {"status": "ok", "results": results}
+    except Exception as e:
+        logger.error(f"Failed to reload external servers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # === Reload Routes ===
 

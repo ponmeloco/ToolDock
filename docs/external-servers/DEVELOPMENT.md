@@ -80,7 +80,7 @@ await manager.shutdown_all()
 Handles YAML configuration:
 
 ```python
-config = ExternalServerConfig("tools/external/config.yaml")
+config = ExternalServerConfig("tooldock_data/external/config.yaml")
 
 # Load and apply to manager
 await config.apply(manager)
@@ -248,7 +248,7 @@ curl -X POST "http://localhost:18006/tools/test:echo" \
 
 ### Implementing Schema Caching
 
-1. Add cache directory: `tools/external/cache/`
+1. Add cache directory: `tooldock_data/external/cache/`
 2. On connect: Check cache before calling `list_tools()`
 3. Store tool schemas as JSON files
 4. Invalidate based on server version or TTL
