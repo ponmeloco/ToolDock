@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -66,6 +67,23 @@ def ensure_venv(namespace: str) -> Path:
             f"Failed to create venv: {result.stderr.strip() or result.stdout.strip()}"
         )
     return venv_dir
+
+
+def delete_venv(namespace: str) -> bool:
+    """
+    Delete a namespace venv directory.
+    """
+    venv_dir = get_venv_dir(namespace).resolve()
+    base_dir = (get_venv_dir(namespace).parent).resolve()
+
+    if not str(venv_dir).startswith(str(base_dir)):
+        raise RuntimeError("Refusing to delete venv outside base directory")
+
+    if not venv_dir.exists():
+        return False
+
+    shutil.rmtree(venv_dir)
+    return True
 
 
 def _venv_python(venv_dir: Path) -> Path:

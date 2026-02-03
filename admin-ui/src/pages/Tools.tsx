@@ -15,6 +15,8 @@ import {
   getNamespaceDeps,
   installNamespaceDeps,
   uninstallNamespaceDeps,
+  createNamespaceVenv,
+  deleteNamespaceVenv,
 } from '../api/client'
 import {
   ArrowLeft,
@@ -43,6 +45,7 @@ export default function Tools() {
   const [requirementsText, setRequirementsText] = useState('')
   const [packageInput, setPackageInput] = useState('')
   const [installOutput, setInstallOutput] = useState<string | null>(null)
+  const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
   const [lastValidation, setLastValidation] = useState<{
     is_valid: boolean
     errors: string[]
@@ -197,6 +200,48 @@ export default function Tools() {
       setInstallOutput(err.message)
     },
   })
+
+  const createVenvMutation = useMutation({
+    mutationFn: () => createNamespaceVenv(namespace!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
+      setInstallOutput('Venv created')
+    },
+    onError: (err: Error) => {
+      setInstallOutput(err.message)
+    },
+  })
+
+  const deleteVenvMutation = useMutation({
+    mutationFn: () => deleteNamespaceVenv(namespace!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
+      setInstallOutput('Venv deleted')
+      setSelectedPackages(new Set())
+    },
+    onError: (err: Error) => {
+      setInstallOutput(err.message)
+    },
+  })
+
+  const togglePackageSelection = (name: string) => {
+    setSelectedPackages((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedPackages(new Set())
+
+  const selectAllPackages = () => {
+    const all = new Set((depsQuery.data?.packages || []).map((p) => p.name))
+    setSelectedPackages(all)
+  }
 
   const createToolMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -554,6 +599,23 @@ export default function Tools() {
               <div>Status: {depsQuery.data?.exists ? 'Ready' : 'Not created yet'}</div>
             </div>
 
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => createVenvMutation.mutate()}
+                disabled={createVenvMutation.isPending || depsQuery.data?.exists}
+                className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg"
+              >
+                {createVenvMutation.isPending ? 'Creating...' : 'Create venv'}
+              </button>
+              <button
+                onClick={() => deleteVenvMutation.mutate()}
+                disabled={deleteVenvMutation.isPending || !depsQuery.data?.exists}
+                className="px-3 py-2 text-sm bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded-lg"
+              >
+                {deleteVenvMutation.isPending ? 'Deleting...' : 'Delete venv'}
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -577,7 +639,7 @@ export default function Tools() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Install packages (comma separated)
+                  Bulk install packages (comma separated)
                 </label>
                 <input
                   value={packageInput}
@@ -598,23 +660,44 @@ export default function Tools() {
                 </button>
 
                 <div className="mt-4">
-                  <div className="text-sm font-medium text-gray-700 mb-2">Installed</div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-medium text-gray-700">Installed</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={selectAllPackages}
+                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        onClick={clearSelection}
+                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        onClick={() => uninstallDepsMutation.mutate(Array.from(selectedPackages))}
+                        disabled={uninstallDepsMutation.isPending || selectedPackages.size === 0}
+                        className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
+                      >
+                        Uninstall selected
+                      </button>
+                    </div>
+                  </div>
                   {depsQuery.data?.packages?.length ? (
                     <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg">
                       <ul className="divide-y divide-gray-100">
                         {depsQuery.data.packages.map((pkg) => (
                           <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex items-center justify-between gap-3">
-                            <span>{pkg.name}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-500">{pkg.version}</span>
-                              <button
-                                onClick={() => uninstallDepsMutation.mutate([pkg.name])}
-                                disabled={uninstallDepsMutation.isPending}
-                                className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
-                              >
-                                Uninstall
-                              </button>
-                            </div>
+                            <label className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedPackages.has(pkg.name)}
+                                onChange={() => togglePackageSelection(pkg.name)}
+                              />
+                              <span>{pkg.name}</span>
+                            </label>
+                            <span className="text-gray-500">{pkg.version}</span>
                           </li>
                         ))}
                       </ul>

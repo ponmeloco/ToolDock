@@ -199,6 +199,16 @@ curl -X POST http://localhost:18080/api/folders/shared/tools/deps/uninstall \
   -d '{"packages": ["requests"]}'
 ```
 
+Create/Delete venv:
+
+```bash
+curl -X POST http://localhost:18080/api/folders/shared/tools/deps/create \
+  -H "Authorization: Bearer change_me"
+
+curl -X POST http://localhost:18080/api/folders/shared/tools/deps/delete \
+  -H "Authorization: Bearer change_me"
+```
+
 After install, ToolDock auto-reloads the namespace so imports work immediately.
 
 ---

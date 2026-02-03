@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
-from app.deps import install_packages, install_requirements, uninstall_packages, list_packages, read_requirements, get_venv_dir
+from app.deps import install_packages, install_requirements, uninstall_packages, list_packages, read_requirements, get_venv_dir, ensure_venv, delete_venv
 from app.web.validation import validate_tool_file, ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -177,6 +177,32 @@ async def get_dependencies(
         "packages": list_packages(namespace),
         "exists": (venv_dir / "bin" / "python").exists(),
     }
+
+
+@router.post("/deps/create")
+async def create_dependencies_env(
+    namespace: str,
+    _: str = Depends(verify_token),
+) -> dict:
+    """
+    Create the namespace venv.
+    """
+    _ = _get_tools_dir(namespace)  # Validate namespace
+    venv_dir = ensure_venv(namespace)
+    return {"success": True, "venv_path": str(venv_dir)}
+
+
+@router.post("/deps/delete")
+async def delete_dependencies_env(
+    namespace: str,
+    _: str = Depends(verify_token),
+) -> dict:
+    """
+    Delete the namespace venv.
+    """
+    _ = _get_tools_dir(namespace)  # Validate namespace
+    deleted = delete_venv(namespace)
+    return {"success": True, "deleted": deleted}
 
 
 @router.post("/deps/install", response_model=DependenciesResponse)

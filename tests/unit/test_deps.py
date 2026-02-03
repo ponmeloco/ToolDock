@@ -68,3 +68,14 @@ def test_uninstall_packages_calls_subprocess(monkeypatch: pytest.MonkeyPatch, tm
 
     result = deps.uninstall_packages("shared", ["requests"])
     assert result["success"] is True
+
+
+def test_delete_venv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    venv_dir = tmp_path / "venvs" / "shared"
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "bin" / "python").write_text("")
+
+    deleted = deps.delete_venv("shared")
+    assert deleted is True
+    assert not venv_dir.exists()

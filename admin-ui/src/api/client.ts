@@ -300,6 +300,28 @@ export async function uninstallNamespaceDeps(
   return res.json()
 }
 
+export async function createNamespaceVenv(namespace: string): Promise<{ success: boolean; venv_path: string }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/create`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to create venv')
+  }
+  return res.json()
+}
+
+export async function deleteNamespaceVenv(namespace: string): Promise<{ success: boolean; deleted: boolean }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/delete`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to delete venv')
+  }
+  return res.json()
+}
+
 export async function createToolFromTemplate(
   namespace: string,
   name: string

@@ -117,6 +117,20 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
           body: '{"packages": ["requests"]}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/create',
+          description: 'Create namespace venv',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/delete',
+          description: 'Delete namespace venv',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
       ],
     },
     {
