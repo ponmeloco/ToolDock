@@ -15,12 +15,13 @@ Logging:
 from __future__ import annotations
 
 import json
+import re
 import logging
 import os
 from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
@@ -434,6 +435,8 @@ def log_request(
     if tool_name:
         message = f"{message} [tool: {tool_name}]"
 
+    error_detail = _redact_error_detail(error_detail)
+
     entry = LogEntry(
         timestamp=datetime.now().isoformat(),
         level=level,
@@ -452,6 +455,42 @@ def log_request(
 
     # Also write to persistent log file
     _write_log_to_file(entry)
+
+
+def _redact_error_detail(detail: Optional[str]) -> Optional[str]:
+    if not detail:
+        return detail
+
+    def redact_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            redacted = {}
+            for k, v in value.items():
+                key = str(k).lower()
+                if any(s in key for s in ["token", "secret", "password", "api_key", "apikey", "authorization", "credential"]):
+                    redacted[k] = "***REDACTED***"
+                else:
+                    redacted[k] = redact_value(v)
+            return redacted
+        if isinstance(value, list):
+            return [redact_value(v) for v in value]
+        return value
+
+    # Try JSON redaction
+    try:
+        parsed = json.loads(detail)
+        return json.dumps(redact_value(parsed), ensure_ascii=False)
+    except Exception:
+        pass
+
+    # Fallback: scrub common token patterns in text
+    redacted = detail
+    redacted = re.sub(r"(Bearer\\s+)[A-Za-z0-9._\\-]+", r"\\1***REDACTED***", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(
+        r"(?i)(token|secret|password|api_key|apikey|authorization|credential)\\s*[:=]\\s*[^\\s\"']+",
+        r"\\1=***REDACTED***",
+        redacted,
+    )
+    return redacted
 
 
 @router.get("/health", response_model=SystemHealthResponse)

@@ -22,7 +22,7 @@ from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, Body, Depends, Request
 from fastapi.responses import JSONResponse
 
-from app.auth import get_bearer_token, is_auth_enabled
+from app.auth import get_bearer_token, is_auth_enabled, _constant_time_compare
 from app.middleware import TrailingNewlineMiddleware, RequestLoggingMiddleware
 from app.metrics_store import init_metrics_store
 from app.registry import ToolRegistry
@@ -44,7 +44,7 @@ def bearer_auth_dependency(request: Request) -> None:
     if not header.lower().startswith("bearer "):
         raise ToolUnauthorizedError("Authorization Header fehlt oder ist ungültig")
     provided = header.split(" ", 1)[1].strip()
-    if not token or provided != token:
+    if not token or not _constant_time_compare(provided, token):
         raise ToolUnauthorizedError("Bearer Token ist ungültig")
 
 
