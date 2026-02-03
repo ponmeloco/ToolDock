@@ -110,6 +110,27 @@ def install_requirements(namespace: str, requirements_text: str) -> Dict[str, An
     }
 
 
+def uninstall_packages(namespace: str, packages: List[str]) -> Dict[str, Any]:
+    """
+    Uninstall pip packages from the namespace venv.
+    """
+    if not packages:
+        raise ValueError("No packages provided")
+
+    for pkg in packages:
+        if not pkg or not _PKG_PATTERN.match(pkg):
+            raise ValueError(f"Invalid package spec: {pkg}")
+
+    venv_dir = ensure_venv(namespace)
+    cmd = [str(_venv_python(venv_dir)), "-m", "pip", "uninstall", "-y"] + packages
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-4000:],
+    }
+
+
 def list_packages(namespace: str) -> List[Dict[str, str]]:
     """
     List installed packages for the namespace venv.

@@ -109,6 +109,14 @@ function buildCategories(openapiPort: string, mcpPort: string): EndpointCategory
           body: '{"packages": ["requests==2.32.0"]}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/deps/uninstall',
+          description: 'Uninstall namespace dependencies',
+          auth: true,
+          body: '{"packages": ["requests"]}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
       ],
     },
     {

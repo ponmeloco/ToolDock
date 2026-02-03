@@ -190,6 +190,15 @@ curl -X POST http://localhost:18080/api/folders/shared/tools/deps/install \
   -d '{"packages": ["requests==2.32.0"]}'
 ```
 
+Uninstall:
+
+```bash
+curl -X POST http://localhost:18080/api/folders/shared/tools/deps/uninstall \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{"packages": ["requests"]}'
+```
+
 After install, ToolDock auto-reloads the namespace so imports work immediately.
 
 ---

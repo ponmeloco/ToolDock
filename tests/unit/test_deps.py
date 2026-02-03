@@ -45,3 +45,26 @@ def test_install_packages_calls_subprocess(monkeypatch: pytest.MonkeyPatch, tmp_
 
     result = deps.install_packages("shared", ["requests==2.32.0"])
     assert result["success"] is True
+
+
+def test_uninstall_packages_calls_subprocess(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+
+    def fake_run(cmd, check, capture_output, text):
+        class Result:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+        return Result()
+
+    def fake_ensure(namespace: str):
+        venv_dir = tmp_path / "venvs" / namespace
+        (venv_dir / "bin").mkdir(parents=True)
+        (venv_dir / "bin" / "python").write_text("")
+        return venv_dir
+
+    monkeypatch.setattr(deps, "ensure_venv", fake_ensure)
+    monkeypatch.setattr(deps.subprocess, "run", fake_run)
+
+    result = deps.uninstall_packages("shared", ["requests"])
+    assert result["success"] is True

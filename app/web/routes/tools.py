@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
-from app.deps import install_packages, install_requirements, list_packages, read_requirements, get_venv_dir
+from app.deps import install_packages, install_requirements, uninstall_packages, list_packages, read_requirements, get_venv_dir
 from app.web.validation import validate_tool_file, ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -196,6 +196,29 @@ async def install_dependencies(
         result = install_packages(namespace, request.packages)
     else:
         raise HTTPException(status_code=400, detail="packages or requirements is required")
+
+    return DependenciesResponse(
+        success=bool(result.get("success")),
+        stdout=result.get("stdout", ""),
+        stderr=result.get("stderr", ""),
+    )
+
+
+@router.post("/deps/uninstall", response_model=DependenciesResponse)
+async def uninstall_dependencies(
+    namespace: str,
+    request: DependenciesRequest,
+    _: str = Depends(verify_token),
+) -> DependenciesResponse:
+    """
+    Uninstall dependencies from the namespace venv.
+    """
+    _ = _get_tools_dir(namespace)  # Validate namespace
+
+    if request.packages:
+        result = uninstall_packages(namespace, request.packages)
+    else:
+        raise HTTPException(status_code=400, detail="packages is required")
 
     return DependenciesResponse(
         success=bool(result.get("success")),

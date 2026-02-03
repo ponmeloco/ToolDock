@@ -14,6 +14,7 @@ import {
   createToolFromTemplate,
   getNamespaceDeps,
   installNamespaceDeps,
+  uninstallNamespaceDeps,
 } from '../api/client'
 import {
   ArrowLeft,
@@ -173,6 +174,23 @@ export default function Tools() {
       queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
       setInstallOutput(
         [data.stdout?.trim(), data.stderr?.trim()].filter(Boolean).join('\n') || 'Install complete'
+      )
+    },
+    onError: (err: Error) => {
+      setInstallOutput(err.message)
+    },
+  })
+
+  const uninstallDepsMutation = useMutation({
+    mutationFn: async (packages: string[]) => {
+      const result = await uninstallNamespaceDeps(namespace!, { packages })
+      await reloadNamespace(namespace!)
+      return result
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['deps', namespace] })
+      setInstallOutput(
+        [data.stdout?.trim(), data.stderr?.trim()].filter(Boolean).join('\n') || 'Uninstall complete'
       )
     },
     onError: (err: Error) => {
@@ -585,9 +603,18 @@ export default function Tools() {
                     <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg">
                       <ul className="divide-y divide-gray-100">
                         {depsQuery.data.packages.map((pkg) => (
-                          <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex justify-between">
+                          <li key={`${pkg.name}-${pkg.version}`} className="px-3 py-2 text-sm text-gray-700 flex items-center justify-between gap-3">
                             <span>{pkg.name}</span>
-                            <span className="text-gray-500">{pkg.version}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">{pkg.version}</span>
+                              <button
+                                onClick={() => uninstallDepsMutation.mutate([pkg.name])}
+                                disabled={uninstallDepsMutation.isPending}
+                                className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 rounded"
+                              >
+                                Uninstall
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>
