@@ -64,6 +64,18 @@ class MCPRegistryClient:
                 logger.error(f"Registry request failed: {e}")
                 raise
 
+    async def get_server(self, server_ref: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific server by registry reference.
+
+        Args:
+            server_ref: Registry server ID (UUID) or name
+
+        Returns:
+            Server metadata dict or None if not found
+        """
+        return await self.get_server_by_id(server_ref)
+
     async def get_server_by_id(self, server_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a specific server by registry ID.

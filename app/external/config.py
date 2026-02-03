@@ -125,7 +125,7 @@ class ExternalServerConfig:
 
             logger.info(f"Fetching {server_id} from registry: {registry_name}")
 
-            server_data = await self._registry_client.get_server_by_name(registry_name)
+            server_data = await self._registry_client.get_server(registry_name)
             if not server_data:
                 raise ValueError(f"Server not found in registry: {registry_name}")
 

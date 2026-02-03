@@ -161,14 +161,17 @@ def create_web_app(
             from app.web.routes.fastmcp import set_fastmcp_context
             fastmcp_manager = FastMCPServerManager(registry, manage_processes=True)
             set_fastmcp_context(fastmcp_manager)
-            try:
-                fastmcp_manager.sync_from_db()
-            except Exception as exc:
-                logger.warning(f"FastMCP sync failed (web): {exc}")
 
             @app.on_event("startup")
             async def _seed_fastmcp_demo() -> None:
                 await fastmcp_manager.seed_demo_server()
+
+            @app.on_event("startup")
+            async def _sync_fastmcp_from_db() -> None:
+                try:
+                    await fastmcp_manager.sync_from_db()
+                except Exception as exc:
+                    logger.warning(f"FastMCP sync failed (web): {exc}")
         except Exception as exc:
             logger.warning(f"FastMCP disabled: {exc}")
 

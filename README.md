@@ -58,10 +58,15 @@ via `FASTMCP_DEMO_*` in `.env`.
 
 Screenshots (from `docs/images/`):
 
+### Admin Dashboard
 ![Admin Dashboard](docs/images/Dashboard.png)
+### Playground
 ![Playground](docs/images/Playground.png)
+### FastMCP Registry
 ![FastMCP Registry](docs/images/FastMCP.png)
+### Logs
 ![Logs](docs/images/Logs.png)
+### Namespaces Tool Create/Edit
 ![Namespaces](docs/images/Namespaces_Tool_Create_Edit.png)
 
 ---
