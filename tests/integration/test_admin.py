@@ -218,6 +218,52 @@ class TestLogFiles:
         assert response.status_code == 404
 
 
+class TestNamespaces:
+    """Tests for /api/admin/namespaces endpoint."""
+
+    def test_namespaces_requires_auth(self, web_client: SyncASGIClient):
+        """Namespaces endpoint requires authentication."""
+        response = web_client.get("/api/admin/namespaces")
+        assert response.status_code == 401
+
+    def test_namespaces_returns_list(
+        self, web_client: SyncASGIClient, auth_headers: dict
+    ):
+        """Namespaces endpoint returns unified namespace list."""
+        response = web_client.get("/api/admin/namespaces", headers=auth_headers)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "namespaces" in data
+        assert "total" in data
+        assert isinstance(data["namespaces"], list)
+        assert data["total"] == len(data["namespaces"])
+
+    def test_namespaces_include_type(
+        self, web_client: SyncASGIClient, auth_headers: dict
+    ):
+        """Namespaces include type field (native, fastmcp, external)."""
+        response = web_client.get("/api/admin/namespaces", headers=auth_headers)
+        data = response.json()
+
+        for ns in data["namespaces"]:
+            assert "name" in ns
+            assert "type" in ns
+            assert ns["type"] in ["native", "fastmcp", "external"]
+            assert "tool_count" in ns
+
+    def test_namespaces_include_endpoint(
+        self, web_client: SyncASGIClient, auth_headers: dict
+    ):
+        """Namespaces include endpoint field."""
+        response = web_client.get("/api/admin/namespaces", headers=auth_headers)
+        data = response.json()
+
+        for ns in data["namespaces"]:
+            if ns.get("endpoint"):
+                assert ns["endpoint"].startswith("/mcp/")
+
+
 class TestSecurityHeaders:
     """Tests for security-related behavior."""
 

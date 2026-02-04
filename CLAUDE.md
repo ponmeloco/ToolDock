@@ -113,7 +113,7 @@ def register_tools(registry: ToolRegistry) -> None:
 ## Testing
 
 ```bash
-# Run all tests (420+ tests)
+# Run all tests (470+ tests)
 pytest tests/ -v
 
 # Run with coverage
@@ -192,6 +192,21 @@ curl -X POST http://localhost:18080/api/reload \
 ### FastMCP External Servers
 - Managed via `app/external/fastmcp_manager.py` (registry ingest + lifecycle)
 - Exposed via `/api/fastmcp/*` routes (Admin UI → FastMCP tab)
+- Two installation methods:
+  - **Registry**: Search and install from MCP Registry (PyPI/npm packages)
+  - **Manual**: Add servers using Claude Desktop config format (command, args, env)
+- Server detail panel with:
+  - Config file editor (YAML/JSON syntax highlighting)
+  - Editable start command (command, args, env)
+  - Start/stop/delete controls
+- Config files stored in `DATA_DIR/external/servers/{namespace}/`
+
+### Unified Namespaces
+- `/api/admin/namespaces` returns all namespace types:
+  - **Native**: Python tools from `tooldock_data/tools/`
+  - **FastMCP**: MCP servers from registry or manual config
+  - **External**: Legacy servers from `config.yaml`
+- Admin UI Namespaces page shows all types with status badges
 
 ## Common Pitfalls
 

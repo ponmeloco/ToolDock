@@ -88,6 +88,33 @@ export interface FastMCPServer {
   status: string
   pid: number | null
   last_error: string | null
+  // MCP config fields
+  command: string | null
+  args: string[] | null
+  env: Record<string, string> | null
+  auto_start: boolean
+  config_path: string | null
+}
+
+export interface FastMCPConfigFile {
+  namespace: string
+  filename: string
+  content: string
+  path: string
+}
+
+export interface FastMCPConfigFileInfo {
+  filename: string
+  path: string
+  size: number
+}
+
+export interface AllNamespace {
+  name: string
+  type: 'native' | 'fastmcp' | 'external'
+  tool_count: number
+  status: string | null
+  endpoint: string | null
 }
 
 export interface ToolContent {
@@ -291,6 +318,103 @@ export async function deleteFastMcpServer(id: number): Promise<void> {
     const error = await res.json()
     throw new Error(error.detail || 'Failed to delete server')
   }
+}
+
+export async function getFastMcpServer(id: number): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get server')
+  }
+  return res.json()
+}
+
+export async function updateFastMcpServer(
+  id: number,
+  data: {
+    server_name?: string
+    command?: string
+    args?: string[]
+    env?: Record<string, string>
+    auto_start?: boolean
+  }
+): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to update server')
+  }
+  return res.json()
+}
+
+export async function getFastMcpServerConfig(
+  id: number,
+  filename = 'config.yaml'
+): Promise<FastMCPConfigFile> {
+  const url = new URL(`${API_BASE}/fastmcp/servers/${id}/config`, window.location.origin)
+  url.searchParams.set('filename', filename)
+  const res = await fetchWithAuth(url.toString())
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get config')
+  }
+  return res.json()
+}
+
+export async function updateFastMcpServerConfig(
+  id: number,
+  content: string,
+  filename = 'config.yaml'
+): Promise<FastMCPConfigFile> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/config`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, filename }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to update config')
+  }
+  return res.json()
+}
+
+export async function listFastMcpServerConfigFiles(
+  id: number
+): Promise<{ namespace: string; directory: string; files: FastMCPConfigFileInfo[] }> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/config/files`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to list config files')
+  }
+  return res.json()
+}
+
+export async function addManualFastMcpServer(data: {
+  namespace: string
+  server_name: string
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+  config_file?: string
+  config_filename?: string
+  auto_start?: boolean
+}): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/manual`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to add manual server')
+  }
+  return res.json()
+}
+
+export async function getAllNamespaces(): Promise<{ namespaces: AllNamespace[]; total: number }> {
+  const res = await fetchWithAuth(`${API_BASE}/admin/namespaces`)
+  return res.json()
 }
 
 export async function getTool(namespace: string, filename: string): Promise<ToolContent> {
