@@ -238,9 +238,21 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (data / "tools" / "shared").mkdir(parents=True)
     (data / "external").mkdir(parents=True)
     (data / "config").mkdir(parents=True)
+    (data / "db").mkdir(parents=True)
 
     monkeypatch.setenv("DATA_DIR", str(data))
-    return data
+
+    # Reset database engine to use new DATA_DIR
+    from app.db.database import reset_engine, init_db
+    reset_engine()
+
+    # Initialize database tables
+    init_db()
+
+    yield data
+
+    # Clean up after test
+    reset_engine()
 
 
 # ==================== Helper Functions ====================

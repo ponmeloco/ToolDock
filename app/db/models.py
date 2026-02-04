@@ -35,6 +35,14 @@ class ExternalFastMCPServer(Base):
     repo_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     entrypoint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Custom config for manual server setup
+    startup_command: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    command_args: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
+    env_vars: Mapped[Optional[dict[str, str]]] = mapped_column(JSON, nullable=True)
+    config_yaml: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transport_type: Mapped[str] = mapped_column(String(16), nullable=False, default="stdio")
+    server_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     venv_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 

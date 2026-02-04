@@ -1,53 +1,60 @@
-"""FastMCP Streamable HTTP proxy for external servers."""
+"""FastMCP HTTP proxy for external servers.
+
+This proxy communicates with MCP servers over HTTP using JSON-RPC.
+It supports both the full Streamable HTTP protocol (via MCP SDK) and
+a simpler JSON-RPC over HTTP mode for compatibility with various servers.
+"""
 
 from __future__ import annotations
 
 import logging
-from contextlib import AsyncExitStack
 from typing import Any, Dict, Optional
 
 import httpx
-from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamable_http_client
 
 logger = logging.getLogger(__name__)
 
 
 class FastMCPHttpProxy:
-    """Proxy for an external FastMCP server over Streamable HTTP."""
+    """Proxy for an external MCP server over HTTP.
+
+    This proxy uses simple JSON-RPC over HTTP for communication,
+    which is compatible with both the http_wrapper bridge and
+    native FastMCP servers.
+    """
 
     def __init__(self, server_id: str, url: str, headers: Optional[Dict[str, str]] = None):
         self.server_id = server_id
         self.url = url.rstrip("/")
         self.headers = headers or {}
-        self.session: Optional[ClientSession] = None
         self.tools: Dict[str, Dict[str, Any]] = {}
-        self._exit_stack: Optional[AsyncExitStack] = None
         self._connected = False
+        self._message_id = 0
+        self._client: Optional[httpx.AsyncClient] = None
 
     @property
     def is_connected(self) -> bool:
-        return self._connected and self.session is not None
+        return self._connected and self._client is not None
 
     async def connect(self) -> None:
+        """Connect to the server and discover tools."""
         if self._connected:
             return
 
-        logger.info(f"Connecting to FastMCP server {self.server_id} at {self.url}")
+        logger.info(f"Connecting to MCP server {self.server_id} at {self.url}")
 
         try:
-            self._exit_stack = AsyncExitStack()
-            http_client = httpx.AsyncClient(headers=self.headers, timeout=httpx.Timeout(10.0, read=30.0))
-
-            read_stream, write_stream, _ = await self._exit_stack.enter_async_context(
-                streamable_http_client(self.url, http_client=http_client)
+            self._client = httpx.AsyncClient(
+                headers=self.headers,
+                timeout=httpx.Timeout(10.0, read=30.0),
             )
 
-            self.session = await self._exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
-            await self.session.initialize()
+            # Initialize the session
+            await self._initialize()
+
+            # Discover tools
             await self._discover_tools()
+
             self._connected = True
             logger.info(f"Connected to {self.server_id} with {len(self.tools)} tools")
         except Exception as exc:
@@ -55,37 +62,90 @@ class FastMCPHttpProxy:
             await self.disconnect()
             raise RuntimeError(f"Connection failed for {self.server_id}: {exc}") from exc
 
+    async def _initialize(self) -> None:
+        """Initialize the MCP session."""
+        result = await self._send_request("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "tooldock-proxy",
+                "version": "1.0.0",
+            },
+        })
+        logger.debug(f"Initialize result: {result}")
+
+        # Send initialized notification
+        await self._send_notification("notifications/initialized", {})
+
     async def _discover_tools(self) -> None:
-        if not self.session:
-            return
-        response = await self.session.list_tools()
+        """Discover available tools from the server."""
+        result = await self._send_request("tools/list", {})
         self.tools = {}
-        for tool in response.tools:
-            self.tools[tool.name] = {
-                "name": tool.name,
-                "description": tool.description or "",
-                "inputSchema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
+        for tool in result.get("tools", []):
+            self.tools[tool["name"]] = {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "inputSchema": tool.get("inputSchema", {}),
             }
 
+    async def _send_request(self, method: str, params: Dict[str, Any]) -> Any:
+        """Send a JSON-RPC request and wait for response."""
+        if not self._client:
+            raise RuntimeError("Client not initialized")
+
+        self._message_id += 1
+        request = {
+            "jsonrpc": "2.0",
+            "id": self._message_id,
+            "method": method,
+            "params": params,
+        }
+
+        response = await self._client.post(
+            self.url,
+            json=request,
+            headers={"Accept": "application/json"},
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        if "error" in data:
+            raise RuntimeError(data["error"].get("message", "Unknown error"))
+        return data.get("result")
+
+    async def _send_notification(self, method: str, params: Dict[str, Any]) -> None:
+        """Send a JSON-RPC notification (no response expected)."""
+        if not self._client:
+            raise RuntimeError("Client not initialized")
+
+        notification = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        }
+
+        # Notifications may return 202 (no content) or an empty response
+        await self._client.post(
+            self.url,
+            json=notification,
+            headers={"Accept": "application/json"},
+        )
+
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.is_connected or not self.session:
+        """Call a tool on the server."""
+        if not self.is_connected or not self._client:
             raise RuntimeError(f"Server {self.server_id} not connected")
         if name not in self.tools:
             raise ValueError(f"Tool {name} not found on server {self.server_id}")
 
         try:
-            result = await self.session.call_tool(name, arguments)
-            content = []
-            for item in result.content:
-                if hasattr(item, "text"):
-                    content.append({"type": "text", "text": item.text})
-                elif hasattr(item, "data"):
-                    content.append({"type": "data", "data": item.data})
-                else:
-                    content.append({"type": "unknown", "value": str(item)})
+            result = await self._send_request("tools/call", {
+                "name": name,
+                "arguments": arguments,
+            })
             return {
-                "content": content,
-                "isError": getattr(result, "isError", False),
+                "content": result.get("content", []),
+                "isError": result.get("isError", False),
             }
         except Exception as exc:
             logger.error(f"Tool call failed for {self.server_id}:{name}: {exc}")
@@ -95,19 +155,20 @@ class FastMCPHttpProxy:
             }
 
     async def disconnect(self) -> None:
+        """Disconnect from the server."""
         self._connected = False
-        self.session = None
         self.tools = {}
 
-        if self._exit_stack:
+        if self._client:
             try:
-                await self._exit_stack.aclose()
+                await self._client.aclose()
             except Exception as exc:
                 logger.warning(f"Error during disconnect of {self.server_id}: {exc}")
             finally:
-                self._exit_stack = None
+                self._client = None
 
     def get_tool_schemas(self, namespace: str) -> list[Dict[str, Any]]:
+        """Get tool schemas with namespace prefix."""
         return [
             {
                 "name": f"{namespace}:{tool['name']}",

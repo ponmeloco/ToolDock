@@ -49,24 +49,54 @@ class FastMCPServerManager:
             return
 
         namespace = os.getenv("FASTMCP_DEMO_NAMESPACE", "weather")
-        search = os.getenv("FASTMCP_DEMO_SEARCH", "axians-mcp")
+        demo_repo = os.getenv(
+            "FASTMCP_DEMO_REPO",
+            "https://github.com/modelcontextprotocol/servers.git",
+        ).strip()
+        demo_entrypoint = os.getenv(
+            "FASTMCP_DEMO_ENTRYPOINT",
+            "src/time/src/mcp_server_time/__init__.py",
+        ).strip()
+        search_env = os.getenv("FASTMCP_DEMO_SEARCH", "weather,filesystem,github")
+        search_terms = [term.strip() for term in search_env.split(",") if term.strip()]
 
         with get_db() as db:
             existing = db.execute(
                 select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == namespace)
             ).scalar_one_or_none()
             if existing:
+                if not existing.auto_start:
+                    existing.auto_start = True
+                    db.commit()
+                    db.refresh(existing)
+                if existing.status != "running":
+                    try:
+                        self.start_server(existing.id)
+                    except Exception as exc:
+                        logger.warning(f"FastMCP demo auto-start failed: {exc}")
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text("exists")
                 return
 
-        try:
-            client = MCPRegistryClient()
-            result = await client.list_servers(limit=20, search=search)
-            servers = result.get("servers", [])
-        except Exception as exc:
-            logger.warning(f"FastMCP demo registry search failed: {exc}")
-            return
+        client = MCPRegistryClient()
+
+        if demo_repo:
+            try:
+                record = await self.add_server_from_repo(
+                    repo_url=demo_repo,
+                    namespace=namespace,
+                    entrypoint=demo_entrypoint or None,
+                )
+                self.start_server(record.id)
+                await asyncio.sleep(1.5)
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text(f"{demo_repo}\n")
+                logger.info(
+                    f"FastMCP demo server installed from repo: {demo_repo} (namespace={namespace})"
+                )
+                return
+            except Exception as exc:
+                logger.warning(f"FastMCP demo repo install failed: {exc}")
 
         def pick_candidate(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             server = entry.get("server", entry)
@@ -77,15 +107,37 @@ class FastMCPServerManager:
             if not server_id or not server_name:
                 return None
             pkg = _pick_package(entry)
-            if pkg and str(pkg.get("registryType", "")).lower() != "pypi":
+            repo_url = _extract_repo_url(entry)
+            if pkg and str(pkg.get("registryType", "")).lower() != "pypi" and not repo_url:
                 return None
             return {"id": str(server_id), "name": str(server_name)}
 
         candidate = None
-        for entry in servers:
-            candidate = pick_candidate(entry)
+        for term in search_terms:
+            try:
+                result = await client.list_servers(limit=20, search=term)
+                servers = result.get("servers", [])
+            except Exception as exc:
+                logger.warning(f"FastMCP demo registry search failed for '{term}': {exc}")
+                continue
+
+            for entry in servers:
+                candidate = pick_candidate(entry)
+                if candidate:
+                    break
             if candidate:
                 break
+
+        if not candidate:
+            try:
+                result = await client.list_servers(limit=100)
+                servers = result.get("servers", [])
+                for entry in servers:
+                    candidate = pick_candidate(entry)
+                    if candidate:
+                        break
+            except Exception as exc:
+                logger.warning(f"FastMCP demo registry fallback failed: {exc}")
 
         if not candidate:
             logger.warning("FastMCP demo server not found in registry search results")
@@ -243,6 +295,50 @@ class FastMCPServerManager:
 
         raise RuntimeError("Failed to load server after install")
 
+    async def add_server_from_repo(
+        self,
+        repo_url: str,
+        namespace: str,
+        entrypoint: Optional[str] = None,
+    ) -> ExternalFastMCPServer:
+        with get_db() as db:
+            existing = db.execute(
+                select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == namespace)
+            ).scalar_one_or_none()
+            if existing:
+                raise ValueError(f"Namespace already exists: {namespace}")
+
+            record = ExternalFastMCPServer(
+                server_name=repo_url,
+                namespace=namespace,
+                install_method="repo",
+                repo_url=repo_url,
+                entrypoint=entrypoint,
+                status="installing",
+                auto_start=True,
+            )
+            db.add(record)
+            db.commit()
+            db.refresh(record)
+
+        try:
+            await asyncio.to_thread(self._install_server, record.id)
+        except Exception as exc:
+            with get_db() as db:
+                record = db.get(ExternalFastMCPServer, record.id)
+                if record:
+                    record.status = "error"
+                    record.last_error = str(exc)
+                    db.commit()
+            raise
+
+        with get_db() as db:
+            record = db.get(ExternalFastMCPServer, record.id)
+            if record:
+                return record
+
+        raise RuntimeError("Failed to load server after install")
+
     def _install_server(self, server_id: int) -> None:
         with get_db() as db:
             record = db.get(ExternalFastMCPServer, server_id)
@@ -254,7 +350,7 @@ class FastMCPServerManager:
             record.venv_path = str(venv_dir)
 
             # Ensure mcp CLI is available in venv
-            result = install_packages(namespace, ["mcp"])
+            result = install_packages(namespace, ["mcp[cli]"])
             if not result.get("success"):
                 raise RuntimeError(result.get("stderr") or "Failed to install mcp")
 
@@ -292,15 +388,23 @@ class FastMCPServerManager:
 
             else:
                 repo_path = _ensure_repo(namespace, record.repo_url)
-                entrypoint = _detect_entrypoint(repo_path)
+                entrypoint = None
+                if record.entrypoint:
+                    candidate = Path(record.entrypoint)
+                    if not candidate.is_absolute():
+                        candidate = repo_path / candidate
+                    if candidate.exists():
+                        entrypoint = candidate
 
-                # Install dependencies
-                _install_repo_deps(namespace, repo_path)
+                if entrypoint is None:
+                    entrypoint = _detect_entrypoint(repo_path)
 
-                if not entrypoint:
+                if entrypoint is None:
                     record.status = "error"
                     record.last_error = "No FastMCP entrypoint found in repo"
                 else:
+                    project_root = _find_repo_project_root(entrypoint, repo_path)
+                    _install_repo_deps(namespace, project_root)
                     record.entrypoint = str(entrypoint)
                     record.status = "installed"
 
@@ -314,10 +418,35 @@ class FastMCPServerManager:
             record = db.get(ExternalFastMCPServer, server_id)
             if not record:
                 raise ValueError("Server not found")
-            if record.status == "running":
+
+            # Check if process is actually alive if status says running
+            if record.status == "running" and record.pid:
+                if _is_pid_alive(record.pid):
+                    return record
+                else:
+                    # Process died, update status and restart
+                    logger.info(f"FastMCP server {record.namespace} process died (PID {record.pid}), restarting...")
+                    record.pid = None
+                    record.status = "stopped"
+                    db.commit()
+                    db.refresh(record)
+            elif record.status == "running":
+                # Status is running but no PID - fix the state
+                record.status = "stopped"
+                db.commit()
+                db.refresh(record)
+
+            # HTTP transport: no process to start, just mark as running
+            if record.transport_type == "http" and record.server_url:
+                record.status = "running"
+                record.last_error = None
+                db.commit()
+                db.refresh(record)
                 return record
-            if not record.entrypoint:
-                raise ValueError("Missing entrypoint; install may have failed")
+
+            # Validate we have something to run
+            if not record.entrypoint and not record.startup_command:
+                raise ValueError("Missing entrypoint or startup_command")
 
             port = record.port or _find_free_port()
             record.port = port
@@ -331,11 +460,24 @@ class FastMCPServerManager:
             env["FASTMCP_PORT"] = str(port)
             env["FASTMCP_STREAMABLE_HTTP_PATH"] = "/mcp"
 
+            # Add custom env vars from database
+            if record.env_vars:
+                env.update(record.env_vars)
+
+            # Add venv site-packages to PYTHONPATH so server dependencies are available
+            site_packages = _get_venv_site_packages(record.venv_path)
+            if site_packages:
+                existing_path = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = f"{site_packages}:{existing_path}" if existing_path else site_packages
+
             cmd = _build_run_command(record)
+            if not cmd:
+                raise ValueError("Could not build run command")
+
             logger.info(f"Starting FastMCP server {record.namespace}: {' '.join(cmd)}")
             process = subprocess.Popen(
                 cmd,
-                cwd=_entrypoint_cwd(record.entrypoint),
+                cwd=_entrypoint_cwd(record.entrypoint, record.namespace),
                 env=env,
                 stdout=log_file,
                 stderr=log_file,
@@ -397,6 +539,20 @@ class FastMCPServerManager:
     # =========================
 
     async def sync_from_db(self) -> Dict[str, Any]:
+        if self.manage_processes:
+            with get_db() as db:
+                rows = db.execute(
+                    select(ExternalFastMCPServer).where(
+                        ExternalFastMCPServer.auto_start.is_(True),
+                        ExternalFastMCPServer.status == "stopped",
+                    )
+                ).scalars().all()
+                for row in rows:
+                    try:
+                        self.start_server(row.id)
+                    except Exception as exc:
+                        logger.warning(f"FastMCP auto-start failed for {row.namespace}: {exc}")
+
         running: Dict[int, ExternalFastMCPServer] = {}
         with get_db() as db:
             rows = db.execute(
@@ -417,13 +573,31 @@ class FastMCPServerManager:
             if sid in self._proxies:
                 continue
 
-            if not record.port:
-                logger.warning(f"FastMCP server {record.namespace} missing port; skipping")
+            # Determine URL based on transport type
+            if record.transport_type == "http" and record.server_url:
+                url = record.server_url
+            elif record.port:
+                url = f"http://127.0.0.1:{record.port}/mcp"
+            else:
+                logger.warning(f"FastMCP server {record.namespace} missing port/url; skipping")
                 continue
 
-            url = f"http://127.0.0.1:{record.port}/mcp"
             proxy = FastMCPHttpProxy(str(sid), url)
-            await proxy.connect()
+            try:
+                for attempt in range(5):
+                    try:
+                        await proxy.connect()
+                        break
+                    except Exception as exc:
+                        if attempt == 4:
+                            raise
+                        logger.warning(
+                            f"FastMCP server {record.namespace} not ready (attempt {attempt + 1}/5): {exc}"
+                        )
+                        await asyncio.sleep(0.5)
+            except Exception as exc:
+                logger.warning(f"FastMCP server {record.namespace} failed to connect: {exc}")
+                continue
 
             # Register tools
             for tool in proxy.get_tool_schemas(record.namespace):
@@ -496,6 +670,20 @@ def _install_repo_deps(namespace: str, repo_dir: Path) -> None:
         return
 
 
+def _find_repo_project_root(entrypoint: Path, repo_dir: Path) -> Path:
+    current = entrypoint.parent
+    repo_dir = repo_dir.resolve()
+    while True:
+        if (current / "requirements.txt").exists() or (current / "pyproject.toml").exists() or (current / "setup.py").exists():
+            return current
+        if current == repo_dir:
+            return repo_dir
+        parent = current.parent
+        if parent == current:
+            return repo_dir
+        current = parent
+
+
 def _detect_entrypoint(repo_dir: Path) -> Optional[Path]:
     fastmcp_json = repo_dir / "fastmcp.json"
     if fastmcp_json.exists():
@@ -525,18 +713,72 @@ def _find_entrypoint_from_package(namespace: str) -> Optional[str]:
 
 
 def _build_run_command(record: ExternalFastMCPServer) -> list[str]:
+    """Build the command to run a MCP server.
+
+    Supports multiple modes:
+    - manual: Uses custom startup_command (command) with command_args (args)
+    - repo/package: Uses http_wrapper to run stdio-based MCP servers
+    - http: No command needed (connects to external URL)
+    """
+    # For manual servers with custom command (standard MCP config format)
+    if record.startup_command:
+        cmd = [record.startup_command]
+        if record.command_args:
+            cmd.extend(record.command_args)
+        return cmd
+
+    # For http transport, we don't need a command (external server)
+    if record.transport_type == "http" and record.server_url:
+        return []
+
+    # For repo/package installs: use http_wrapper for stdio-based servers
+    if not record.entrypoint:
+        return []
+
     venv_path = Path(record.venv_path or "")
     python_path = venv_path / "bin" / "python"
     if not python_path.exists():
         python_path = Path(os.getenv("PYTHON", "python"))
 
-    return [str(python_path), "-m", "mcp.cli.cli", "run", record.entrypoint, "--transport", "streamable-http"]
+    # Get the http_wrapper script path - it's in the same directory as this file
+    wrapper_path = Path(__file__).parent / "http_wrapper.py"
+
+    # Run the http_wrapper script directly
+    return [
+        str(python_path),
+        str(wrapper_path),
+        record.entrypoint,
+    ]
 
 
-def _entrypoint_cwd(entrypoint: str | None) -> Optional[str]:
-    if not entrypoint:
+def _get_venv_site_packages(venv_path: str | None) -> str | None:
+    """Get the site-packages path for a venv."""
+    if not venv_path:
         return None
-    return str(Path(entrypoint).parent)
+    venv = Path(venv_path)
+    # Find site-packages directory
+    lib_dir = venv / "lib"
+    if not lib_dir.exists():
+        return None
+    # Find python version directory
+    for item in lib_dir.iterdir():
+        if item.is_dir() and item.name.startswith("python"):
+            site_packages = item / "site-packages"
+            if site_packages.exists():
+                return str(site_packages)
+    return None
+
+
+def _entrypoint_cwd(entrypoint: str | None, namespace: str | None = None) -> Optional[str]:
+    """Get working directory for server startup."""
+    if entrypoint:
+        return str(Path(entrypoint).parent)
+    if namespace:
+        # For manual servers, use the server directory as cwd
+        server_dir = _get_server_dir(namespace)
+        if server_dir.exists():
+            return str(server_dir)
+    return None
 
 
 def _find_free_port(start: int = DEFAULT_PORT_START, end: int = DEFAULT_PORT_END) -> int:
@@ -555,6 +797,18 @@ def _run_cmd(cmd: list[str]) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    try:
+        os.kill(pid, 0)  # Signal 0 doesn't kill, just checks existence
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we don't have permission (still alive)
+        return True
 
 
 def _terminate_pid(pid: int) -> None:
@@ -594,10 +848,41 @@ def _pick_package(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def _extract_repo_url(data: Dict[str, Any]) -> Optional[str]:
     server = data.get("server", data)
-    for key in ["repository", "repo", "repo_url", "source", "source_url", "url"]:
+    for key in [
+        "repository",
+        "repository_url",
+        "repositoryUrl",
+        "repo",
+        "repo_url",
+        "source",
+        "source_url",
+        "sourceCodeUrl",
+        "source_code_url",
+        "project_url",
+        "projectUrl",
+        "homepage",
+        "url",
+    ]:
         value = server.get(key)
         if isinstance(value, dict):
             value = value.get("url") or value.get("repository")
         if isinstance(value, str) and value.startswith("http"):
             return value
+
+    links = server.get("links")
+    if isinstance(links, list):
+        for link in links:
+            if isinstance(link, dict):
+                url = link.get("url")
+                if isinstance(url, str) and url.startswith("http"):
+                    return url
+    elif isinstance(links, dict):
+        for value in links.values():
+            if isinstance(value, dict):
+                url = value.get("url")
+                if isinstance(url, str) and url.startswith("http"):
+                    return url
+            elif isinstance(value, str) and value.startswith("http"):
+                return value
+
     return None

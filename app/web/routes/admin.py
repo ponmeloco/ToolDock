@@ -108,6 +108,27 @@ class SystemInfoResponse(BaseModel):
     environment: dict
 
 
+class NamespaceInfo(BaseModel):
+    """Information about a namespace."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: str  # "native", "fastmcp", "external"
+    tool_count: int
+    status: Optional[str] = None
+    endpoint: Optional[str] = None
+
+
+class NamespacesResponse(BaseModel):
+    """Response for listing all namespaces."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    namespaces: List[NamespaceInfo]
+    total: int
+
+
 class ServiceErrorRate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -792,6 +813,76 @@ async def get_system_info(
             ),
             "host_data_dir": os.getenv("HOST_DATA_DIR", ""),
         },
+    )
+
+
+@router.get("/namespaces", response_model=NamespacesResponse)
+async def list_namespaces(_: str = Depends(verify_token)) -> NamespacesResponse:
+    """
+    List all namespaces (native, FastMCP, external).
+
+    Returns unified list of all available namespaces with their types and tool counts.
+    """
+    from pathlib import Path
+    from sqlalchemy import select
+    from app.db.database import get_db
+    from app.db.models import ExternalFastMCPServer
+
+    data_dir = os.getenv("DATA_DIR", "tooldock_data")
+    tools_dir = Path(data_dir) / "tools"
+
+    namespaces: List[NamespaceInfo] = []
+
+    # Native namespaces from filesystem
+    if tools_dir.exists():
+        for d in sorted(tools_dir.iterdir()):
+            if d.is_dir() and not d.name.startswith("_"):
+                tool_count = len(list(d.glob("*.py")))
+                namespaces.append(NamespaceInfo(
+                    name=d.name,
+                    type="native",
+                    tool_count=tool_count,
+                    status="active",
+                    endpoint=f"/mcp/{d.name}",
+                ))
+
+    # FastMCP namespaces from database
+    with get_db() as db:
+        rows = db.execute(select(ExternalFastMCPServer)).scalars().all()
+        for row in rows:
+            namespaces.append(NamespaceInfo(
+                name=row.namespace,
+                type="fastmcp",
+                tool_count=0,  # Will be populated when server is running
+                status=row.status,
+                endpoint=f"/mcp/{row.namespace}",
+            ))
+
+    # External servers from config.yaml
+    config_path = Path(data_dir) / "external" / "config.yaml"
+    if config_path.exists():
+        import yaml
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+            servers = config.get("servers") or {}
+            for server_id, server_config in servers.items():
+                # Skip if already in FastMCP list
+                if any(ns.name == server_id for ns in namespaces):
+                    continue
+                namespaces.append(NamespaceInfo(
+                    name=server_id,
+                    type="external",
+                    tool_count=0,
+                    status="active" if server_config.get("enabled", True) else "disabled",
+                    endpoint=f"/mcp/{server_id}",
+                ))
+        except Exception as e:
+            logger.warning(f"Error reading external config: {e}")
+
+    return NamespacesResponse(
+        namespaces=namespaces,
+        total=len(namespaces),
     )
 
 
