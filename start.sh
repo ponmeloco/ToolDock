@@ -85,6 +85,9 @@ if [ ! -f ".env" ]; then
 # ToolDock Environment Configuration
 # ==================================
 
+# Docker Compose project name
+COMPOSE_PROJECT_NAME=tooldock
+
 # Authentication (CHANGE THIS!)
 BEARER_TOKEN=change_me_to_a_secure_token
 
@@ -101,11 +104,17 @@ MCP_PROTOCOL_VERSIONS=2025-11-25,2025-03-26
 # CORS (comma-separated origins, or * for all)
 CORS_ORIGINS=*
 
+# Data directory (host path for Admin UI display)
+HOST_DATA_DIR=./tooldock_data
+
 # Database (SQLite default, Postgres-ready)
 DATABASE_URL=sqlite:////data/db/tooldock.db
 
-# Server names
-WEB_SERVER_NAME=tooldock-backend
+# Logging
+LOG_LEVEL=INFO
+
+# Tool execution timeout (seconds)
+TOOL_TIMEOUT_SECONDS=30
 EOF
         print_success ".env created with default values"
         print_warning "Please update BEARER_TOKEN in .env!"
@@ -151,6 +160,7 @@ DATA_DIRS=(
     "tooldock_data/external/logs"
     "tooldock_data/config"
     "tooldock_data/db"
+    "tooldock_data/venvs"
 )
 
 for dir in "${DATA_DIRS[@]}"; do
