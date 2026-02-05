@@ -47,7 +47,7 @@ All three transports share the same tool registry — **define once, use everywh
 | `app/reload.py` | Hot reload functionality |
 | `app/auth.py` | Bearer token authentication |
 | `app/metrics_store.py` | Metrics ingestion + SQLite persistence |
-| `app/deps.py` | Per-namespace venv management |
+| `app/deps.py` | Per-namespace venv management + npm package validation |
 | `app/transports/` | OpenAPI and MCP transport implementations |
 | `app/web/` | Backend API server and routes |
 | `app/external/` | External MCP + FastMCP server integration |
@@ -195,6 +195,10 @@ curl -X POST http://localhost:18080/api/reload \
 - Two installation methods:
   - **Registry**: Search and install from MCP Registry (PyPI/npm packages)
   - **Manual**: Add servers using Claude Desktop config format (command, args, env)
+- Package type handling:
+  - **PyPI**: Creates per-namespace venv, installs via pip, runs with `python -m <module>`
+  - **npm**: Validates via `npm view`, runs with `npx -y <package>` (no venv needed)
+  - **Repo**: Clones git repo, installs deps, detects entrypoint
 - Server detail panel with:
   - Config file editor (YAML/JSON syntax highlighting)
   - Editable start command (command, args, env)

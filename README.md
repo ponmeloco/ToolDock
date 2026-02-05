@@ -183,6 +183,8 @@ Use the **FastMCP** tab in the Admin UI to search, install, start, stop, and del
    - Search by name in the Admin UI
    - Select a server and choose a namespace
    - Click Install to download and configure
+   - **PyPI** packages are installed into a per-namespace Python venv and run via `python -m <module>`
+   - **npm** packages are validated via `npm view` and run via `npx -y <package>` (no venv needed)
 
 2. **Manual Server** - Add servers using Claude Desktop config format:
    - Specify command (e.g., `python`, `node`, `npx`)

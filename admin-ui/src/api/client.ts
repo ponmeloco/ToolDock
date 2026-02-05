@@ -412,6 +412,23 @@ export async function addManualFastMcpServer(data: {
   return res.json()
 }
 
+export async function addFromConfigServer(data: {
+  namespace: string
+  config: Record<string, unknown>
+  pip_package?: string
+  auto_start?: boolean
+}): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/from-config`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to add server from config')
+  }
+  return res.json()
+}
+
 export async function getAllNamespaces(): Promise<{ namespaces: AllNamespace[]; total: number }> {
   const res = await fetchWithAuth(`${API_BASE}/admin/namespaces`)
   return res.json()

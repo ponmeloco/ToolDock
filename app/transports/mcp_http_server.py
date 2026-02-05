@@ -704,7 +704,7 @@ def create_mcp_http_app(
         try:
             import asyncio
             asyncio.run(fastmcp_manager.sync_from_db())
-        except Exception as exc:
+        except BaseException as exc:
             logger.warning(f"FastMCP sync failed: {exc}")
 
     stats = registry.get_stats()

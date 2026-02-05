@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app.db.database import get_db
 from app.db.models import ExternalFastMCPServer, ExternalRegistryCache
-from app.deps import ensure_venv, install_packages, install_requirements, get_venv_dir
+from app.deps import ensure_venv, install_packages, install_requirements, get_venv_dir, validate_npm_package
 from app.external.fastmcp_proxy import FastMCPHttpProxy
 from app.external.registry_client import MCPRegistryClient
 from app.registry import ToolRegistry
@@ -108,7 +108,7 @@ class FastMCPServerManager:
                 return None
             pkg = _pick_package(entry)
             repo_url = _extract_repo_url(entry)
-            if pkg and str(pkg.get("registryType", "")).lower() != "pypi" and not repo_url:
+            if pkg and str(pkg.get("registryType", "")).lower() not in ("pypi", "npm") and not repo_url:
                 return None
             return {"id": str(server_id), "name": str(server_name)}
 
@@ -171,7 +171,7 @@ class FastMCPServerManager:
             if pkg is None:
                 return repo_url is not None
             registry_type = str(pkg.get("registryType", "")).lower()
-            if registry_type == "pypi":
+            if registry_type in ("pypi", "npm"):
                 return True
             return repo_url is not None
 
@@ -245,13 +245,13 @@ class FastMCPServerManager:
         repo_url = _extract_repo_url(data)
 
         install_method = "package" if pkg else "repo"
-        if install_method == "package" and pkg and pkg.get("registryType", "").lower() != "pypi":
-            # For FastMCP, prefer repo fallback if package isn't pypi.
+        if install_method == "package" and pkg and pkg.get("registryType", "").lower() not in ("pypi", "npm"):
+            # For unsupported package types, prefer repo fallback.
             if repo_url:
                 install_method = "repo"
                 pkg = None
             else:
-                raise ValueError("Unsupported package type for FastMCP (only PyPI or repo)")
+                raise ValueError("Unsupported package type for FastMCP (only PyPI, npm, or repo)")
 
         if install_method == "repo" and not repo_url:
             raise ValueError("Registry server has no repo URL and no PyPI package")
@@ -346,13 +346,9 @@ class FastMCPServerManager:
                 raise ValueError("Server not found")
 
             namespace = record.namespace
-            venv_dir = ensure_venv(namespace)
-            record.venv_path = str(venv_dir)
 
-            # Ensure mcp CLI is available in venv
-            result = install_packages(namespace, ["mcp[cli]"])
-            if not result.get("success"):
-                raise RuntimeError(result.get("stderr") or "Failed to install mcp")
+            # Ensure server directory exists for config files
+            _get_server_dir(namespace).mkdir(parents=True, exist_ok=True)
 
             if record.install_method == "package":
                 pkg = record.package_info or {}
@@ -361,30 +357,31 @@ class FastMCPServerManager:
                 if not identifier:
                     raise ValueError("Missing package identifier")
                 spec = f"{identifier}=={version}" if version else identifier
-                result = install_packages(namespace, [spec])
-                if not result.get("success"):
-                    raise RuntimeError(result.get("stderr") or "Failed to install package")
+                registry_type = str(pkg.get("registryType", "")).lower()
 
-                # Resolve entrypoint from installed package (best-effort)
-                entrypoint = _find_entrypoint_from_package(namespace)
-                if not entrypoint and record.repo_url:
-                    # Fallback to repo if package doesn't expose an entrypoint
-                    repo_path = _ensure_repo(namespace, record.repo_url)
-                    entrypoint_path = _detect_entrypoint(repo_path)
-                    _install_repo_deps(namespace, repo_path)
-                    if entrypoint_path:
-                        record.entrypoint = str(entrypoint_path)
-                        record.install_method = "repo"
-                        record.status = "installed"
-                    else:
-                        record.status = "error"
-                        record.last_error = "No FastMCP entrypoint found in package or repo"
-                elif not entrypoint:
-                    record.status = "error"
-                    record.last_error = "No FastMCP entrypoint found in package"
+                if registry_type == "npm":
+                    # npm package: validate via npm view, use npx -y to run
+                    validation = validate_npm_package(spec)
+                    if not validation.get("success"):
+                        raise RuntimeError(
+                            validation.get("stderr") or f"npm package not found: {spec}"
+                        )
+                    record.startup_command = "npx"
+                    record.command_args = ["-y", spec]
+                    record.status = "stopped"
                 else:
-                    record.entrypoint = entrypoint
-                    record.status = "installed"
+                    # PyPI package: create venv, install, derive module name
+                    venv_dir = ensure_venv(namespace)
+                    record.venv_path = str(venv_dir)
+                    result = install_packages(namespace, [spec])
+                    if not result.get("success"):
+                        raise RuntimeError(result.get("stderr") or "Failed to install package")
+
+                    # Pre-fill command from package name
+                    module_name = _derive_module_name(identifier)
+                    record.startup_command = "python"
+                    record.command_args = ["-m", module_name]
+                    record.status = "stopped"
 
             else:
                 repo_path = _ensure_repo(namespace, record.repo_url)
@@ -406,7 +403,9 @@ class FastMCPServerManager:
                     project_root = _find_repo_project_root(entrypoint, repo_path)
                     _install_repo_deps(namespace, project_root)
                     record.entrypoint = str(entrypoint)
-                    record.status = "installed"
+                    record.startup_command = "python"
+                    record.command_args = [str(entrypoint)]
+                    record.status = "stopped"
 
             db.commit()
 
@@ -544,7 +543,7 @@ class FastMCPServerManager:
                 rows = db.execute(
                     select(ExternalFastMCPServer).where(
                         ExternalFastMCPServer.auto_start.is_(True),
-                        ExternalFastMCPServer.status == "stopped",
+                        ExternalFastMCPServer.status.in_(["stopped", "installed"]),
                     )
                 ).scalars().all()
                 for row in rows:
@@ -706,49 +705,72 @@ def _detect_entrypoint(repo_dir: Path) -> Optional[Path]:
     return None
 
 
-def _find_entrypoint_from_package(namespace: str) -> Optional[str]:
-    # Best-effort: no standard. Return None to require repo fallback or manual override.
-    _ = namespace
-    return None
+def _derive_module_name(identifier: str) -> str:
+    """Convert a package identifier to a Python module name.
+
+    e.g. ``mcp-server-fetch`` -> ``mcp_server_fetch``
+    """
+    # Strip any extras specifier (e.g. "mcp[cli]" -> "mcp")
+    name = identifier.split("[")[0]
+    return name.replace("-", "_")
 
 
 def _build_run_command(record: ExternalFastMCPServer) -> list[str]:
-    """Build the command to run a MCP server.
+    """Build the command to run a MCP server via stdio_bridge.
 
-    Supports multiple modes:
-    - manual: Uses custom startup_command (command) with command_args (args)
-    - repo/package: Uses http_wrapper to run stdio-based MCP servers
-    - http: No command needed (connects to external URL)
+    Uses the stdio_bridge to expose stdio-based MCP servers via HTTP.
+    Supports Claude Desktop config format: command, args, env.
     """
-    # For manual servers with custom command (standard MCP config format)
-    if record.startup_command:
-        cmd = [record.startup_command]
-        if record.command_args:
-            cmd.extend(record.command_args)
-        return cmd
-
-    # For http transport, we don't need a command (external server)
+    # For http transport, we don't need a command (connects to external URL)
     if record.transport_type == "http" and record.server_url:
         return []
 
-    # For repo/package installs: use http_wrapper for stdio-based servers
-    if not record.entrypoint:
-        return []
+    # Determine the command and args
+    command = record.startup_command
+    args = record.command_args or []
 
     venv_path = Path(record.venv_path or "")
-    python_path = venv_path / "bin" / "python"
-    if not python_path.exists():
-        python_path = Path(os.getenv("PYTHON", "python"))
+    venv_python = venv_path / "bin" / "python"
+    has_venv = venv_python.exists()
 
-    # Get the http_wrapper script path - it's in the same directory as this file
-    wrapper_path = Path(__file__).parent / "http_wrapper.py"
+    # If no explicit command but we have an entrypoint, use python
+    if not command and record.entrypoint:
+        command = str(venv_python) if has_venv else "python"
+        args = [record.entrypoint]
 
-    # Run the http_wrapper script directly
-    return [
-        str(python_path),
-        str(wrapper_path),
-        record.entrypoint,
+    if not command:
+        return []
+
+    # If the command is "python" and we have a venv, use the venv python
+    # so installed packages are properly accessible
+    if command in ("python", "python3") and has_venv:
+        command = str(venv_python)
+
+    # Build the stdio_bridge command
+    bridge_path = Path(__file__).parent / "stdio_bridge.py"
+
+    # Use the venv python to run the bridge (or system python as fallback)
+    bridge_python = str(venv_python) if has_venv else "python"
+
+    cmd = [
+        bridge_python,
+        str(bridge_path),
+        "--command", command,
+        "--args", json.dumps(args),
     ]
+
+    if record.env_vars:
+        cmd.extend(["--env", json.dumps(record.env_vars)])
+
+    # Set working directory
+    if record.entrypoint:
+        cmd.extend(["--cwd", str(Path(record.entrypoint).parent)])
+    else:
+        server_dir = _get_server_dir(record.namespace)
+        if server_dir.exists():
+            cmd.extend(["--cwd", str(server_dir)])
+
+    return cmd
 
 
 def _get_venv_site_packages(venv_path: str | None) -> str | None:

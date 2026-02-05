@@ -171,12 +171,16 @@ export default function FastMCPServers() {
       }
       return addFastMcpServer(selectedServer.id || null, selectedServer.name, namespace, version || undefined)
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setNamespace('')
       setVersion('')
       setSelectedServer(null)
       queryClient.invalidateQueries({ queryKey: ['fastmcpServers'] })
       queryClient.invalidateQueries({ queryKey: ['allNamespaces'] })
+      // Auto-open detail panel so user can review pre-filled config before starting
+      if (data?.id) {
+        setDetailServerId(data.id)
+      }
     },
   })
 
@@ -349,7 +353,7 @@ export default function FastMCPServers() {
             >
               <div className="text-xs text-gray-400 uppercase tracking-wide">Registry Search</div>
               <div className="text-xs text-gray-500">
-                Showing installable servers only (PyPI or repo-based).
+                Showing installable servers only (PyPI, npm, or repo-based).
               </div>
               {!registryOnline ? (
                 <div className="text-sm text-gray-600">

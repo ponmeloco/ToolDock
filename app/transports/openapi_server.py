@@ -329,7 +329,7 @@ def create_openapi_app(
     if fastmcp_manager is not None:
         try:
             asyncio.run(fastmcp_manager.sync_from_db())
-        except Exception as exc:
+        except BaseException as exc:
             logger.warning(f"FastMCP sync failed: {exc}")
 
     logger.info(f"[{REGISTRY_NAMESPACE}] OpenAPI server created with {len(registry.list_tools())} native tools")

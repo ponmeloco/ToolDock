@@ -40,11 +40,13 @@ class _StubFastMCPManager:
             version=version,
             install_method="package",
             repo_url=None,
-            entrypoint="demo:main",
+            entrypoint=None,
             port=9100,
             status="stopped",
             pid=None,
             last_error=None,
+            startup_command="python",
+            command_args=["-m", "demo_module"],
         )
 
     def start_server(self, server_id):

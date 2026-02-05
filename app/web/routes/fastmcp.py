@@ -120,6 +120,34 @@ class AddManualServerRequest(BaseModel):
     auto_start: bool = Field(default=False, description="Auto-start on ToolDock startup")
 
 
+class AddFromConfigRequest(BaseModel):
+    """Add MCP server from Claude Desktop JSON config format with pip package."""
+    model_config = ConfigDict(extra="forbid")
+
+    namespace: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
+
+    # Claude Desktop config format (paste the JSON)
+    config: Dict[str, Any] = Field(
+        ...,
+        description="Claude Desktop config: {command, args?, env?}",
+        json_schema_extra={
+            "example": {
+                "command": "python",
+                "args": ["-m", "mcp_server_fetch"],
+                "env": {"API_KEY": "xxx"}
+            }
+        }
+    )
+
+    # Optional: pip package to install first
+    pip_package: Optional[str] = Field(
+        default=None,
+        description="Pip package to install (e.g., 'mcp-server-fetch')"
+    )
+
+    auto_start: bool = Field(default=True, description="Auto-start after installation")
+
+
 class UpdateServerRequest(BaseModel):
     """Update server configuration."""
     model_config = ConfigDict(extra="forbid")
@@ -446,6 +474,106 @@ async def add_manual_server(request: AddManualServerRequest, _: str = Depends(ve
             config_path.write_text(request.config_file, encoding="utf-8")
             logger.info(f"Created config for {request.namespace}: {config_path}")
 
+        response = _server_to_response(record)
+
+    await _sync_fastmcp_registry()
+    await _fanout_fastmcp_reload()
+    return response
+
+
+@router.post("/servers/from-config", response_model=FastMCPServerResponse)
+async def add_from_config(request: AddFromConfigRequest, _: str = Depends(verify_token)) -> FastMCPServerResponse:
+    """Add MCP server from Claude Desktop JSON config format.
+
+    This is the recommended way to add Python MCP servers:
+    1. Paste the config JSON from the server's README (Claude Desktop format)
+    2. Optionally specify a pip package to install
+
+    Example config:
+    {
+        "command": "python",
+        "args": ["-m", "mcp_server_fetch"],
+        "env": {"API_KEY": "xxx"}
+    }
+    """
+    from app.deps import ensure_venv, install_packages
+
+    # Validate config structure
+    config = request.config
+    command = config.get("command")
+    if not command:
+        raise HTTPException(status_code=422, detail="Config must have 'command' field")
+
+    args = config.get("args", [])
+    if not isinstance(args, list):
+        raise HTTPException(status_code=422, detail="Config 'args' must be a list")
+
+    env = config.get("env", {})
+    if not isinstance(env, dict):
+        raise HTTPException(status_code=422, detail="Config 'env' must be an object")
+
+    # Derive server name from package or command
+    server_name = request.pip_package or f"{command} {' '.join(args[:2])}"
+
+    with get_db() as db:
+        existing = db.execute(
+            select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == request.namespace)
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Namespace already exists: {request.namespace}")
+
+        record = ExternalFastMCPServer(
+            server_name=server_name,
+            namespace=request.namespace,
+            install_method="config",
+            startup_command=command,
+            command_args=args if args else None,
+            env_vars=env if env else None,
+            auto_start=request.auto_start,
+            status="installing" if request.pip_package else "stopped",
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        server_id = record.id
+
+    # Install pip package if specified
+    if request.pip_package:
+        try:
+            venv_dir = ensure_venv(request.namespace)
+            result = install_packages(request.namespace, [request.pip_package])
+            if not result.get("success"):
+                error_msg = result.get("stderr") or "Package installation failed"
+                with get_db() as db:
+                    record = db.get(ExternalFastMCPServer, server_id)
+                    if record:
+                        record.status = "error"
+                        record.last_error = error_msg
+                        db.commit()
+                raise HTTPException(status_code=500, detail=error_msg)
+
+            with get_db() as db:
+                record = db.get(ExternalFastMCPServer, server_id)
+                if record:
+                    record.venv_path = str(venv_dir)
+                    record.status = "stopped"
+                    db.commit()
+                    db.refresh(record)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            with get_db() as db:
+                record = db.get(ExternalFastMCPServer, server_id)
+                if record:
+                    record.status = "error"
+                    record.last_error = str(exc)
+                    db.commit()
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    with get_db() as db:
+        record = db.get(ExternalFastMCPServer, server_id)
+        if not record:
+            raise HTTPException(status_code=500, detail="Server record lost")
         response = _server_to_response(record)
 
     await _sync_fastmcp_registry()

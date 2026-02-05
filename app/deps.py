@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _PKG_PATTERN = re.compile(r"^[A-Za-z0-9_.@+/:=<>!~\\-]+$")
+_NPM_PKG_PATTERN = re.compile(r"^(@[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+(@[^\s]+)?$")
 _PROTECTED_PACKAGES = {"pip", "setuptools", "wheel"}
 
 
@@ -187,3 +188,25 @@ def read_requirements(namespace: str) -> Optional[str]:
     if req_path.exists():
         return req_path.read_text(encoding="utf-8")
     return None
+
+
+def validate_npm_package(package: str) -> Dict[str, Any]:
+    """
+    Validate that an npm package exists on the registry.
+
+    Runs ``npm view <package> name version`` and returns the result.
+    """
+    if not package or not _NPM_PKG_PATTERN.match(package):
+        return {"success": False, "stdout": "", "stderr": f"Invalid npm package spec: {package}"}
+
+    result = subprocess.run(
+        ["npm", "view", package, "name", "version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-4000:],
+    }

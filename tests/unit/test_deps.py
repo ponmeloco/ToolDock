@@ -71,3 +71,69 @@ def test_uninstall_packages_blocks_pip(monkeypatch: pytest.MonkeyPatch, tmp_path
 
     with pytest.raises(ValueError):
         deps.uninstall_packages("shared", ["pip"])
+
+
+# ── npm validation ──
+
+
+class TestNpmPkgPattern:
+    """Tests for the _NPM_PKG_PATTERN regex."""
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "some-package",
+            "@modelcontextprotocol/server-fetch",
+            "@scope/pkg@1.2.3",
+            "my_package@latest",
+            "simple",
+        ],
+    )
+    def test_valid_npm_specs(self, spec: str):
+        assert deps._NPM_PKG_PATTERN.match(spec) is not None
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "",
+            "bad package",
+            "has space@1.0",
+            "/leading-slash",
+        ],
+    )
+    def test_invalid_npm_specs(self, spec: str):
+        assert deps._NPM_PKG_PATTERN.match(spec) is None
+
+
+class TestValidateNpmPackage:
+    """Tests for validate_npm_package()."""
+
+    def test_success(self, monkeypatch: pytest.MonkeyPatch):
+        def fake_run(cmd, check, capture_output, text):
+            class Result:
+                returncode = 0
+                stdout = "@modelcontextprotocol/server-fetch\n1.2.0"
+                stderr = ""
+            return Result()
+
+        monkeypatch.setattr(deps.subprocess, "run", fake_run)
+        result = deps.validate_npm_package("@modelcontextprotocol/server-fetch")
+        assert result["success"] is True
+        assert "@modelcontextprotocol/server-fetch" in result["stdout"]
+
+    def test_not_found(self, monkeypatch: pytest.MonkeyPatch):
+        def fake_run(cmd, check, capture_output, text):
+            class Result:
+                returncode = 1
+                stdout = ""
+                stderr = "npm ERR! 404 Not Found"
+            return Result()
+
+        monkeypatch.setattr(deps.subprocess, "run", fake_run)
+        result = deps.validate_npm_package("nonexistent-pkg-xyz")
+        assert result["success"] is False
+
+    def test_invalid_spec_skips_subprocess(self):
+        result = deps.validate_npm_package("bad package")
+        assert result["success"] is False
+        assert "Invalid" in result["stderr"]
