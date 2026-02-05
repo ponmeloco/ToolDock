@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -625,6 +626,8 @@ async def start_fastmcp_server(server_id: int, _: str = Depends(verify_token)) -
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     response = _record_to_response(record)
+    # Give the server process time to start listening before syncing
+    await asyncio.sleep(2)
     await _sync_fastmcp_registry()
     await _fanout_fastmcp_reload()
     return response
@@ -660,3 +663,18 @@ async def delete_fastmcp_server(server_id: int, _: str = Depends(verify_token)) 
 
     await _sync_fastmcp_registry()
     return {"success": True, "fanout": await _fanout_fastmcp_reload()}
+
+
+@router.post("/sync")
+async def sync_fastmcp(
+    _: str = Depends(verify_token),
+) -> Dict[str, Any]:
+    """Re-sync running FastMCP servers into the tool registry.
+
+    Call this to pick up tools from servers that were still starting
+    when the last sync ran.
+    """
+    await _sync_fastmcp_registry()
+    fanout = await _fanout_fastmcp_reload()
+    stats = _fastmcp_manager.registry.get_stats() if _fastmcp_manager else {}
+    return {"success": True, "external_tools": stats.get("external", 0), "fanout": fanout}

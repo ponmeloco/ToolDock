@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { getAllTools, executePlaygroundTool, PlaygroundTool } from '../api/client'
+import { getAllTools, executePlaygroundTool, syncFastMcpServers, PlaygroundTool } from '../api/client'
 import { Play, Check, X, Loader2, RefreshCw, FolderTree, Wrench, Server, Globe } from 'lucide-react'
 
 type Transport = 'openapi' | 'mcp'
@@ -66,11 +66,22 @@ export default function Playground() {
     executeMutation.reset()
   }
 
-  const handleScopeSelect = (nextScope: ToolScope) => {
+  const handleScopeSelect = async (nextScope: ToolScope) => {
     setScope(nextScope)
     setSelectedNamespace(null)
     setSelectedTool(null)
     executeMutation.reset()
+    if (nextScope === 'external') {
+      setSyncing(true)
+      try {
+        await syncFastMcpServers()
+      } catch {
+        // best-effort
+      } finally {
+        setSyncing(false)
+      }
+      queryClient.invalidateQueries({ queryKey: ['playgroundTools'] })
+    }
   }
 
   const handleToolSelect = (name: string) => {
@@ -121,7 +132,19 @@ export default function Playground() {
     }
   }
 
-  const handleRefresh = () => {
+  const [syncing, setSyncing] = useState(false)
+
+  const handleRefresh = async () => {
+    if (scope === 'external') {
+      setSyncing(true)
+      try {
+        await syncFastMcpServers()
+      } catch {
+        // sync is best-effort; tools will still be fetched
+      } finally {
+        setSyncing(false)
+      }
+    }
     queryClient.invalidateQueries({ queryKey: ['playgroundTools'] })
   }
 
@@ -158,11 +181,11 @@ export default function Playground() {
 
           <button
             onClick={handleRefresh}
-            disabled={toolsQuery.isRefetching}
+            disabled={toolsQuery.isRefetching || syncing}
             className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 ${toolsQuery.isRefetching ? 'animate-spin' : ''}`} />
-            Refresh Tools
+            <RefreshCw className={`w-4 h-4 ${toolsQuery.isRefetching || syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Refresh Tools'}
           </button>
         </div>
       </div>

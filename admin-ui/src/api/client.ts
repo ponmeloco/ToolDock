@@ -312,6 +312,15 @@ export async function stopFastMcpServer(id: number): Promise<FastMCPServer> {
   return res.json()
 }
 
+export async function syncFastMcpServers(): Promise<{ success: boolean; external_tools: number }> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/sync`, { method: 'POST' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to sync servers')
+  }
+  return res.json()
+}
+
 export async function deleteFastMcpServer(id: number): Promise<void> {
   const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`, { method: 'DELETE' })
   if (!res.ok) {

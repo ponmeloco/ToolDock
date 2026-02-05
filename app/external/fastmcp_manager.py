@@ -584,17 +584,17 @@ class FastMCPServerManager:
 
             proxy = FastMCPHttpProxy(str(sid), url)
             try:
-                for attempt in range(5):
+                for attempt in range(10):
                     try:
                         await proxy.connect()
                         break
                     except Exception as exc:
-                        if attempt == 4:
+                        if attempt == 9:
                             raise
                         logger.warning(
-                            f"FastMCP server {record.namespace} not ready (attempt {attempt + 1}/5): {exc}"
+                            f"FastMCP server {record.namespace} not ready (attempt {attempt + 1}/10): {exc}"
                         )
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(1.0)
             except Exception as exc:
                 logger.warning(f"FastMCP server {record.namespace} failed to connect: {exc}")
                 continue
