@@ -356,11 +356,11 @@ class FastMCPServerManager:
                 version = record.version or pkg.get("version")
                 if not identifier:
                     raise ValueError("Missing package identifier")
-                spec = f"{identifier}=={version}" if version else identifier
                 registry_type = str(pkg.get("registryType", "")).lower()
 
                 if registry_type == "npm":
-                    # npm package: validate via npm view, use npx -y to run
+                    # npm uses @ for version pinning (e.g. @scope/pkg@1.2.3)
+                    spec = f"{identifier}@{version}" if version else identifier
                     validation = validate_npm_package(spec)
                     if not validation.get("success"):
                         raise RuntimeError(
@@ -370,7 +370,8 @@ class FastMCPServerManager:
                     record.command_args = ["-y", spec]
                     record.status = "stopped"
                 else:
-                    # PyPI package: create venv, install, derive module name
+                    # PyPI uses == for version pinning (e.g. pkg==1.2.3)
+                    spec = f"{identifier}=={version}" if version else identifier
                     venv_dir = ensure_venv(namespace)
                     record.venv_path = str(venv_dir)
                     result = install_packages(namespace, [spec])
