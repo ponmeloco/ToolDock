@@ -153,6 +153,53 @@ def create_web_app(
             fastmcp_manager = FastMCPServerManager(registry, manage_processes=True)
             set_fastmcp_context(fastmcp_manager)
 
+            async def _fanout_fastmcp_reload_startup() -> None:
+                """Ask OpenAPI/MCP transport processes to re-sync FastMCP servers.
+
+                The web process is the one that actually starts subprocesses.
+                OpenAPI/MCP can start before those servers are ready, so they
+                need a second sync once the web process has finished startup.
+                """
+                if os.getenv("PYTEST_CURRENT_TEST") is not None:
+                    return
+
+                token = os.getenv("BEARER_TOKEN", "")
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+                host = os.getenv("HOST", "127.0.0.1")
+                if host in {"0.0.0.0", ""}:
+                    host = "127.0.0.1"
+
+                openapi_port = os.getenv("OPENAPI_PORT", "8006")
+                mcp_port = os.getenv("MCP_PORT", "8007")
+
+                targets = [
+                    ("openapi", f"http://{host}:{openapi_port}/admin/fastmcp/reload"),
+                    ("mcp", f"http://{host}:{mcp_port}/admin/fastmcp/reload"),
+                ]
+
+                import httpx
+                import asyncio
+
+                # Retry briefly, because the other transport processes may still be booting.
+                async with httpx.AsyncClient(timeout=0.8) as client:
+                    for attempt in range(6):
+                        any_ok = False
+                        for name, url in targets:
+                            try:
+                                resp = await client.post(url, headers=headers)
+                                if resp.status_code < 400:
+                                    any_ok = True
+                                else:
+                                    logger.debug(
+                                        f"FastMCP startup fanout to {name} failed: {resp.status_code}"
+                                    )
+                            except Exception as exc:
+                                logger.debug(f"FastMCP startup fanout to {name} error: {exc}")
+                        if any_ok:
+                            return
+                        await asyncio.sleep(0.5)
+
             @app.on_event("startup")
             async def _seed_fastmcp_system_installer() -> None:
                 await fastmcp_manager.ensure_system_installer_server()
@@ -165,6 +212,7 @@ def create_web_app(
             async def _sync_fastmcp_from_db() -> None:
                 try:
                     await fastmcp_manager.sync_from_db()
+                    await _fanout_fastmcp_reload_startup()
                 except BaseException as exc:
                     logger.warning(f"FastMCP sync failed (web): {exc}")
         except Exception as exc:

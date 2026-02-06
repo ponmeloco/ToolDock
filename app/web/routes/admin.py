@@ -826,11 +826,6 @@ async def list_namespaces(_: str = Depends(verify_token)) -> NamespacesResponse:
             if _tool_registry:
                 tool_count = len(_tool_registry.list_tools_for_namespace(row.namespace))
 
-            # Skip "running" servers with no tools (ghost entries)
-            # Show stopped servers (user can start them) and running with tools
-            if row.status == "running" and tool_count == 0:
-                continue
-
             namespaces.append(NamespaceInfo(
                 name=row.namespace,
                 type="fastmcp",
