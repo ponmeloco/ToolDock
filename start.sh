@@ -98,6 +98,55 @@ run_with_timeout() {
     return $?
 }
 
+run_with_timeout_live_log() {
+    # Run a command with a timeout while updating a single terminal line with the last log line.
+    # This keeps startup output compact but still shows "where tests are" in real time.
+    local seconds="$1"
+    local log_file="$2"
+    shift 2
+
+    : >"$log_file" 2>/dev/null || true
+
+    local start_ts
+    start_ts="$(date +%s 2>/dev/null || echo 0)"
+
+    set +e
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --kill-after=10 "$seconds" "$@" >"$log_file" 2>&1 &
+    else
+        "$@" >"$log_file" 2>&1 &
+    fi
+    local cmd_pid=$!
+
+    local last_line=""
+    while kill -0 "$cmd_pid" 2>/dev/null; do
+        if [ -s "$log_file" ]; then
+            # shellcheck disable=SC2002
+            local line
+            line="$(tail -n 1 "$log_file" 2>/dev/null | tr -d '\r')"
+            if [ -n "$line" ]; then
+                last_line="$line"
+            fi
+        fi
+
+        local now_ts elapsed
+        now_ts="$(date +%s 2>/dev/null || echo 0)"
+        elapsed=$(( now_ts - start_ts ))
+
+        # Truncate to keep it on one line.
+        printf "\r\033[K  ${YELLOW}…${NC} tests (${elapsed}s): %.120s" "$last_line"
+        sleep 0.2
+    done
+
+    wait "$cmd_pid"
+    local rc=$?
+    set -e
+
+    printf "\r\033[K"
+    echo ""
+    return $rc
+}
+
 # ==================================================
 # Preflight Checks
 # ==================================================
@@ -415,57 +464,72 @@ fi
 # Step 6: Run Unit Tests (optional, dev only)
 # ==================================================
 
+# Test timeout (seconds). Override with TEST_TIMEOUT_SECONDS=...
+TEST_TIMEOUT_SECONDS="${TEST_TIMEOUT_SECONDS:-900}"
+
 # Prefer running tests inside the backend container (stable Python 3.12)
 if [ "$RUN_TESTS" != true ]; then
     print_info "Skipping tests (--skip-tests)"
     TEST_EXIT_CODE=0
 elif docker compose ps --status running -q tooldock-backend 2>/dev/null | grep -q .; then
     print_header "Running Unit Tests"
-    print_info "Running pytest inside tooldock-backend container..."
+    print_info "Running pytest inside tooldock-backend container (timeout: ${TEST_TIMEOUT_SECONDS}s)..."
 
-    # Use --kill-after to ensure cleanup if SIGTERM is ignored
+    TEST_LOG="tooldock_data/logs/startup_pytest_container_$(date +%Y%m%d_%H%M%S).log"
+    print_info "Pytest log: ${TEST_LOG}"
+
     set +e
-    TEST_OUTPUT=$(run_with_timeout 120 docker compose exec -T tooldock-backend python -m pytest tests/ -q --tb=no 2>&1)
+    run_with_timeout_live_log "$TEST_TIMEOUT_SECONDS" "$TEST_LOG" \
+        docker compose exec -T tooldock-backend python -m pytest tests/ -vv --tb=no
     TEST_EXIT_CODE=$?
     set -e
 
     if [ $TEST_EXIT_CODE -eq 124 ] || [ $TEST_EXIT_CODE -eq 137 ]; then
-        print_error "Tests timed out after 120 seconds"
+        print_error "Tests timed out after ${TEST_TIMEOUT_SECONDS} seconds"
         TEST_EXIT_CODE=1
     fi
 
-    SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
+    SUMMARY=$(tail -n 1 "$TEST_LOG" 2>/dev/null | tr -d '\r')
     if [ $TEST_EXIT_CODE -eq 0 ]; then
         print_success "All tests passed: $SUMMARY"
     else
         print_error "Some tests failed: $SUMMARY"
         echo ""
-        echo "Run 'docker compose exec -T tooldock-backend pytest tests/ -v' for details"
+        echo "Last lines from ${TEST_LOG}:"
+        tail -n 80 "$TEST_LOG" 2>/dev/null || true
+        echo ""
+        echo "Re-run: docker compose exec -T tooldock-backend python -m pytest tests/ -vv"
     fi
 else
     # Fallback to host pytest if available
     if command -v pytest &> /dev/null || python -m pytest --version &> /dev/null 2>&1; then
         print_header "Running Unit Tests"
-        print_info "Running pytest on host..."
+        print_info "Running pytest on host (timeout: ${TEST_TIMEOUT_SECONDS}s)..."
 
-        # Use --kill-after to ensure cleanup if SIGTERM is ignored
+        TEST_LOG="tooldock_data/logs/startup_pytest_host_$(date +%Y%m%d_%H%M%S).log"
+        print_info "Pytest log: ${TEST_LOG}"
+
         set +e
-        TEST_OUTPUT=$(run_with_timeout 120 python -m pytest tests/ -q --tb=no 2>&1)
+        run_with_timeout_live_log "$TEST_TIMEOUT_SECONDS" "$TEST_LOG" \
+            python -m pytest tests/ -vv --tb=no
         TEST_EXIT_CODE=$?
         set -e
 
         if [ $TEST_EXIT_CODE -eq 124 ] || [ $TEST_EXIT_CODE -eq 137 ]; then
-            print_error "Tests timed out after 120 seconds"
+            print_error "Tests timed out after ${TEST_TIMEOUT_SECONDS} seconds"
             TEST_EXIT_CODE=1
         fi
 
-        SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
+        SUMMARY=$(tail -n 1 "$TEST_LOG" 2>/dev/null | tr -d '\r')
         if [ $TEST_EXIT_CODE -eq 0 ]; then
             print_success "All tests passed: $SUMMARY"
         else
             print_error "Some tests failed: $SUMMARY"
             echo ""
-            echo "Run 'pytest tests/ -v' for details"
+            echo "Last lines from ${TEST_LOG}:"
+            tail -n 80 "$TEST_LOG" 2>/dev/null || true
+            echo ""
+            echo "Re-run: pytest tests/ -vv"
         fi
     else
         # Skip tests on production servers
