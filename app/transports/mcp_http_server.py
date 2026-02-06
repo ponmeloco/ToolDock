@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import uuid
+from collections import deque
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request, Response, Depends
@@ -121,6 +122,11 @@ def create_mcp_http_app(
     # the server also returns an HTTP response body.
     app.state._mcp_sse_subscribers_global: set[asyncio.Queue] = set()
     app.state._mcp_sse_subscribers_by_ns: dict[str, set[asyncio.Queue]] = {}
+    # Some clients POST first (initialize/tools/list) and only then open the SSE
+    # stream. To avoid losing the response, keep a small pending buffer that is
+    # flushed to the next subscriber.
+    app.state._mcp_sse_pending_global: deque[Dict[str, Any]] = deque(maxlen=50)
+    app.state._mcp_sse_pending_by_ns: dict[str, deque[Dict[str, Any]]] = {}
 
     # Initialize reloader (for admin endpoints)
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
@@ -399,8 +405,20 @@ def create_mcp_http_app(
         q: asyncio.Queue = asyncio.Queue(maxsize=100)
         if namespace:
             app.state._mcp_sse_subscribers_by_ns.setdefault(namespace, set()).add(q)
+            pending = app.state._mcp_sse_pending_by_ns.get(namespace)
+            if pending:
+                while pending:
+                    try:
+                        q.put_nowait(pending.popleft())
+                    except asyncio.QueueFull:
+                        break
         else:
             app.state._mcp_sse_subscribers_global.add(q)
+            while app.state._mcp_sse_pending_global:
+                try:
+                    q.put_nowait(app.state._mcp_sse_pending_global.popleft())
+                except asyncio.QueueFull:
+                    break
         return q
 
     def _unsubscribe_sse(namespace: Optional[str], q: asyncio.Queue) -> None:
@@ -421,6 +439,17 @@ def create_mcp_http_app(
         targets: set[asyncio.Queue] = set(app.state._mcp_sse_subscribers_global)
         if namespace:
             targets |= set(app.state._mcp_sse_subscribers_by_ns.get(namespace, set()))
+
+        # If nobody is listening yet, buffer a few messages so a subsequent
+        # SSE connection can still see the response (common during init).
+        if not targets:
+            if namespace:
+                buf = app.state._mcp_sse_pending_by_ns.setdefault(namespace, deque(maxlen=50))
+                buf.append(payload)
+            else:
+                app.state._mcp_sse_pending_global.append(payload)
+            return
+
         for q in targets:
             try:
                 q.put_nowait(payload)
