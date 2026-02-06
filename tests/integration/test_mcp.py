@@ -181,7 +181,7 @@ class TestMCPInitialize:
     def test_initialize_accept_text_event_stream_returns_sse(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """Some clients send Accept: text/event-stream for POST and expect SSE."""
+        """POST should still work when client sends Accept: text/event-stream."""
         response = client.post(
             "/mcp",
             headers={
@@ -201,10 +201,9 @@ class TestMCPInitialize:
             },
         )
         assert response.status_code == 200
-        assert "text/event-stream" in response.headers.get("content-type", "")
         assert response.headers.get("Mcp-Session-Id")
-        body = response.text
-        assert "data:" in body
+        data = response.json()
+        assert data["result"]["protocolVersion"] == "2024-11-05"
 
     def test_initialize_protocol_header_2024_is_accepted(
         self, client: SyncASGIClient, auth_headers: dict

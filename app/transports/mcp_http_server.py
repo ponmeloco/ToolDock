@@ -384,19 +384,8 @@ def create_mcp_http_app(
         # Client explicitly asked for something incompatible with JSON responses.
         return Response(status_code=406)
 
-    def _wants_sse_response(request: Request) -> bool:
-        # Prefer JSON whenever it is acceptable. Only return SSE when the client
-        # effectively insists on it (e.g. Accept: text/event-stream).
-        accept = request.headers.get("accept", "").lower()
-        if "text/event-stream" not in accept:
-            return False
-        if "application/json" in accept or "*/*" in accept or "application/*" in accept:
-            return False
-        return True
-
     def _sse_single_event(payload: Dict[str, Any]):
         async def gen():
-            # Keep SSE payloads minimal: some clients are picky about `id:` lines.
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
         return gen()
 
@@ -608,12 +597,6 @@ def create_mcp_http_app(
                 # Notification or JSON-RPC response - return 202 Accepted (no content)
                 return Response(status_code=202)
             _publish_sse(namespace, response)
-            if _wants_sse_response(request):
-                return StreamingResponse(
-                    _sse_single_event(response),
-                    media_type="text/event-stream",
-                    headers={"Cache-Control": "no-cache", **_session_headers()},
-                )
             return JSONResponse(content=response, headers=_session_headers())
 
         except json.JSONDecodeError:
@@ -674,12 +657,6 @@ def create_mcp_http_app(
                 # Notification or JSON-RPC response - return 202 Accepted (no content)
                 return Response(status_code=202)
             _publish_sse(None, response)
-            if _wants_sse_response(request):
-                return StreamingResponse(
-                    _sse_single_event(response),
-                    media_type="text/event-stream",
-                    headers={"Cache-Control": "no-cache", **_session_headers()},
-                )
             return JSONResponse(content=response, headers=_session_headers())
 
         except json.JSONDecodeError:
