@@ -9,21 +9,40 @@
 # - Runs unit tests (summary only)
 #
 # Usage:
-#   ./start.sh           # Normal start (uses cached images)
-#   ./start.sh --rebuild # Force rebuild all images
-#   ./start.sh -r        # Short form
+#   ./start.sh              # Normal start (does not rebuild images)
+#   ./start.sh --build|-b   # Build images (uses cache)
+#   ./start.sh --rebuild|-r # Rebuild images (--no-cache, no pull)
+#   ./start.sh --pull       # Build and pull base images
+#   ./start.sh --no-cache   # Build without cache
 #   ./start.sh --skip-tests # Start stack without pytest
 # ==================================================
 
 set -euo pipefail
 
 # Parse arguments
-FORCE_REBUILD=false
+DO_BUILD=false
+BUILD_NO_CACHE=false
+BUILD_PULL=false
 RUN_TESTS=true
 while [ $# -gt 0 ]; do
     case "$1" in
+        --build|-b)
+            DO_BUILD=true
+            shift
+            ;;
         --rebuild|-r)
-            FORCE_REBUILD=true
+            DO_BUILD=true
+            BUILD_NO_CACHE=true
+            shift
+            ;;
+        --no-cache)
+            DO_BUILD=true
+            BUILD_NO_CACHE=true
+            shift
+            ;;
+        --pull)
+            DO_BUILD=true
+            BUILD_PULL=true
             shift
             ;;
         --skip-tests|-s)
@@ -32,7 +51,7 @@ while [ $# -gt 0 ]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./start.sh [--rebuild|-r] [--skip-tests|-s]"
+            echo "Usage: ./start.sh [--build|-b] [--rebuild|-r] [--no-cache] [--pull] [--skip-tests|-s]"
             exit 1
             ;;
     esac
@@ -199,8 +218,8 @@ BEARER_TOKEN=change_me_to_a_secure_token
 ADMIN_PORT=13000
 
 # MCP (strict mode defaults)
-MCP_PROTOCOL_VERSION=2025-11-25
-MCP_PROTOCOL_VERSIONS=2025-11-25,2025-03-26
+MCP_PROTOCOL_VERSION=2024-11-05
+MCP_PROTOCOL_VERSIONS=2024-11-05,2025-03-26,2025-11-25
 
 # CORS (comma-separated origins, or * for all)
 CORS_ORIGINS=*
@@ -289,13 +308,16 @@ print_header "Building Docker Images"
 # Build function with compact output and spinner
 build_image() {
     local service=$1
-    local build_args=""
+    local build_args=()
     local build_status=0
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local spin_index=0
 
-    if [ "$FORCE_REBUILD" = true ]; then
-        build_args="--no-cache --pull"
+    if [ "$BUILD_NO_CACHE" = true ]; then
+        build_args+=("--no-cache")
+    fi
+    if [ "$BUILD_PULL" = true ]; then
+        build_args+=("--pull")
     fi
 
     print_info "Building $service..."
@@ -303,7 +325,7 @@ build_image() {
     # Build with progress output
     if [ -t 1 ]; then
         # Terminal: show spinner with current step
-        docker compose build $service $build_args --progress=plain 2>&1 | \
+        docker compose build "$service" "${build_args[@]}" --progress=plain 2>&1 | \
             while IFS= read -r line; do
                 # Get spinner character
                 local spin_char="${spin_chars:$spin_index:1}"
@@ -315,7 +337,7 @@ build_image() {
         printf "\r\033[K"  # Clear the last line
     else
         # Non-terminal: quiet build
-        docker compose build $service $build_args --quiet 2>&1
+        docker compose build "$service" "${build_args[@]}" --quiet 2>&1
         build_status=$?
     fi
 
@@ -329,12 +351,37 @@ build_image() {
     fi
 }
 
-if [ "$FORCE_REBUILD" = true ]; then
-    print_info "Force rebuild enabled (--no-cache --pull)"
+if [ "$DO_BUILD" = true ]; then
+    if [ "$BUILD_NO_CACHE" = true ] && [ "$BUILD_PULL" = true ]; then
+        print_info "Build enabled (--no-cache --pull)"
+    elif [ "$BUILD_NO_CACHE" = true ]; then
+        print_info "Build enabled (--no-cache)"
+    elif [ "$BUILD_PULL" = true ]; then
+        print_info "Build enabled (--pull)"
+    else
+        print_info "Build enabled (cache)"
+    fi
+else
+    print_info "Skipping build (use --build to build images)"
 fi
 
-build_image "tooldock-backend" || exit 1
-build_image "tooldock-gateway" || exit 1
+if [ "$DO_BUILD" = false ]; then
+    # Auto-build on first run if images are missing.
+    if ! docker image inspect tooldock-backend:latest >/dev/null 2>&1; then
+        DO_BUILD=true
+    fi
+    if ! docker image inspect tooldock-gateway:latest >/dev/null 2>&1; then
+        DO_BUILD=true
+    fi
+    if [ "$DO_BUILD" = true ]; then
+        print_info "Images not found locally, building once (cache)."
+    fi
+fi
+
+if [ "$DO_BUILD" = true ]; then
+    build_image "tooldock-backend" || exit 1
+    build_image "tooldock-gateway" || exit 1
+fi
 
 # ==================================================
 # Step 4: Start Stack
