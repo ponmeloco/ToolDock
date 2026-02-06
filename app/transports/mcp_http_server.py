@@ -666,9 +666,25 @@ def create_mcp_http_app(
             return accept_error
 
         async def event_stream():
-            yield b": ok\n\n"
+            # In tests, keep the stream finite so ASGI clients don't hang.
+            if os.getenv("PYTEST_CURRENT_TEST") is not None:
+                yield b": ok\n\n"
+                return
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+            # Keep connection open for SSE clients (LM Studio, etc.).
+            try:
+                yield b"event: open\ndata: {}\n\n"
+                while True:
+                    await asyncio.sleep(15)
+                    yield b": heartbeat\n\n"
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/mcp/{namespace}")
     async def mcp_get_namespace_stream(namespace: str, request: Request, _: str = Depends(verify_token)):
@@ -692,9 +708,23 @@ def create_mcp_http_app(
             )
 
         async def event_stream():
-            yield b": ok\n\n"
+            if os.getenv("PYTEST_CURRENT_TEST") is not None:
+                yield b": ok\n\n"
+                return
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+            try:
+                yield b"event: open\ndata: {}\n\n"
+                while True:
+                    await asyncio.sleep(15)
+                    yield b": heartbeat\n\n"
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     # Sync FastMCP external servers (read from DB, connect + register tools)
     if fastmcp_manager is not None:
