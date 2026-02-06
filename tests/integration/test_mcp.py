@@ -305,6 +305,29 @@ class TestMCPInitialize:
         data = response.json()
         assert data["result"]["serverInfo"]["name"].endswith("/shared")
 
+    def test_initialize_namespace_sse_alias_post(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """POST /mcp/{namespace}/sse should behave like POST /mcp/{namespace}."""
+        response = client.post(
+            "/mcp/shared/sse",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test-client"},
+                    "capabilities": {},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["result"]["serverInfo"]["name"].endswith("/shared")
+
     def test_initialize_invalid_protocol_version(
         self, client: SyncASGIClient, auth_headers: dict
     ):
@@ -383,6 +406,27 @@ class TestMCPListTools:
         # Should only see 'shared' namespace tools
         assert "greet" in tool_names
         assert "multiply_ten" not in tool_names
+
+    def test_list_tools_namespace_sse_alias_post(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """POST /mcp/{namespace}/sse should behave like POST /mcp/{namespace}."""
+        response = client.post(
+            "/mcp/shared/sse",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        tools = data["result"]["tools"]
+        tool_names = [t["name"] for t in tools]
+        assert "greet" in tool_names
 
     def test_list_tools_includes_schema(
         self, client: SyncASGIClient, auth_headers: dict

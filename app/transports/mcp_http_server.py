@@ -798,9 +798,15 @@ def create_mcp_http_app(
             headers={"Cache-Control": "no-cache", **_session_headers()},
         )
 
-    @app.get("/mcp/sse")
-    async def mcp_get_stream_alias(request: Request, _: str = Depends(verify_token)):
-        """Alias for clients that expect an explicit /sse endpoint."""
+    @app.api_route("/mcp/sse", methods=["GET", "POST"])
+    async def mcp_sse_alias(request: Request, _: str = Depends(verify_token)):
+        """
+        Compatibility endpoint for clients that use /sse for both:
+        - GET: open SSE stream
+        - POST: send JSON-RPC messages
+        """
+        if request.method == "POST":
+            return await mcp_endpoint(request, _)
         return await mcp_get_stream(request, _)
 
     @app.get("/mcp/{namespace}")
@@ -849,9 +855,15 @@ def create_mcp_http_app(
             headers={"Cache-Control": "no-cache", **_session_headers()},
         )
 
-    @app.get("/mcp/{namespace}/sse")
-    async def mcp_get_namespace_stream_alias(namespace: str, request: Request, _: str = Depends(verify_token)):
-        """Alias for clients that expect an explicit /sse endpoint."""
+    @app.api_route("/mcp/{namespace}/sse", methods=["GET", "POST"])
+    async def mcp_namespace_sse_alias(namespace: str, request: Request, _: str = Depends(verify_token)):
+        """
+        Compatibility endpoint for clients that use /sse for both:
+        - GET: open SSE stream
+        - POST: send JSON-RPC messages
+        """
+        if request.method == "POST":
+            return await mcp_namespace_endpoint(namespace, request, _)
         return await mcp_get_namespace_stream(namespace, request, _)
 
     # Sync FastMCP external servers (read from DB, connect + register tools)
