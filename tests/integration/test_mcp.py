@@ -116,10 +116,28 @@ class TestHealthEndpoint:
         assert response.status_code == 200
         assert "text/event-stream" in response.headers.get("content-type", "")
 
+    def test_get_mcp_stream_alias(self, client: SyncASGIClient, auth_headers: dict):
+        """GET /mcp/sse returns SSE stream for compatibility with some clients."""
+        response = client.get(
+            "/mcp/sse",
+            headers={**auth_headers, "Accept": "text/event-stream"},
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+
     def test_get_mcp_namespace_stream(self, client: SyncASGIClient, auth_headers: dict):
         """GET /mcp/{namespace} returns SSE stream when Accept is correct."""
         response = client.get(
             "/mcp/shared",
+            headers={**auth_headers, "Accept": "text/event-stream"},
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+
+    def test_get_mcp_namespace_stream_alias(self, client: SyncASGIClient, auth_headers: dict):
+        """GET /mcp/{namespace}/sse returns SSE stream for compatibility with some clients."""
+        response = client.get(
+            "/mcp/shared/sse",
             headers={**auth_headers, "Accept": "text/event-stream"},
         )
         assert response.status_code == 200

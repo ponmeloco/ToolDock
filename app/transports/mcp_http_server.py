@@ -794,6 +794,11 @@ def create_mcp_http_app(
             headers={"Cache-Control": "no-cache", **_session_headers()},
         )
 
+    @app.get("/mcp/sse")
+    async def mcp_get_stream_alias(request: Request, _: str = Depends(verify_token)):
+        """Alias for clients that expect an explicit /sse endpoint."""
+        return await mcp_get_stream(request, _)
+
     @app.get("/mcp/{namespace}")
     async def mcp_get_namespace_stream(namespace: str, request: Request, _: str = Depends(verify_token)):
         """GET /mcp/{namespace} opens an SSE stream (may be idle)."""
@@ -839,6 +844,11 @@ def create_mcp_http_app(
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", **_session_headers()},
         )
+
+    @app.get("/mcp/{namespace}/sse")
+    async def mcp_get_namespace_stream_alias(namespace: str, request: Request, _: str = Depends(verify_token)):
+        """Alias for clients that expect an explicit /sse endpoint."""
+        return await mcp_get_namespace_stream(namespace, request, _)
 
     # Sync FastMCP external servers (read from DB, connect + register tools)
     if fastmcp_manager is not None:
