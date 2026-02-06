@@ -25,9 +25,11 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request, Response, Depends
@@ -45,15 +47,22 @@ from app.utils import get_cors_origins
 logger = logging.getLogger("mcp-http")
 
 SERVER_NAME = os.getenv("MCP_SERVER_NAME", "tooldock")
-PROTOCOL_VERSION = os.getenv("MCP_PROTOCOL_VERSION", "2025-11-25")
+# Default to the oldest widely-supported protocol version for compatibility
+# with clients (LM Studio, Claude Desktop bridges, etc.).
+PROTOCOL_VERSION = os.getenv("MCP_PROTOCOL_VERSION", "2024-11-05")
 _supported_versions_env = os.getenv("MCP_PROTOCOL_VERSIONS")
 if _supported_versions_env:
     _supported_versions = _supported_versions_env
 else:
     _supported_versions = (
-        f"{PROTOCOL_VERSION},2025-03-26"
-        if PROTOCOL_VERSION != "2025-03-26"
-        else PROTOCOL_VERSION
+        ",".join(
+            [
+                PROTOCOL_VERSION,
+                # Keep newer specs supported by default.
+                "2025-03-26",
+                "2025-11-25",
+            ]
+        )
     )
 SUPPORTED_PROTOCOL_VERSIONS = [
     v.strip() for v in _supported_versions.split(",") if v.strip()
@@ -104,6 +113,9 @@ def create_mcp_http_app(
 
     # Store registry in app state
     app.state.registry = registry
+    # Many MCP clients expect a session identifier header (even if the transport
+    # itself does not define durable sessions). Use a stable per-process value.
+    app.state.mcp_session_id = str(uuid.uuid4())
 
     # Initialize reloader (for admin endpoints)
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
@@ -139,12 +151,17 @@ def create_mcp_http_app(
         logger.info(f"MCP Initialize from client: {client_info.get('name', 'unknown')}{ns_info}")
 
         server_name = f"{SERVER_NAME}/{namespace}" if namespace else SERVER_NAME
+        negotiated_version = (
+            requested_version
+            if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+            else PROTOCOL_VERSION
+        )
 
         return {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
-                "protocolVersion": PROTOCOL_VERSION,
+                "protocolVersion": negotiated_version,
                 "capabilities": {
                     "tools": {
                         "listChanged": False
@@ -336,7 +353,11 @@ def create_mcp_http_app(
             # Per spec, assume default if absent
             return None
         if version not in SUPPORTED_PROTOCOL_VERSIONS:
-            return Response(status_code=400)
+            # Some clients send older/newer versions; failing hard here breaks
+            # interoperability. We still validate the negotiated version during
+            # `initialize` (params.protocolVersion).
+            logger.warning(f"Ignoring unsupported MCP-Protocol-Version header: {version}")
+            return None
         return None
 
     def _validate_accept_header(request: Request, require_stream: bool = False) -> Optional[Response]:
@@ -349,10 +370,32 @@ def create_mcp_http_app(
         # allow missing Accept, */*, application/*, or application/json.
         if not accept:
             return None
+        # Some clients send only text/event-stream even for POST, expecting
+        # a single-event SSE response.
+        if "text/event-stream" in accept:
+            return None
         if "*/*" in accept or "application/*" in accept or "application/json" in accept:
             return None
         # Client explicitly asked for something incompatible with JSON responses.
         return Response(status_code=406)
+
+    def _wants_sse_response(request: Request) -> bool:
+        # Prefer JSON whenever it is acceptable. Only return SSE when the client
+        # effectively insists on it (e.g. Accept: text/event-stream).
+        accept = request.headers.get("accept", "").lower()
+        if "text/event-stream" not in accept:
+            return False
+        if "application/json" in accept or "*/*" in accept or "application/*" in accept:
+            return False
+        return True
+
+    def _sse_single_event(payload: Dict[str, Any]):
+        async def gen():
+            yield f"id: {uuid.uuid4()}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+        return gen()
+
+    def _session_headers() -> Dict[str, str]:
+        return {"Mcp-Session-Id": getattr(app.state, "mcp_session_id", "")}
 
     async def process_jsonrpc_request(
         body: Dict[str, Any],
@@ -521,7 +564,13 @@ def create_mcp_http_app(
             if response is None:
                 # Notification or JSON-RPC response - return 202 Accepted (no content)
                 return Response(status_code=202)
-            return JSONResponse(content=response)
+            if _wants_sse_response(request):
+                return StreamingResponse(
+                    _sse_single_event(response),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", **_session_headers()},
+                )
+            return JSONResponse(content=response, headers=_session_headers())
 
         except json.JSONDecodeError:
             logger.error("MCP: JSON parse error")
@@ -535,6 +584,7 @@ def create_mcp_http_app(
                     }
                 },
                 status_code=200,
+                headers=_session_headers(),
             )
 
         except Exception:
@@ -549,6 +599,7 @@ def create_mcp_http_app(
                     }
                 },
                 status_code=200,
+                headers=_session_headers(),
             )
 
     @app.post("/mcp")
@@ -578,7 +629,13 @@ def create_mcp_http_app(
             if response is None:
                 # Notification or JSON-RPC response - return 202 Accepted (no content)
                 return Response(status_code=202)
-            return JSONResponse(content=response)
+            if _wants_sse_response(request):
+                return StreamingResponse(
+                    _sse_single_event(response),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", **_session_headers()},
+                )
+            return JSONResponse(content=response, headers=_session_headers())
 
         except json.JSONDecodeError:
             logger.error("MCP: JSON parse error")
@@ -592,6 +649,7 @@ def create_mcp_http_app(
                     }
                 },
                 status_code=200,
+                headers=_session_headers(),
             )
 
         except Exception:
@@ -606,6 +664,7 @@ def create_mcp_http_app(
                     }
                 },
                 status_code=200,
+                headers=_session_headers(),
             )
 
     @app.get("/mcp/info")
@@ -683,7 +742,7 @@ def create_mcp_http_app(
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache"},
+            headers={"Cache-Control": "no-cache", **_session_headers()},
         )
 
     @app.get("/mcp/{namespace}")
@@ -723,13 +782,12 @@ def create_mcp_http_app(
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache"},
+            headers={"Cache-Control": "no-cache", **_session_headers()},
         )
 
     # Sync FastMCP external servers (read from DB, connect + register tools)
     if fastmcp_manager is not None:
         try:
-            import asyncio
             asyncio.run(fastmcp_manager.sync_from_db())
         except BaseException as exc:
             logger.warning(f"FastMCP sync failed: {exc}")

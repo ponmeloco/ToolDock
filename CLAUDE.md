@@ -105,8 +105,8 @@ def register_tools(registry: ToolRegistry) -> None:
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
 | `METRICS_RETENTION_DAYS` | `30` | Days to keep metrics in SQLite |
-| `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
-| `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
+| `MCP_PROTOCOL_VERSION` | `2024-11-05` | Default MCP protocol version |
+| `MCP_PROTOCOL_VERSIONS` | `2024-11-05,2025-03-26,2025-11-25` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 | `FASTMCP_DEMO_ENABLED` | `false` | Enable/disable seeded demo FastMCP server |
 | `FASTMCP_INSTALLER_ENABLED` | `true` | Enable/disable built-in installer MCP server |
@@ -184,7 +184,7 @@ curl -X POST http://localhost:13000/api/reload \
 - JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header validated against `CORS_ORIGINS`
-- `MCP-Protocol-Version` validated if present
+- `MCP-Protocol-Version` accepted if present (unsupported values ignored for compatibility)
 
 ### Persistent Logging
 - Daily log files: `DATA_DIR/logs/YYYY-MM-DD.jsonl`

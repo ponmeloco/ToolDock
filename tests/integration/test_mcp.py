@@ -158,6 +158,79 @@ class TestMCPInitialize:
         assert "result" in data
         assert "protocolVersion" in data["result"]
         assert "serverInfo" in data["result"]
+        assert response.headers.get("Mcp-Session-Id")
+
+    def test_initialize_accept_text_event_stream_returns_sse(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Some clients send Accept: text/event-stream for POST and expect SSE."""
+        response = client.post(
+            "/mcp",
+            headers={
+                **auth_headers,
+                "Accept": "text/event-stream",
+                "MCP-Protocol-Version": "2024-11-05",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test-client", "version": "1.0.0"},
+                    "capabilities": {},
+                },
+            },
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+        assert response.headers.get("Mcp-Session-Id")
+        body = response.text
+        assert "data:" in body
+
+    def test_initialize_protocol_header_2024_is_accepted(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Header MCP-Protocol-Version=2024-11-05 should not be rejected."""
+        response = client.post(
+            "/mcp",
+            headers={**auth_headers, "MCP-Protocol-Version": "2024-11-05"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test-client", "version": "1.0.0"},
+                    "capabilities": {},
+                },
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["result"]["protocolVersion"] == "2024-11-05"
+
+    def test_initialize_unknown_protocol_header_is_ignored(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Unknown MCP-Protocol-Version header should not hard-fail the request."""
+        response = client.post(
+            "/mcp",
+            headers={**auth_headers, "MCP-Protocol-Version": "1900-01-01"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "clientInfo": {"name": "test-client", "version": "1.0.0"},
+                    "capabilities": {},
+                },
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "result" in data
 
     def test_initialize_missing_accept_header(self, client: SyncASGIClient, auth_headers: dict):
         """Missing Accept header is accepted for JSON-RPC POST compatibility."""
@@ -529,7 +602,7 @@ class TestMCPAuthentication:
         assert response.status_code == 403
 
     def test_protocol_header_rejected(self, client: SyncASGIClient, auth_headers: dict):
-        """Unsupported MCP-Protocol-Version header is rejected."""
+        """Unsupported MCP-Protocol-Version header is ignored for compatibility."""
         response = client.post(
             "/mcp",
             headers={**auth_headers, "MCP-Protocol-Version": "1900-01-01"},
@@ -539,7 +612,7 @@ class TestMCPAuthentication:
                 "method": "ping",
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 200
 
 
 # ==================== JSON-RPC Error Handling Tests ====================

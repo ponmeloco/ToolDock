@@ -152,7 +152,8 @@ tooldock_data/tools/
 - JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header is validated against `CORS_ORIGINS`
-- `MCP-Protocol-Version` is validated if present; supported versions via `MCP_PROTOCOL_VERSIONS`
+- `MCP-Protocol-Version` is accepted if present (unsupported values are ignored for compatibility)
+- Negotiation happens via `initialize.params.protocolVersion` (supported versions via `MCP_PROTOCOL_VERSIONS`)
 
 ---
 
@@ -327,8 +328,8 @@ Environment variables control behavior:
 | `LOG_LEVEL` | `INFO` | Logging level |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
 | `METRICS_RETENTION_DAYS` | `30` | Days to keep metrics in SQLite |
-| `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
-| `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
+| `MCP_PROTOCOL_VERSION` | `2024-11-05` | Default MCP protocol version |
+| `MCP_PROTOCOL_VERSIONS` | `2024-11-05,2025-03-26,2025-11-25` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 
 ---
