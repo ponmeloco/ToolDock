@@ -396,11 +396,12 @@ def create_mcp_http_app(
 
     def _sse_single_event(payload: Dict[str, Any]):
         async def gen():
-            yield f"id: {uuid.uuid4()}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+            # Keep SSE payloads minimal: some clients are picky about `id:` lines.
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
         return gen()
 
     def _sse_message(payload: Dict[str, Any]) -> bytes:
-        return f"id: {uuid.uuid4()}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
 
     def _session_headers() -> Dict[str, str]:
         return {"Mcp-Session-Id": getattr(app.state, "mcp_session_id", "")}
@@ -776,7 +777,10 @@ def create_mcp_http_app(
 
             q = _subscribe_sse(None)
             try:
-                yield b"event: open\ndata: {}\n\n"
+                # Some clients (e.g. LiteLLM's MCP streamable HTTP client) expect
+                # SSE `data:` payloads to be JSON-RPC messages. Avoid sending a
+                # non-JSON-RPC "open" event that can cause parse errors.
+                yield b": connected\n\n"
                 while True:
                     try:
                         item = await asyncio.wait_for(q.get(), timeout=15)
@@ -827,7 +831,7 @@ def create_mcp_http_app(
 
             q = _subscribe_sse(namespace)
             try:
-                yield b"event: open\ndata: {}\n\n"
+                yield b": connected\n\n"
                 while True:
                     try:
                         item = await asyncio.wait_for(q.get(), timeout=15)
