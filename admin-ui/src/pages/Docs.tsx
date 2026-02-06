@@ -72,14 +72,14 @@ function buildCategories(
         },
         {
           method: 'GET',
-          path: '/api/folders/{namespace}/tools',
+          path: '/api/folders/{namespace}/files',
           description: 'List tools in a namespace',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
           method: 'GET',
-          path: '/api/folders/{namespace}/tools/{filename}',
+          path: '/api/folders/{namespace}/files/{filename}',
           description: 'Get tool content',
           auth: true,
           pathParams: [
@@ -89,7 +89,7 @@ function buildCategories(
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/create-from-template',
+          path: '/api/folders/{namespace}/files/create-from-template',
           description: 'Create tool from template',
           auth: true,
           body: '{"name":"my_tool"}',
@@ -97,7 +97,7 @@ function buildCategories(
         },
         {
           method: 'PUT',
-          path: '/api/folders/{namespace}/tools/{filename}',
+          path: '/api/folders/{namespace}/files/{filename}',
           description: 'Update tool content',
           auth: true,
           body: '{"content":"# Updated content"}',
@@ -108,21 +108,21 @@ function buildCategories(
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/validate',
+          path: '/api/folders/{namespace}/files/validate',
           description: 'Validate tool without saving',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
           method: 'GET',
-          path: '/api/folders/{namespace}/tools/deps',
+          path: '/api/folders/{namespace}/files/deps',
           description: 'Get namespace dependencies (venv + packages)',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/install',
+          path: '/api/folders/{namespace}/files/deps/install',
           description: 'Install namespace dependencies',
           auth: true,
           body: '{"requirements":"requests==2.32.0"}',
@@ -130,14 +130,14 @@ function buildCategories(
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/create',
+          path: '/api/folders/{namespace}/files/deps/create',
           description: 'Create namespace venv',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/uninstall',
+          path: '/api/folders/{namespace}/files/deps/uninstall',
           description: 'Uninstall namespace dependencies (pip protected)',
           auth: true,
           body: '{"packages":["requests"]}',
@@ -145,7 +145,7 @@ function buildCategories(
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/delete',
+          path: '/api/folders/{namespace}/files/deps/delete',
           description: 'Delete namespace venv',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
@@ -778,7 +778,7 @@ export default function Docs() {
                 localStorage.setItem('tooldock_openapi_base', e.target.value)
               }}
               disabled={useAdminProxy}
-              placeholder={defaultOpenapiBase || 'http://localhost:18006'}
+              placeholder={defaultOpenapiBase || 'http://localhost:8006'}
               className={`w-full px-3 py-2 border rounded-lg outline-none font-mono text-sm ${
                 useAdminProxy
                   ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
@@ -796,7 +796,7 @@ export default function Docs() {
                 localStorage.setItem('tooldock_mcp_base', e.target.value)
               }}
               disabled={useAdminProxy}
-              placeholder={defaultMcpBase || 'http://localhost:18007'}
+              placeholder={defaultMcpBase || 'http://localhost:8007'}
               className={`w-full px-3 py-2 border rounded-lg outline-none font-mono text-sm ${
                 useAdminProxy
                   ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'

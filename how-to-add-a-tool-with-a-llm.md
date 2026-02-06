@@ -25,7 +25,7 @@ Option 1 - File system:
 nano tooldock_data/tools/shared/my_tool.py
 
 # Hot reload (no restart needed)
-curl -X POST http://localhost:18080/api/reload/shared \
+curl -X POST http://localhost:13000/api/reload/shared \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -36,7 +36,7 @@ Option 2 - Admin UI:
 
 Option 3 - API:
 ```bash
-curl -X POST http://localhost:18080/api/folders/shared/tools \
+curl -X POST http://localhost:13000/api/folders/shared/files \
   -H "Authorization: Bearer <token>" \
   -F "file=@my_tool.py"
 ```

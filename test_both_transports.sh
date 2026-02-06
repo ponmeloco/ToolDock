@@ -270,7 +270,7 @@ fi
 echo ""
 
 echo ">>> List Tools in 'shared' folder:"
-FOLDER_TOOLS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/folders/shared/tools")
+FOLDER_TOOLS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/folders/shared/files")
 echo "$FOLDER_TOOLS" | $JQ
 if echo "$FOLDER_TOOLS" | grep -q '"tools"'; then
     pass "Backend API list tools in shared"

@@ -270,7 +270,7 @@ class TestToolsAPI:
 
     def test_list_tools(self, client: SyncASGIClient, auth_headers: dict):
         """Test listing tools in a namespace."""
-        response = client.get("/api/folders/shared/tools", headers=auth_headers)
+        response = client.get("/api/folders/shared/files", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -279,7 +279,7 @@ class TestToolsAPI:
 
     def test_list_tools_requires_auth(self, client: SyncASGIClient):
         """Test listing tools requires auth."""
-        response = client.get("/api/folders/shared/tools")
+        response = client.get("/api/folders/shared/files")
 
         assert response.status_code == 401
 
@@ -288,7 +288,7 @@ class TestToolsAPI:
     ):
         """Test listing tools in nonexistent namespace."""
         response = client.get(
-            "/api/folders/nonexistent/tools", headers=auth_headers
+            "/api/folders/nonexistent/files", headers=auth_headers
         )
 
         assert response.status_code == 404
@@ -343,7 +343,7 @@ class TestCreateToolFromTemplate:
         shared_dir.mkdir(exist_ok=True)
 
         response = client.post(
-            "/api/folders/shared/tools/create-from-template",
+            "/api/folders/shared/files/create-from-template",
             headers=auth_headers,
             json={"name": "my_new_tool"},
         )
@@ -371,7 +371,7 @@ class TestCreateToolFromTemplate:
     ):
         """Test tool name must be snake_case."""
         response = client.post(
-            "/api/folders/shared/tools/create-from-template",
+            "/api/folders/shared/files/create-from-template",
             headers=auth_headers,
             json={"name": "MyTool"},  # PascalCase not allowed
         )
@@ -386,7 +386,7 @@ class TestCreateToolFromTemplate:
     ):
         """Test tool name rejects invalid characters."""
         response = client.post(
-            "/api/folders/shared/tools/create-from-template",
+            "/api/folders/shared/files/create-from-template",
             headers=auth_headers,
             json={"name": "my-tool"},  # Hyphens not allowed
         )
@@ -406,7 +406,7 @@ class TestCreateToolFromTemplate:
         (shared_dir / "existing_tool.py").write_text("# existing")
 
         response = client.post(
-            "/api/folders/shared/tools/create-from-template",
+            "/api/folders/shared/files/create-from-template",
             headers=auth_headers,
             json={"name": "existing_tool"},
         )
@@ -417,7 +417,7 @@ class TestCreateToolFromTemplate:
     def test_create_tool_requires_auth(self, client: SyncASGIClient):
         """Test create-from-template requires authentication."""
         response = client.post(
-            "/api/folders/shared/tools/create-from-template",
+            "/api/folders/shared/files/create-from-template",
             json={"name": "test_tool"},
         )
 
@@ -430,7 +430,7 @@ class TestCreateToolFromTemplate:
     ):
         """Test creating tool in nonexistent namespace."""
         response = client.post(
-            "/api/folders/nonexistent/tools/create-from-template",
+            "/api/folders/nonexistent/files/create-from-template",
             headers=auth_headers,
             json={"name": "test_tool"},
         )
@@ -442,7 +442,7 @@ class TestCreateToolFromTemplate:
 
 
 class TestGetTool:
-    """Tests for GET /api/folders/{namespace}/tools/{filename} endpoint."""
+    """Tests for GET /api/folders/{namespace}/files/{filename} endpoint."""
 
     def test_get_tool_success(
         self,
@@ -470,7 +470,7 @@ def register_tools(registry):
         (shared_dir / "test_tool.py").write_text(tool_content)
 
         response = client.get(
-            "/api/folders/shared/tools/test_tool.py",
+            "/api/folders/shared/files/test_tool.py",
             headers=auth_headers,
         )
 
@@ -492,7 +492,7 @@ def register_tools(registry):
         shared_dir.mkdir(exist_ok=True)
 
         response = client.get(
-            "/api/folders/shared/tools/nonexistent.py",
+            "/api/folders/shared/files/nonexistent.py",
             headers=auth_headers,
         )
 
@@ -517,7 +517,7 @@ def register_tools(registry):
 
         for attempt in traversal_attempts:
             response = client.get(
-                f"/api/folders/shared/tools/{attempt}",
+                f"/api/folders/shared/files/{attempt}",
                 headers=auth_headers,
             )
             # Should be blocked - either as invalid filename (400) or not found (404)
@@ -531,7 +531,7 @@ def register_tools(registry):
     ):
         """Test invalid filename is rejected."""
         response = client.get(
-            "/api/folders/shared/tools/not_python.txt",
+            "/api/folders/shared/files/not_python.txt",
             headers=auth_headers,
         )
 
@@ -542,7 +542,7 @@ def register_tools(registry):
 
 
 class TestUpdateTool:
-    """Tests for PUT /api/folders/{namespace}/tools/{filename} endpoint."""
+    """Tests for PUT /api/folders/{namespace}/files/{filename} endpoint."""
 
     def test_update_tool_success(
         self,
@@ -583,7 +583,7 @@ def register_tools(registry):
 '''
 
         response = client.put(
-            "/api/folders/shared/tools/update_test.py",
+            "/api/folders/shared/files/update_test.py",
             headers=auth_headers,
             json={"content": new_content, "skip_validation": False},
         )
@@ -607,7 +607,7 @@ def register_tools(registry):
         shared_dir.mkdir(exist_ok=True)
 
         response = client.put(
-            "/api/folders/shared/tools/nonexistent.py",
+            "/api/folders/shared/files/nonexistent.py",
             headers=auth_headers,
             json={"content": "# test", "skip_validation": True},
         )
@@ -628,7 +628,7 @@ def register_tools(registry):
         invalid_content = "def broken syntax("
 
         response = client.put(
-            "/api/folders/shared/tools/validate_test.py",
+            "/api/folders/shared/files/validate_test.py",
             headers=auth_headers,
             json={"content": invalid_content, "skip_validation": False},
         )
@@ -645,7 +645,7 @@ def register_tools(registry):
     ):
         """Test update requires valid JSON body."""
         response = client.put(
-            "/api/folders/shared/tools/test.py",
+            "/api/folders/shared/files/test.py",
             headers=auth_headers,
             content="not json",
         )
@@ -657,7 +657,7 @@ def register_tools(registry):
 
 
 class TestDeleteTool:
-    """Tests for DELETE /api/folders/{namespace}/tools/{filename} endpoint."""
+    """Tests for DELETE /api/folders/{namespace}/files/{filename} endpoint."""
 
     def test_delete_tool_success(
         self,
@@ -674,7 +674,7 @@ class TestDeleteTool:
         assert tool_file.exists()
 
         response = client.delete(
-            "/api/folders/shared/tools/to_delete.py",
+            "/api/folders/shared/files/to_delete.py",
             headers=auth_headers,
         )
 
@@ -696,7 +696,7 @@ class TestDeleteTool:
         shared_dir.mkdir(exist_ok=True)
 
         response = client.delete(
-            "/api/folders/shared/tools/nonexistent.py",
+            "/api/folders/shared/files/nonexistent.py",
             headers=auth_headers,
         )
 
@@ -707,7 +707,7 @@ class TestDeleteTool:
 
 
 class TestValidateTool:
-    """Tests for POST /api/folders/{namespace}/tools/validate endpoint."""
+    """Tests for POST /api/folders/{namespace}/files/validate endpoint."""
 
     def test_validate_valid_tool(
         self,
@@ -728,7 +728,7 @@ def register_tools(registry):
     registry.register(ToolDefinition(name="test", description="Test", input_model=TestInput, handler=handler))
 '''
         response = client.post(
-            "/api/folders/shared/tools/validate",
+            "/api/folders/shared/files/validate",
             headers=auth_headers,
             files={"file": ("test.py", valid_content, "text/plain")},
         )
@@ -746,7 +746,7 @@ def register_tools(registry):
         invalid_content = "def broken("
 
         response = client.post(
-            "/api/folders/shared/tools/validate",
+            "/api/folders/shared/files/validate",
             headers=auth_headers,
             files={"file": ("test.py", invalid_content, "text/plain")},
         )
@@ -758,7 +758,7 @@ def register_tools(registry):
 
 
 class TestUploadTool:
-    """Tests for POST /api/folders/{namespace}/tools endpoint."""
+    """Tests for POST /api/folders/{namespace}/files endpoint."""
 
     def test_upload_tool_success(
         self,
@@ -784,7 +784,7 @@ def register_tools(registry):
 """.strip()
 
         response = client.post(
-            f"/api/folders/{ns}/tools",
+            f"/api/folders/{ns}/files",
             headers=auth_headers,
             files={"file": ("upload_tool.py", content, "text/plain")},
         )
@@ -801,7 +801,7 @@ def register_tools(registry):
         auth_headers: dict,
     ):
         response = client.post(
-            "/api/folders/missing_ns/tools",
+            "/api/folders/missing_ns/files",
             headers=auth_headers,
             files={"file": ("tool.py", "# test", "text/plain")},
         )
@@ -840,16 +840,16 @@ class TestDependenciesAPI:
             lambda namespace, packages: {"success": True, "stdout": "removed", "stderr": ""},
         )
 
-        response = client.get(f"/api/folders/{ns}/tools/deps", headers=auth_headers)
+        response = client.get(f"/api/folders/{ns}/files/deps", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()["exists"] is True
 
-        response = client.post(f"/api/folders/{ns}/tools/deps/create", headers=auth_headers)
+        response = client.post(f"/api/folders/{ns}/files/deps/create", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()["success"] is True
 
         response = client.post(
-            f"/api/folders/{ns}/tools/deps/install",
+            f"/api/folders/{ns}/files/deps/install",
             headers=auth_headers,
             json={"requirements": "httpx==0.28.1"},
         )
@@ -857,14 +857,14 @@ class TestDependenciesAPI:
         assert response.json()["success"] is True
 
         response = client.post(
-            f"/api/folders/{ns}/tools/deps/uninstall",
+            f"/api/folders/{ns}/files/deps/uninstall",
             headers=auth_headers,
             json={"packages": ["httpx"]},
         )
         assert response.status_code == 200
         assert response.json()["success"] is True
 
-        response = client.post(f"/api/folders/{ns}/tools/deps/delete", headers=auth_headers)
+        response = client.post(f"/api/folders/{ns}/files/deps/delete", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()["deleted"] is True
 
@@ -878,7 +878,7 @@ class TestDependenciesAPI:
         (tools_dir / ns).mkdir(parents=True, exist_ok=True)
 
         response = client.post(
-            f"/api/folders/{ns}/tools/deps/install",
+            f"/api/folders/{ns}/files/deps/install",
             headers=auth_headers,
             json={},
         )

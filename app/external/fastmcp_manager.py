@@ -10,6 +10,7 @@ import re
 import shutil
 import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -712,7 +713,16 @@ class FastMCPServerManager:
             if not record.entrypoint and not record.startup_command:
                 raise ValueError("Missing entrypoint or startup_command")
 
-            port = record.port or _find_free_port()
+            preferred_port = record.port
+            if preferred_port and _is_port_available(preferred_port):
+                port = preferred_port
+            else:
+                if preferred_port:
+                    logger.warning(
+                        f"FastMCP server {record.namespace} requested port {preferred_port} "
+                        "is unavailable, selecting a new free port"
+                    )
+                port = _find_free_port()
             record.port = port
 
             log_path = _get_logs_dir() / f"{record.namespace}.log"
@@ -746,6 +756,17 @@ class FastMCPServerManager:
                 stdout=log_file,
                 stderr=log_file,
             )
+
+            # Surface immediate startup failures (e.g. bad command, bind errors).
+            time.sleep(0.2)
+            exit_code = process.poll()
+            if exit_code is not None:
+                record.pid = None
+                record.status = "error"
+                record.last_error = f"Server process exited immediately with code {exit_code}"
+                db.commit()
+                db.refresh(record)
+                return record
 
             record.pid = process.pid
             record.status = "running"
@@ -828,6 +849,13 @@ class FastMCPServerManager:
                 select(ExternalFastMCPServer).where(ExternalFastMCPServer.status == "running")
             ).scalars().all()
             for row in rows:
+                # Repair stale DB state where a process died but status stayed "running".
+                if row.transport_type != "http" and row.pid and not _is_pid_alive(row.pid):
+                    row.pid = None
+                    row.status = "stopped"
+                    row.last_error = "Server process is no longer running"
+                    db.commit()
+                    continue
                 running[row.id] = row
 
         # Remove proxies for stopped servers
@@ -839,9 +867,6 @@ class FastMCPServerManager:
 
         # Connect and register tools for running servers
         for sid, record in running.items():
-            if sid in self._proxies:
-                continue
-
             # Determine URL based on transport type
             if record.transport_type == "http" and record.server_url:
                 url = record.server_url
@@ -850,6 +875,14 @@ class FastMCPServerManager:
             else:
                 logger.warning(f"FastMCP server {record.namespace} missing port/url; skipping")
                 continue
+
+            existing_proxy = self._proxies.get(sid)
+            if existing_proxy is not None and existing_proxy.url == url and existing_proxy.is_connected:
+                continue
+
+            if existing_proxy is not None:
+                await existing_proxy.disconnect()
+                self._proxies.pop(sid, None)
 
             proxy = FastMCPHttpProxy(str(sid), url)
             try:
@@ -867,6 +900,9 @@ class FastMCPServerManager:
             except Exception as exc:
                 logger.warning(f"FastMCP server {record.namespace} failed to connect: {exc}")
                 continue
+
+            # Ensure idempotent sync for this server id.
+            self.registry.unregister_external_server(str(sid))
 
             # Register tools
             for tool in proxy.get_tool_schemas(record.namespace):
@@ -1084,14 +1120,19 @@ def _entrypoint_cwd(entrypoint: str | None, namespace: str | None = None) -> Opt
 
 def _find_free_port(start: int = DEFAULT_PORT_START, end: int = DEFAULT_PORT_END) -> int:
     for port in range(start, end + 1):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                sock.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
+        if _is_port_available(port):
+            return port
     raise RuntimeError("No free ports available")
+
+
+def _is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
 
 
 def _run_cmd(cmd: list[str]) -> None:

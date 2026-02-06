@@ -26,7 +26,7 @@ from app.web.validation import validate_tool_file, ValidationResult
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/folders/{namespace}/tools", tags=["tools"])
+router = APIRouter(prefix="/api/folders/{namespace}/files", tags=["tools"])
 
 # Allowed filename pattern: alphanumeric, underscores, hyphens, must end in .py
 FILENAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*\.py$")
@@ -281,7 +281,7 @@ async def list_tools(
                     ToolInfo(
                         filename=py_file.name,
                         namespace=namespace,
-                        path=f"/api/folders/{namespace}/tools/{py_file.name}",
+                        path=f"/api/folders/{namespace}/files/{py_file.name}",
                         size=py_file.stat().st_size,
                     )
                 )
@@ -398,7 +398,7 @@ async def create_tool_from_template(
             "success": True,
             "message": f"Tool created: {namespace}/{filename}",
             "filename": filename,
-            "path": f"/api/folders/{namespace}/tools/{filename}",
+            "path": f"/api/folders/{namespace}/files/{filename}",
         }
 
     except Exception as e:
@@ -610,7 +610,7 @@ async def upload_tool(
             success=True,
             message=f"Tool uploaded to {namespace}/{file.filename}",
             validation=validation_response,
-            path=f"/api/folders/{namespace}/tools/{file.filename}",
+            path=f"/api/folders/{namespace}/files/{file.filename}",
         )
 
     except Exception as e:

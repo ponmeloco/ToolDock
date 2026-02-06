@@ -177,6 +177,8 @@ curl -X POST http://localhost:13000/api/reload \
 - Real-time execution results
 
 ### MCP Strict Mode Notes
+- Authentication is enforced on all MCP endpoints, including localhost traffic.
+- Clients must send `Authorization: Bearer <BEARER_TOKEN>` for both `GET /mcp*` (SSE) and `POST /mcp*` (JSON-RPC).
 - GET endpoints return SSE streams (require `Accept: text/event-stream`)
 - For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is accepted
 - JSON-RPC batching is rejected

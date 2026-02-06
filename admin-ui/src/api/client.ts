@@ -255,7 +255,7 @@ export async function deleteNamespace(name: string): Promise<void> {
 
 // Tools
 export async function getTools(namespace: string): Promise<Tool[]> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools`)
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files`)
   const data = await res.json()
   return data.tools || []
 }
@@ -488,7 +488,7 @@ export async function getAllNamespaces(): Promise<{ namespaces: AllNamespace[]; 
 }
 
 export async function getTool(namespace: string, filename: string): Promise<ToolContent> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/${filename}`)
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/${filename}`)
   if (!res.ok) {
     const error = await res.json()
     throw new Error(error.detail || 'Failed to get tool')
@@ -502,7 +502,7 @@ export async function updateTool(
   content: string,
   skipValidation = false
 ): Promise<{ success: boolean; message: string; validation: ValidationResult }> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/${filename}`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/${filename}`, {
     method: 'PUT',
     body: JSON.stringify({ content, skip_validation: skipValidation }),
   })
@@ -519,7 +519,7 @@ export async function uploadTool(
 
   const token = getAuthToken()
   const res = await fetch(
-    `${API_BASE}/folders/${namespace}/tools?skip_validation=${skipValidation}`,
+    `${API_BASE}/folders/${namespace}/files?skip_validation=${skipValidation}`,
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
@@ -530,7 +530,7 @@ export async function uploadTool(
 }
 
 export async function deleteTool(namespace: string, filename: string): Promise<void> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/${filename}`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/${filename}`, {
     method: 'DELETE',
   })
   if (!res.ok) {
@@ -540,7 +540,7 @@ export async function deleteTool(namespace: string, filename: string): Promise<v
 }
 
 export async function getNamespaceDeps(namespace: string): Promise<NamespaceDeps> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps`)
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps`)
   if (!res.ok) {
     const error = await res.json()
     throw new Error(error.detail || 'Failed to get dependencies')
@@ -552,7 +552,7 @@ export async function installNamespaceDeps(
   namespace: string,
   payload: { requirements: string }
 ): Promise<InstallDepsResponse> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/install`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/install`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -567,7 +567,7 @@ export async function uninstallNamespaceDeps(
   namespace: string,
   payload: { packages: string[] }
 ): Promise<InstallDepsResponse> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/uninstall`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/uninstall`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -579,7 +579,7 @@ export async function uninstallNamespaceDeps(
 }
 
 export async function createNamespaceVenv(namespace: string): Promise<{ success: boolean; venv_path: string }> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/create`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/create`, {
     method: 'POST',
   })
   if (!res.ok) {
@@ -590,7 +590,7 @@ export async function createNamespaceVenv(namespace: string): Promise<{ success:
 }
 
 export async function deleteNamespaceVenv(namespace: string): Promise<{ success: boolean; deleted: boolean }> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/deps/delete`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/delete`, {
     method: 'POST',
   })
   if (!res.ok) {
@@ -604,7 +604,7 @@ export async function createToolFromTemplate(
   namespace: string,
   name: string
 ): Promise<{ success: boolean; message: string; filename: string; path: string }> {
-  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/tools/create-from-template`, {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/create-from-template`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   })
@@ -626,7 +626,7 @@ export async function validateTool(
   formData.append('file', file)
 
   const token = getAuthToken()
-  const res = await fetch(`${API_BASE}/folders/${namespace}/tools/validate`, {
+  const res = await fetch(`${API_BASE}/folders/${namespace}/files/validate`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,

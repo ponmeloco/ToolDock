@@ -154,7 +154,7 @@ fi
 section "Test 7: List Tools in Folder (Web GUI API)"
 # ==================================================
 
-FOLDER_TOOLS=$(curl -s "$WEB_URL/api/folders/shared/tools" -H "Authorization: Bearer $TOKEN")
+FOLDER_TOOLS=$(curl -s "$WEB_URL/api/folders/shared/files" -H "Authorization: Bearer $TOKEN")
 if echo "$FOLDER_TOOLS" | grep -q '"tools"'; then
     pass "List tools in shared folder"
     echo "  Response: $FOLDER_TOOLS"

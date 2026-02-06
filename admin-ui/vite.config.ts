@@ -11,14 +11,19 @@ export default defineConfig({
     },
   },
   server: {
-    port: 13000,
+    // Keep this different from the Docker gateway default (13000) to avoid collisions.
+    port: 13001,
     proxy: {
       '/api': {
-        target: 'http://localhost:18080',
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
-      '/tools': {
-        target: 'http://localhost:18006',
+      '/openapi': {
+        target: 'http://localhost:8006',
+        changeOrigin: true,
+      },
+      '/mcp': {
+        target: 'http://localhost:8007',
         changeOrigin: true,
       },
     },

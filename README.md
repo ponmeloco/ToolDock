@@ -283,7 +283,7 @@ Each namespace gets its own Python venv stored in `tooldock_data/venvs/{namespac
 Install dependencies via the Admin UI **Tools → Dependencies**, or via API:
 
 ```bash
-curl -X POST http://localhost:13000/api/folders/shared/tools/deps/install \
+curl -X POST http://localhost:13000/api/folders/shared/files/deps/install \
   -H "Authorization: Bearer change_me" \
   -H "Content-Type: application/json" \
   -d '{"requirements": "requests==2.32.0"}'
@@ -292,10 +292,10 @@ curl -X POST http://localhost:13000/api/folders/shared/tools/deps/install \
 Create/Delete venv:
 
 ```bash
-curl -X POST http://localhost:13000/api/folders/shared/tools/deps/create \
+curl -X POST http://localhost:13000/api/folders/shared/files/deps/create \
   -H "Authorization: Bearer change_me"
 
-curl -X POST http://localhost:13000/api/folders/shared/tools/deps/delete \
+curl -X POST http://localhost:13000/api/folders/shared/files/deps/delete \
   -H "Authorization: Bearer change_me"
 ```
 
@@ -304,7 +304,7 @@ After install, ToolDock auto-reloads the namespace so imports work immediately.
 Uninstall (pip/setuptools/wheel are protected):
 
 ```bash
-curl -X POST http://localhost:13000/api/folders/shared/tools/deps/uninstall \
+curl -X POST http://localhost:13000/api/folders/shared/files/deps/uninstall \
   -H "Authorization: Bearer change_me" \
   -H "Content-Type: application/json" \
   -d '{"packages": ["requests"]}'
@@ -331,6 +331,23 @@ If LiteLLM runs on the host (not in Docker), use:
 ### Claude Desktop
 
 Add to `~/.config/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "tooldock": {
+      "url": "http://localhost:13000/mcp/shared",
+      "headers": {
+        "Authorization": "Bearer change_me"
+      }
+    }
+  }
+}
+```
+
+### LM Studio
+
+Add to LM Studio MCP config:
 
 ```json
 {
@@ -372,7 +389,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/folders` | GET | List namespaces |
-| `/api/folders/{ns}/tools` | GET/POST | List/upload tools |
+| `/api/folders/{ns}/files` | GET/POST | List/upload tools |
 | `/api/reload` | POST | Hot reload all |
 | `/api/reload/{ns}` | POST | Hot reload namespace |
 | `/api/admin/logs` | GET | View logs |
@@ -408,6 +425,9 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 
 ## MCP Strict Mode Notes
 
+- Authentication is enforced for all MCP endpoints, including `localhost`.
+- Clients must send `Authorization: Bearer <BEARER_TOKEN>` on both `GET /mcp*` (SSE) and `POST /mcp*` (JSON-RPC).
+- Missing/invalid auth returns **401** even from `localhost`.
 - `GET /mcp` and `GET /mcp/{namespace}` open SSE streams (requires `Accept: text/event-stream`).
 - For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is also accepted.
 - JSON-RPC batching is rejected.

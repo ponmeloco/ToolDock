@@ -54,7 +54,7 @@ The server implements a **triple-transport architecture**:
 │ Protocol:       │  │ Protocol:       │  │ Protocol:       │
 │ HTTP/REST+JSON  │  │ JSON-RPC 2.0    │  │ HTTP/HTML+JSON  │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ Port: 18006      │  │ Port: 18007      │  │ Port: 18080      │
+│ Port: 8006       │  │ Port: 8007       │  │ Port: 8080       │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
 │ Auth: Bearer    │  │ Auth: Bearer    │  │ Auth: Basic +   │
 │                 │  │                 │  │       Bearer    │
@@ -65,6 +65,9 @@ The server implements a **triple-transport architecture**:
 │ - Web apps      │  │ - n8n           │  │ - Tool Upload   │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
+
+In the default Docker Compose deployment, these ports are internal-only.
+The gateway exposes a single host port (default `13000`) and proxies `/openapi`, `/mcp`, and `/api`.
 
 ---
 
@@ -142,6 +145,8 @@ tooldock_data/tools/
 - `tools/call` - Execute a tool
 
 **Strict MCP Notes:**
+- Authentication is enforced on all MCP endpoints (including localhost traffic).
+- Clients must send `Authorization: Bearer <BEARER_TOKEN>` for both `GET /mcp*` and `POST /mcp*`.
 - GET endpoints return SSE streams (require `Accept: text/event-stream`)
 - For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is accepted
 - JSON-RPC batching is rejected
@@ -168,11 +173,11 @@ tooldock_data/tools/
 - `GET /api/folders` - List namespaces
 - `POST /api/folders` - Create namespace
 - `DELETE /api/folders/{namespace}` - Delete namespace
-- `GET /api/folders/{namespace}/tools` - List tools
-- `POST /api/folders/{namespace}/tools` - Upload tool
-- `DELETE /api/folders/{namespace}/tools/{file}` - Delete tool
-- `GET /api/folders/{namespace}/tools/deps` - Get namespace dependencies
-- `POST /api/folders/{namespace}/tools/deps/install` - Install dependencies
+- `GET /api/folders/{namespace}/files` - List tools
+- `POST /api/folders/{namespace}/files` - Upload tool
+- `DELETE /api/folders/{namespace}/files/{file}` - Delete tool
+- `GET /api/folders/{namespace}/files/deps` - Get namespace dependencies
+- `POST /api/folders/{namespace}/files/deps/install` - Install dependencies
 - `GET /api/fastmcp/servers` - List FastMCP servers
 - `POST /api/fastmcp/servers` - Install from registry
 - `POST /api/fastmcp/servers/manual` - Add manual server
@@ -209,7 +214,7 @@ External servers from the MCP Registry run as subprocesses:
 ```
 ToolDock Container
 ├── Python Process (main)
-│   ├── FastAPI (Ports 18006, 18007, 18080)
+│   ├── FastAPI (Ports 8006, 8007, 8080)
 │   ├── Registry with Namespaces
 │   └── MCPServerProxy Manager
 │
@@ -312,9 +317,10 @@ Environment variables control behavior:
 |----------|---------|-------------|
 | `SERVER_MODE` | `openapi` | `openapi`, `mcp-http`, `both`, `web-gui`, `all` |
 | `DATA_DIR` | `./tooldock_data` | Base directory for all data |
-| `OPENAPI_PORT` | `18006` | OpenAPI server port |
-| `MCP_PORT` | `18007` | MCP server port |
-| `WEB_PORT` | `18080` | Web GUI port |
+| `OPENAPI_PORT` | `8006` | OpenAPI server port (internal) |
+| `MCP_PORT` | `8007` | MCP server port (internal) |
+| `WEB_PORT` | `8080` | Backend API port (internal) |
+| `ADMIN_PORT` | `13000` | Gateway port (host-exposed) |
 | `BEARER_TOKEN` | - | Auth token (required) |
 | `ADMIN_USERNAME` | `admin` | Web GUI username |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |

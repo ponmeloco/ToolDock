@@ -132,12 +132,12 @@ class TestAdminInfo:
 
 
 class TestToolUpdate:
-    """Tests for PUT /api/folders/{ns}/tools/{file} endpoint."""
+    """Tests for PUT /api/folders/{ns}/files/{file} endpoint."""
 
     def test_update_requires_auth(self, web_client: SyncASGIClient):
         """Update endpoint requires authentication."""
         response = web_client.put(
-            "/api/folders/shared/tools/example.py",
+            "/api/folders/shared/files/example.py",
             json={"content": "# test"},
         )
         assert response.status_code == 401
@@ -147,7 +147,7 @@ class TestToolUpdate:
     ):
         """Update returns 404 for nonexistent tool."""
         response = web_client.put(
-            "/api/folders/shared/tools/nonexistent.py",
+            "/api/folders/shared/files/nonexistent.py",
             json={"content": "# test"},
             headers=auth_headers,
         )
@@ -158,7 +158,7 @@ class TestToolUpdate:
     ):
         """Update returns 400 or 404 for invalid namespace."""
         response = web_client.put(
-            "/api/folders/../etc/tools/test.py",
+            "/api/folders/../etc/files/test.py",
             json={"content": "# test"},
             headers=auth_headers,
         )
@@ -171,7 +171,7 @@ class TestToolUpdate:
         """Update endpoint requires valid JSON body."""
         # Test with invalid JSON format
         response = web_client.put(
-            "/api/folders/shared/tools/test.py",
+            "/api/folders/shared/files/test.py",
             content="not json",
             headers={**auth_headers, "Content-Type": "application/json"},
         )
@@ -300,7 +300,7 @@ class TestSecurityHeaders:
 
         for pattern in patterns:
             response = web_client.get(
-                f"/api/folders/{pattern}/tools",
+                f"/api/folders/{pattern}/files",
                 headers=auth_headers,
             )
             # Both 400 (bad request) and 404 (not found) are valid security responses
@@ -319,7 +319,7 @@ class TestSecurityHeaders:
 
         for name in invalid_names:
             response = web_client.get(
-                f"/api/folders/shared/tools/{name}",
+                f"/api/folders/shared/files/{name}",
                 headers=auth_headers,
             )
             # Should return 400 or 404, not 200
