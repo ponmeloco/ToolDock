@@ -184,6 +184,8 @@ class FastMCPServerManager:
                     auto_start=True,
                     package_type="system",
                     source_url=SYSTEM_INSTALLER_SOURCE_URL,
+                    # Ensure the module can be imported when the stdio bridge runs from a different cwd.
+                    env_vars={"PYTHONPATH": "/app"},
                 )
                 db.add(record)
                 db.commit()
@@ -205,6 +207,13 @@ class FastMCPServerManager:
                     changed = True
                 if not record.source_url:
                     record.source_url = SYSTEM_INSTALLER_SOURCE_URL
+                    changed = True
+                if record.env_vars is None:
+                    record.env_vars = {"PYTHONPATH": "/app"}
+                    changed = True
+                elif "PYTHONPATH" not in record.env_vars:
+                    record.env_vars = dict(record.env_vars)
+                    record.env_vars["PYTHONPATH"] = "/app"
                     changed = True
                 if changed:
                     db.commit()
@@ -738,6 +747,12 @@ class FastMCPServerManager:
             if record.env_vars:
                 env.update(record.env_vars)
 
+            # System servers run ToolDock-shipped modules (e.g. the installer).
+            # Ensure `/app` is importable regardless of cwd.
+            if record.package_type == "system":
+                existing = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = f"/app:{existing}" if existing else "/app"
+
             # Add venv site-packages to PYTHONPATH so server dependencies are available
             site_packages = _get_venv_site_packages(record.venv_path)
             if site_packages:
@@ -865,8 +880,10 @@ class FastMCPServerManager:
             await proxy.disconnect()
             self.registry.unregister_external_server(str(sid))
 
-        # Connect and register tools for running servers
-        for sid, record in running.items():
+        connect_timeout_s = float(os.getenv("FASTMCP_CONNECT_TIMEOUT_SECONDS", "3.0"))
+        max_attempts = int(os.getenv("FASTMCP_CONNECT_ATTEMPTS", "3"))
+
+        async def connect_and_register(sid: int, record: ExternalFastMCPServer) -> None:
             # Determine URL based on transport type
             if record.transport_type == "http" and record.server_url:
                 url = record.server_url
@@ -874,37 +891,34 @@ class FastMCPServerManager:
                 url = f"http://127.0.0.1:{record.port}/mcp"
             else:
                 logger.warning(f"FastMCP server {record.namespace} missing port/url; skipping")
-                continue
+                return
 
             existing_proxy = self._proxies.get(sid)
             if existing_proxy is not None and existing_proxy.url == url and existing_proxy.is_connected:
-                continue
+                return
 
             if existing_proxy is not None:
                 await existing_proxy.disconnect()
                 self._proxies.pop(sid, None)
 
             proxy = FastMCPHttpProxy(str(sid), url)
-            try:
-                for attempt in range(10):
-                    try:
-                        await proxy.connect()
-                        break
-                    except Exception as exc:
-                        if attempt == 9:
-                            raise
-                        logger.warning(
-                            f"FastMCP server {record.namespace} not ready (attempt {attempt + 1}/10): {exc}"
-                        )
-                        await asyncio.sleep(1.0)
-            except Exception as exc:
-                logger.warning(f"FastMCP server {record.namespace} failed to connect: {exc}")
-                continue
+            last_exc: Exception | None = None
+            for attempt in range(max_attempts):
+                try:
+                    await asyncio.wait_for(proxy.connect(), timeout=connect_timeout_s)
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(0.5)
+            if last_exc is not None:
+                logger.warning(f"FastMCP server {record.namespace} failed to connect: {last_exc}")
+                return
 
             # Ensure idempotent sync for this server id.
             self.registry.unregister_external_server(str(sid))
 
-            # Register tools
             for tool in proxy.get_tool_schemas(record.namespace):
                 self.registry.register_external_tool(
                     name=tool["name"],
@@ -917,6 +931,8 @@ class FastMCPServerManager:
                 )
 
             self._proxies[sid] = proxy
+
+        await asyncio.gather(*(connect_and_register(sid, record) for sid, record in running.items()))
 
         return {"running": len(running), "connected": len(self._proxies)}
 
@@ -1081,9 +1097,13 @@ def _build_run_command(record: ExternalFastMCPServer) -> list[str]:
     if record.entrypoint:
         cmd.extend(["--cwd", str(Path(record.entrypoint).parent)])
     else:
-        server_dir = _get_server_dir(record.namespace)
-        if server_dir.exists():
-            cmd.extend(["--cwd", str(server_dir)])
+        # For system servers (modules shipped with ToolDock), prefer /app so imports work reliably.
+        if record.package_type == "system" and Path("/app").exists():
+            cmd.extend(["--cwd", "/app"])
+        else:
+            server_dir = _get_server_dir(record.namespace)
+            if server_dir.exists():
+                cmd.extend(["--cwd", str(server_dir)])
 
     return cmd
 

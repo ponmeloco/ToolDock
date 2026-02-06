@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Key, Send, ChevronDown, ChevronRight, Check, Copy, ExternalLink } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { getAllNamespaces, getAllTools, getSystemInfo, getTools, listFastMcpServers } from '../api/client'
+import { getAllNamespaces, getAllTools, getTools, listFastMcpServers } from '../api/client'
 
 interface PathParam {
   name: string
@@ -37,12 +37,7 @@ interface PathParamOption {
 const TOOL_API_CATEGORY = 'Tool API'
 const MCP_TRANSPORT_CATEGORY = 'MCP Transport'
 
-function buildCategories(
-  openapiPort: string,
-  mcpPort: string,
-  openapiBase: string,
-  mcpBase: string
-): EndpointCategory[] {
+function buildCategories(): EndpointCategory[] {
   return [
     {
       name: 'Getting Started',
@@ -273,8 +268,7 @@ function buildCategories(
     },
     {
       name: TOOL_API_CATEGORY,
-      description: `Tool API endpoints (public port ${openapiPort})`,
-      baseUrl: openapiBase,
+      description: 'Tool API endpoints (via gateway /openapi)',
       endpoints: [
         { method: 'GET', path: '/health', description: 'Tool API health check', auth: false },
         { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
@@ -290,10 +284,9 @@ function buildCategories(
     },
     {
       name: MCP_TRANSPORT_CATEGORY,
-      description: `MCP Streamable HTTP endpoints (public port ${mcpPort})`,
-      baseUrl: mcpBase,
+      description: 'MCP Streamable HTTP endpoints (via gateway /mcp)',
       endpoints: [
-        { method: 'GET', path: '/health', description: 'MCP health check', auth: false },
+        { method: 'GET', path: '/mcp/health', description: 'MCP health check', auth: false },
         { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
         {
           method: 'GET',
@@ -377,8 +370,6 @@ function getStatusColor(status: number): string {
 
 export default function Docs() {
   const [token, setToken] = useState('')
-  const [openapiBaseUrl, setOpenapiBaseUrl] = useState('')
-  const [mcpBaseUrl, setMcpBaseUrl] = useState('')
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
     new Set(['Getting Started', TOOL_API_CATEGORY, MCP_TRANSPORT_CATEGORY])
   )
@@ -387,7 +378,6 @@ export default function Docs() {
   const [requestBody, setRequestBody] = useState('')
   const [response, setResponse] = useState<{ status: number; data: string; time: number } | null>(null)
   const [lastRequestUrl, setLastRequestUrl] = useState<string>('')
-  const [useAdminProxy, setUseAdminProxy] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -395,12 +385,6 @@ export default function Docs() {
   const namespacesQuery = useQuery({
     queryKey: ['allNamespaces'],
     queryFn: getAllNamespaces,
-    staleTime: 60000,
-  })
-
-  const infoQuery = useQuery({
-    queryKey: ['info'],
-    queryFn: getSystemInfo,
     staleTime: 60000,
   })
 
@@ -459,33 +443,9 @@ export default function Docs() {
       })) || [],
     [namespaceToolsQuery.data]
   )
-  const openapiPort = String(infoQuery.data?.environment?.openapi_port || 'unknown')
-  const mcpPort = String(infoQuery.data?.environment?.mcp_port || 'unknown')
-  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-  const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:'
-  const isSecure = protocol === 'https:'
-  const defaultScheme = isSecure ? 'https:' : 'http:'
-  const defaultOpenapiBase = openapiPort !== 'unknown' ? `${defaultScheme}//${host}:${openapiPort}` : ''
-  const defaultMcpBase = mcpPort !== 'unknown' ? `${defaultScheme}//${host}:${mcpPort}` : ''
-
-  useEffect(() => {
-    if (!openapiBaseUrl && defaultOpenapiBase) setOpenapiBaseUrl(defaultOpenapiBase)
-    if (!mcpBaseUrl && defaultMcpBase) setMcpBaseUrl(defaultMcpBase)
-  }, [defaultOpenapiBase, defaultMcpBase, openapiBaseUrl, mcpBaseUrl])
-
-  const resolvedOpenapiBase = openapiBaseUrl || defaultOpenapiBase
-  const resolvedMcpBase = mcpBaseUrl || defaultMcpBase
-  const categories = buildCategories(openapiPort, mcpPort, resolvedOpenapiBase, resolvedMcpBase)
-  const toolApiDocsUrl = useAdminProxy
-    ? `${window.location.origin}/openapi/docs`
-    : resolvedOpenapiBase
-      ? `${resolvedOpenapiBase}/docs`
-      : ''
-  const toolApiSchemaUrl = useAdminProxy
-    ? `${window.location.origin}/openapi/openapi.json`
-    : resolvedOpenapiBase
-      ? `${resolvedOpenapiBase}/openapi.json`
-      : ''
+  const categories = buildCategories()
+  const toolApiDocsUrl = `${window.location.origin}/openapi/docs`
+  const toolApiSchemaUrl = `${window.location.origin}/openapi/openapi.json`
 
   const getPathParamOptions = useCallback(
     (paramName: string): PathParamOption[] => {
@@ -510,12 +470,6 @@ export default function Docs() {
   useEffect(() => {
     const savedToken = localStorage.getItem('tooldock_token') || ''
     setToken(savedToken)
-    const savedOpenapiBase = localStorage.getItem('tooldock_openapi_base') || ''
-    const savedMcpBase = localStorage.getItem('tooldock_mcp_base') || ''
-    if (savedOpenapiBase) setOpenapiBaseUrl(savedOpenapiBase)
-    if (savedMcpBase) setMcpBaseUrl(savedMcpBase)
-    const savedProxy = localStorage.getItem('tooldock_use_admin_proxy')
-    if (savedProxy !== null) setUseAdminProxy(savedProxy === 'true')
   }, [])
 
   // Save token to localStorage when changed
@@ -586,15 +540,13 @@ export default function Docs() {
   }
 
   const getBaseUrlForCategory = (categoryName: string): string => {
-    const categoryInfo = categories.find((c) => c.name === categoryName)
-    if (categoryName === TOOL_API_CATEGORY && useAdminProxy) {
+    if (categoryName === TOOL_API_CATEGORY) {
       return `${window.location.origin}/openapi`
     }
-    if (categoryName === MCP_TRANSPORT_CATEGORY && useAdminProxy) {
+    if (categoryName === MCP_TRANSPORT_CATEGORY) {
       return window.location.origin
     }
-    const rawBase = categoryInfo?.baseUrl || window.location.origin
-    return rawBase.replace(/\/+$/, '')
+    return window.location.origin
   }
 
   const executeRequest = async () => {
@@ -748,67 +700,12 @@ export default function Docs() {
         </div>
       </div>
 
-      {/* Base URLs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Base URLs</div>
-        <div className="flex items-center gap-3 mb-3">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={useAdminProxy}
-              onChange={(e) => {
-                setUseAdminProxy(e.target.checked)
-                localStorage.setItem('tooldock_use_admin_proxy', String(e.target.checked))
-              }}
-            />
-            Use Admin Proxy for Tool API/MCP
-          </label>
-          <span className="text-xs text-gray-500">
-            Routes through <span className="font-mono">{window.location.origin}</span> using `/openapi` and `/mcp`.
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Tool API Base URL</label>
-            <input
-              type="text"
-              value={openapiBaseUrl}
-              onChange={(e) => {
-                setOpenapiBaseUrl(e.target.value)
-                localStorage.setItem('tooldock_openapi_base', e.target.value)
-              }}
-              disabled={useAdminProxy}
-              placeholder={defaultOpenapiBase || 'http://localhost:8006'}
-              className={`w-full px-3 py-2 border rounded-lg outline-none font-mono text-sm ${
-                useAdminProxy
-                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                  : 'border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
-              }`}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">MCP Base URL</label>
-            <input
-              type="text"
-              value={mcpBaseUrl}
-              onChange={(e) => {
-                setMcpBaseUrl(e.target.value)
-                localStorage.setItem('tooldock_mcp_base', e.target.value)
-              }}
-              disabled={useAdminProxy}
-              placeholder={defaultMcpBase || 'http://localhost:8007'}
-              className={`w-full px-3 py-2 border rounded-lg outline-none font-mono text-sm ${
-                useAdminProxy
-                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                  : 'border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
-              }`}
-            />
-          </div>
-        </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Use your server hostname (not localhost) if you access the UI remotely. If your client runs in Docker on the
-          same network, use <span className="font-mono">http://tooldock-backend:8007</span> for MCP and{' '}
-          <span className="font-mono">http://tooldock-backend:8006</span> for Tool API.
+        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Base URL</div>
+        <p className="text-sm text-gray-700">
+          This UI routes through the gateway at <span className="font-mono">{window.location.origin}</span> using
+          <span className="font-mono"> /api</span>, <span className="font-mono">/openapi</span>, and{' '}
+          <span className="font-mono">/mcp</span>.
         </p>
       </div>
 
