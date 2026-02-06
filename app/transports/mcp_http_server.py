@@ -116,6 +116,11 @@ def create_mcp_http_app(
     # Many MCP clients expect a session identifier header (even if the transport
     # itself does not define durable sessions). Use a stable per-process value.
     app.state.mcp_session_id = str(uuid.uuid4())
+    # SSE subscribers (best-effort compatibility): Some clients open an SSE
+    # stream and expect JSON-RPC responses to arrive on that stream, even if
+    # the server also returns an HTTP response body.
+    app.state._mcp_sse_subscribers_global: set[asyncio.Queue] = set()
+    app.state._mcp_sse_subscribers_by_ns: dict[str, set[asyncio.Queue]] = {}
 
     # Initialize reloader (for admin endpoints)
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
@@ -394,8 +399,45 @@ def create_mcp_http_app(
             yield f"id: {uuid.uuid4()}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
         return gen()
 
+    def _sse_message(payload: Dict[str, Any]) -> bytes:
+        return f"id: {uuid.uuid4()}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+
     def _session_headers() -> Dict[str, str]:
         return {"Mcp-Session-Id": getattr(app.state, "mcp_session_id", "")}
+
+    def _subscribe_sse(namespace: Optional[str]) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
+        if namespace:
+            app.state._mcp_sse_subscribers_by_ns.setdefault(namespace, set()).add(q)
+        else:
+            app.state._mcp_sse_subscribers_global.add(q)
+        return q
+
+    def _unsubscribe_sse(namespace: Optional[str], q: asyncio.Queue) -> None:
+        try:
+            if namespace:
+                subs = app.state._mcp_sse_subscribers_by_ns.get(namespace)
+                if subs:
+                    subs.discard(q)
+                    if not subs:
+                        app.state._mcp_sse_subscribers_by_ns.pop(namespace, None)
+            else:
+                app.state._mcp_sse_subscribers_global.discard(q)
+        except Exception:
+            return
+
+    def _publish_sse(namespace: Optional[str], payload: Dict[str, Any]) -> None:
+        # Best-effort publish; drop if queues are full.
+        targets: set[asyncio.Queue] = set(app.state._mcp_sse_subscribers_global)
+        if namespace:
+            targets |= set(app.state._mcp_sse_subscribers_by_ns.get(namespace, set()))
+        for q in targets:
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                continue
+            except Exception:
+                continue
 
     async def process_jsonrpc_request(
         body: Dict[str, Any],
@@ -564,6 +606,7 @@ def create_mcp_http_app(
             if response is None:
                 # Notification or JSON-RPC response - return 202 Accepted (no content)
                 return Response(status_code=202)
+            _publish_sse(namespace, response)
             if _wants_sse_response(request):
                 return StreamingResponse(
                     _sse_single_event(response),
@@ -629,6 +672,7 @@ def create_mcp_http_app(
             if response is None:
                 # Notification or JSON-RPC response - return 202 Accepted (no content)
                 return Response(status_code=202)
+            _publish_sse(None, response)
             if _wants_sse_response(request):
                 return StreamingResponse(
                     _sse_single_event(response),
@@ -730,14 +774,19 @@ def create_mcp_http_app(
                 yield b": ok\n\n"
                 return
 
-            # Keep connection open for SSE clients (LM Studio, etc.).
+            q = _subscribe_sse(None)
             try:
                 yield b"event: open\ndata: {}\n\n"
                 while True:
-                    await asyncio.sleep(15)
-                    yield b": heartbeat\n\n"
+                    try:
+                        item = await asyncio.wait_for(q.get(), timeout=15)
+                        yield _sse_message(item)
+                    except TimeoutError:
+                        yield b": heartbeat\n\n"
             except asyncio.CancelledError:
                 return
+            finally:
+                _unsubscribe_sse(None, q)
 
         return StreamingResponse(
             event_stream(),
@@ -771,13 +820,19 @@ def create_mcp_http_app(
                 yield b": ok\n\n"
                 return
 
+            q = _subscribe_sse(namespace)
             try:
                 yield b"event: open\ndata: {}\n\n"
                 while True:
-                    await asyncio.sleep(15)
-                    yield b": heartbeat\n\n"
+                    try:
+                        item = await asyncio.wait_for(q.get(), timeout=15)
+                        yield _sse_message(item)
+                    except TimeoutError:
+                        yield b": heartbeat\n\n"
             except asyncio.CancelledError:
                 return
+            finally:
+                _unsubscribe_sse(namespace, q)
 
         return StreamingResponse(
             event_stream(),
