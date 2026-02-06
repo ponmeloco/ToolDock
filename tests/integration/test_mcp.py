@@ -160,7 +160,7 @@ class TestMCPInitialize:
         assert "serverInfo" in data["result"]
 
     def test_initialize_missing_accept_header(self, client: SyncASGIClient, auth_headers: dict):
-        """Missing Accept header returns 400."""
+        """Missing Accept header is accepted for JSON-RPC POST compatibility."""
         headers = dict(auth_headers)
         headers.pop("Accept", None)
         response = client.post(
@@ -173,7 +173,23 @@ class TestMCPInitialize:
                 "params": {"protocolVersion": "2025-11-25"},
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 200
+
+    def test_initialize_explicit_incompatible_accept_rejected(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Explicitly incompatible Accept header is rejected."""
+        response = client.post(
+            "/mcp",
+            headers={**auth_headers, "Accept": "text/plain"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25"},
+            },
+        )
+        assert response.status_code == 406
 
     def test_initialize_namespace_endpoint(
         self, client: SyncASGIClient, auth_headers: dict

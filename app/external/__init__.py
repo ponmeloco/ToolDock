@@ -8,13 +8,11 @@ Provides functionality to:
 """
 
 from app.external.registry_client import MCPRegistryClient
-from app.external.server_manager import ExternalServerManager
-from app.external.proxy import MCPServerProxy
-from app.external.config import ExternalServerConfig
+from app.external.fastmcp_manager import FastMCPServerManager
+from app.external.fastmcp_proxy import FastMCPHttpProxy
 
 __all__ = [
     "MCPRegistryClient",
-    "ExternalServerManager",
-    "MCPServerProxy",
-    "ExternalServerConfig",
+    "FastMCPServerManager",
+    "FastMCPHttpProxy",
 ]

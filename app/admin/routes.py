@@ -1,17 +1,16 @@
 """
 Admin API Routes.
 
-Provides runtime management of external MCP servers.
+Provides runtime management of tools and FastMCP servers.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.auth import verify_token
 
@@ -19,32 +18,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# These will be set by the OpenAPI server on startup
+# These will be set by the transport server on startup
 _registry = None
-_external_manager = None
-_config = None
 _reloader = None
 _fastmcp_manager = None
 
 
-def set_admin_context(registry, external_manager, config, reloader=None, fastmcp_manager=None):
+def set_admin_context(registry, reloader=None, fastmcp_manager=None):
     """Set the admin context for route handlers."""
-    global _registry, _external_manager, _config, _reloader, _fastmcp_manager
+    global _registry, _reloader, _fastmcp_manager
     _registry = registry
-    _external_manager = external_manager
-    _config = config
     _reloader = reloader
     _fastmcp_manager = fastmcp_manager
-
-
-def get_manager():
-    """Get the external server manager."""
-    if _external_manager is None:
-        raise HTTPException(
-            status_code=503,
-            detail="External server manager not initialized"
-        )
-    return _external_manager
 
 
 def get_fastmcp_manager():
@@ -72,59 +57,6 @@ async def reload_fastmcp(_: str = Depends(verify_token)) -> Dict[str, Any]:
 
 
 # === Request/Response Models ===
-
-
-class AddServerRequest(BaseModel):
-    """Request to add a new server."""
-
-    server_id: str = Field(..., description="Unique identifier for the server")
-    source: str = Field(
-        "registry",
-        description="Source type: 'registry' or 'custom'"
-    )
-    name: Optional[str] = Field(
-        None,
-        description="Registry name (required for registry source)"
-    )
-    command: Optional[str] = Field(
-        None,
-        description="Command to run (for custom stdio source)"
-    )
-    args: Optional[List[str]] = Field(
-        None,
-        description="Command arguments (for custom stdio source)"
-    )
-    env: Optional[Dict[str, str]] = Field(
-        None,
-        description="Environment variables"
-    )
-    url: Optional[str] = Field(
-        None,
-        description="Server URL (for custom http source)"
-    )
-    save_to_config: bool = Field(
-        True,
-        description="Save to config.yaml for persistence"
-    )
-
-
-class ServerInfo(BaseModel):
-    """Information about an external server."""
-
-    server_id: str
-    status: str
-    tools: int
-    tool_names: List[str]
-    config_type: str
-
-
-class ToolInfo(BaseModel):
-    """Information about a tool."""
-
-    name: str
-    description: str
-    type: str
-    server: Optional[str] = None
 
 
 class RegistryServerInfo(BaseModel):
@@ -181,132 +113,6 @@ async def search_registry(
         raise HTTPException(status_code=502, detail=f"Registry search failed: {e}")
 
 
-@router.get("/servers/installed", response_model=List[ServerInfo])
-async def list_installed_servers(
-    _: str = Depends(verify_token),
-) -> List[Dict[str, Any]]:
-    """
-    List all currently installed external servers.
-    """
-    manager = get_manager()
-
-    return [
-        {
-            "server_id": info["server_id"],
-            "status": info["status"],
-            "tools": info["tools"],
-            "tool_names": info["tool_names"],
-            "config_type": info["config"].get("type", "stdio"),
-        }
-        for info in manager.list_servers()
-    ]
-
-
-@router.post("/servers/add")
-async def add_server(
-    request: AddServerRequest,
-    _: str = Depends(verify_token),
-) -> Dict[str, Any]:
-    """
-    Add and connect to a new external server.
-
-    The server can be loaded from:
-    - MCP Registry (source='registry', name='registry-name')
-    - Custom STDIO command (source='custom', command='...', args=[...])
-    - Custom HTTP URL (source='custom', url='...')
-    """
-    manager = get_manager()
-
-    # Build config based on source
-    if request.source == "registry":
-        if not request.name:
-            raise HTTPException(
-                status_code=400,
-                detail="'name' is required for registry source"
-            )
-
-        from app.external.registry_client import MCPRegistryClient
-
-        client = MCPRegistryClient()
-        server_data = await client.get_server_by_name(request.name)
-
-        if not server_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Server not found in registry: {request.name}"
-            )
-
-        config = client.get_server_config(server_data)
-
-        # Override with provided env
-        if request.env:
-            config["env"] = request.env
-
-    else:
-        # Custom configuration
-        if request.url:
-            config = {
-                "type": "http",
-                "url": request.url,
-            }
-        elif request.command:
-            config = {
-                "type": "stdio",
-                "command": request.command,
-                "args": request.args or [],
-                "env": request.env or {},
-            }
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Either 'url' or 'command' is required for custom source"
-            )
-
-    # Add the server
-    try:
-        result = await manager.add_server(request.server_id, config)
-
-        # Save to config if requested
-        if request.save_to_config and _config:
-            _config.add_server_to_config(
-                server_id=request.server_id,
-                source=request.source,
-                name=request.name,
-                env=request.env,
-            )
-
-        return result
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Failed to add server: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to add server: {e}")
-
-
-@router.delete("/servers/{server_id}")
-async def remove_server(
-    server_id: str,
-    remove_from_config: bool = Query(True, description="Also remove from config.yaml"),
-    _: str = Depends(verify_token),
-) -> Dict[str, Any]:
-    """
-    Remove an external server and all its tools.
-    """
-    manager = get_manager()
-
-    removed = await manager.remove_server(server_id)
-
-    if not removed:
-        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
-
-    # Remove from config if requested
-    if remove_from_config and _config:
-        _config.remove_server_from_config(server_id)
-
-    return {"status": "removed", "server_id": server_id}
-
-
 @router.get("/tools", response_model=Dict[str, Any])
 async def list_all_tools(
     _: str = Depends(verify_token),
@@ -340,47 +146,6 @@ async def list_all_tools(
         },
         "total": len(all_tools),
     }
-
-
-@router.get("/stats")
-async def get_stats(
-    _: str = Depends(verify_token),
-) -> Dict[str, Any]:
-    """
-    Get statistics about servers and tools.
-    """
-    manager = get_manager()
-
-    registry_stats = _registry.get_stats() if _registry else {}
-    manager_stats = manager.get_stats()
-
-    return {
-        "tools": registry_stats,
-        "servers": manager_stats,
-    }
-
-@router.post("/servers/reload")
-async def reload_external_servers(
-    _: str = Depends(verify_token),
-) -> Dict[str, Any]:
-    """
-    Reload external servers from config.yaml without restarting.
-    """
-    manager = get_manager()
-    if _config is None:
-        raise HTTPException(status_code=503, detail="External config not initialized")
-
-    try:
-        desired = await _config.build_enabled_configs()
-        results = await manager.sync_servers(desired)
-
-        if _reloader is not None:
-            _reloader.set_external_namespaces(set(desired.keys()))
-
-        return {"status": "ok", "results": results}
-    except Exception as e:
-        logger.error(f"Failed to reload external servers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Reload Routes ===

@@ -121,6 +121,15 @@ def _count_tools_in_folder(folder_path: Path) -> tuple[int, List[str]]:
     return len(tool_files), sorted(tool_files)
 
 
+def _safe_rmtree(path: Path, base_dir: Path) -> None:
+    """Delete directory only when it is a child of base_dir."""
+    resolved_path = path.resolve()
+    resolved_base = base_dir.resolve()
+    if resolved_path == resolved_base or resolved_base not in resolved_path.parents:
+        raise RuntimeError(f"Refusing to delete path outside base directory: {resolved_path}")
+    shutil.rmtree(resolved_path)
+
+
 @router.get("", response_model=FolderListResponse)
 async def list_folders(_: str = Depends(verify_token)) -> FolderListResponse:
     """
@@ -220,6 +229,16 @@ async def create_folder(
         )
 
     except Exception as e:
+        # Roll back partially-created state to avoid namespace clutter.
+        try:
+            if folder_path.exists():
+                _safe_rmtree(folder_path, _get_base_tools_dir())
+        except Exception:
+            logger.warning(f"Failed to rollback folder after create error: {folder_path}", exc_info=True)
+        try:
+            delete_venv(request.name)
+        except Exception:
+            logger.warning(f"Failed to rollback venv after create error: {request.name}", exc_info=True)
         logger.error(f"Failed to create folder {request.name}", exc_info=True)
         raise HTTPException(
             status_code=500,
@@ -264,7 +283,7 @@ async def delete_folder(
         )
 
     try:
-        shutil.rmtree(folder_path)
+        _safe_rmtree(folder_path, _get_base_tools_dir())
         # Remove namespace venv on folder deletion
         delete_venv(namespace)
         logger.info(f"Deleted folder: {folder_path}")

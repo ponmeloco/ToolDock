@@ -30,6 +30,9 @@ cd ToolDock
 
 # Force rebuild images
 ./start.sh --rebuild
+
+# Faster first boot (skip pytest during startup)
+./start.sh --skip-tests
 ```
 
 Or manually:
@@ -43,14 +46,16 @@ docker compose up -d
 **Verify:**
 
 ```bash
-curl http://localhost:18006/health   # OpenAPI
-curl http://localhost:18007/health   # MCP
-curl http://localhost:13000          # Admin UI
+curl http://localhost:13000                 # Admin UI
+curl http://localhost:13000/openapi/health  # Tool API via Admin gateway
+curl http://localhost:13000/mcp/namespaces  # MCP via Admin gateway
+curl http://localhost:13000/api/admin/health
 ```
 
-On first start, ToolDock installs and auto-starts a demo FastMCP server
-from the modelcontextprotocol/servers repo (time server). You can disable or change it
-via `FASTMCP_DEMO_*` in `.env`.
+ToolDock can optionally install and auto-start a demo FastMCP server
+from the modelcontextprotocol/servers repo (time server) when
+`FASTMCP_DEMO_ENABLED=true`. Configure via `FASTMCP_DEMO_*` in `.env`.
+ToolDock also seeds a protected built-in installer server (`tooldock-installer`) for LLM-driven install workflows.
 
 ---
 
@@ -104,9 +109,11 @@ This only fixes Docker’s local metadata directory; it does **not** affect your
 | **Playground** | Test tools via OpenAPI or MCP (real servers) |
 | **Persistent Logs** | Daily JSON log files with auto-cleanup |
 | **Metrics** | Error rates + tool call counts via SQLite + in-memory queue |
-| **FastMCP Servers** | Install from MCP Registry or add manual servers |
+| **MCP Servers** | Install from registry, repo URL, or manual command |
+| **Safety Checks** | Pre-install risk assessment for server onboarding |
+| **System Installer** | Built-in protected server for MCP-assisted install workflows |
 | **Config Editor** | Edit server configs with YAML/JSON syntax highlighting |
-| **Unified Namespaces** | View all namespace types (native, fastmcp, external) |
+| **Unified Namespaces** | View all namespace types (native, fastmcp) |
 
 ---
 
@@ -116,9 +123,11 @@ This only fixes Docker’s local metadata directory; it does **not** affect your
 ┌──────────────────┐     ┌─────────────────────────────────────┐
 │   Admin UI       │     │         ToolDock Backend             │
 │   (React)        │     ├─────────────────────────────────────┤
-│  Port 13000      │────→│  Port 18006 → OpenAPI/REST          │
-│                  │     │  Port 18007 → MCP HTTP              │
-└──────────────────┘     │  Port 18080 → Backend API           │
+│  Port 13000      │────→│  Internal: 8006 Tool API            │
+│  /api/*          │     │  Internal: 8007 MCP HTTP            │
+│  /openapi/*      │     │  Internal: 8080 Backend API         │
+│  /mcp/*          │     │                                     │
+└──────────────────┘     │                                     │
                          ├─────────────────────────────────────┤
 LiteLLM ────────────────→│  /mcp/shared    → shared/ tools     │
 Claude Desktop ─────────→│  /mcp/team1     → team1/ tools      │
@@ -135,10 +144,7 @@ Claude Desktop ─────────→│  /mcp/team1     → team1/ tool
 # Required
 BEARER_TOKEN=your_secure_token_here
 
-# Optional - Ports
-OPENAPI_PORT=18006
-MCP_PORT=18007
-WEB_PORT=18080
+# Optional - Single Exposed Port
 ADMIN_PORT=13000
 
 # Optional - Logging
@@ -154,6 +160,10 @@ HOST_DATA_DIR=./tooldock_data
 
 # Optional - External MCP
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# Optional - Built-in installer server
+FASTMCP_INSTALLER_ENABLED=true
+FASTMCP_INSTALLER_NAMESPACE=tooldock-installer
 ```
 
 ---
@@ -174,49 +184,54 @@ Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 
 ### FastMCP (Recommended)
 
-Install FastMCP servers from the MCP Registry and expose them via namespaces.
-Use the **FastMCP** tab in the Admin UI to search, install, start, stop, and delete servers.
+Install FastMCP servers and expose them via namespaces.
+Use the **MCP Servers** page in the Admin UI to search, install, start, stop, and configure servers.
 
-**Two installation methods:**
+**Installation methods:**
 
 1. **From Registry** - Search the MCP Registry for PyPI/npm packages:
-   - Search by name in the Admin UI
+   - Search by name in the Admin UI (results show type badges: npm/pypi/repo)
    - Select a server and choose a namespace
    - Click Install to download and configure
-   - **PyPI** packages are installed into a per-namespace Python venv and run via `python -m <module>`
+   - **PyPI** packages run via `uvx <package>` (uv handles isolation, no venv needed)
    - **npm** packages are validated via `npm view` and run via `npx -y <package>` (no venv needed)
+   - **Repo** packages clone the git repo; you configure the startup command in the detail panel
 
-2. **Manual Server** - Add servers using Claude Desktop config format:
+2. **From Repository URL** - Install directly from git repository:
+   - Provide `repo_url` and namespace (optional entrypoint/server_name)
+   - Review safety check before install
+   - Configure runtime command/env in the detail panel if needed
+
+3. **Manual Server** - Add servers using Claude Desktop config format:
    - Specify command (e.g., `python`, `node`, `npx`)
    - Add arguments (e.g., `-m my_module --config config.yaml`)
    - Set environment variables (e.g., `API_KEY=xxx`)
 
+**Safety-first flow:**
+- Run `POST /api/fastmcp/safety/check` before install (UI does this for registry/repo).
+- If `blocked=true`, resolve failing checks before installation.
+
+**Built-in installer server:**
+- Namespace: `tooldock-installer` (configurable).
+- Package type: `system`.
+- Protected from deletion via API/UI, but start/stop/config updates are allowed.
+
 **Server Management:**
 
 Click on any installed server to open the detail panel:
-- View server status, PID, and port
+- View server status, PID, port, and provenance (package type + source URL)
 - Edit start command (command, args, env)
 - Edit config files with syntax highlighting (YAML/JSON)
-- Start, stop, or delete the server
+- Start, stop, or delete the server (with confirmation dialogs)
 
 Config files are stored in `tooldock_data/external/servers/{namespace}/`.
 
-The default database is SQLite at `/data/db/tooldock.db`. You can switch to Postgres via:
+The default database is SQLite at `DATA_DIR/db/tooldock.db`
+(`./tooldock_data/db/tooldock.db` for local runs, `/data/db/tooldock.db` in Docker). You can switch to Postgres via:
 
 ```
 DATABASE_URL=postgresql+psycopg://user:pass@host:5432/tooldock
 ```
-
-### Legacy External Config (STDIO)
-
-Configure external servers in `tooldock_data/external/config.yaml` (or `$DATA_DIR/external/config.yaml`) and reload without restart:
-
-```bash
-curl -X POST http://localhost:18080/api/servers/reload \
-  -H "Authorization: Bearer change_me"
-```
-
-These servers are exposed as namespaces like `/mcp/github`.
 
 ---
 
@@ -256,7 +271,7 @@ def register_tools(registry: ToolRegistry) -> None:
 Then reload:
 
 ```bash
-curl -X POST http://localhost:18080/api/reload/shared \
+curl -X POST http://localhost:13000/api/reload/shared \
   -H "Authorization: Bearer change_me"
 ```
 
@@ -268,19 +283,19 @@ Each namespace gets its own Python venv stored in `tooldock_data/venvs/{namespac
 Install dependencies via the Admin UI **Tools → Dependencies**, or via API:
 
 ```bash
-curl -X POST http://localhost:18080/api/folders/shared/tools/deps/install \
+curl -X POST http://localhost:13000/api/folders/shared/tools/deps/install \
   -H "Authorization: Bearer change_me" \
   -H "Content-Type: application/json" \
-  -d '{"packages": ["requests==2.32.0"]}'
+  -d '{"requirements": "requests==2.32.0"}'
 ```
 
 Create/Delete venv:
 
 ```bash
-curl -X POST http://localhost:18080/api/folders/shared/tools/deps/create \
+curl -X POST http://localhost:13000/api/folders/shared/tools/deps/create \
   -H "Authorization: Bearer change_me"
 
-curl -X POST http://localhost:18080/api/folders/shared/tools/deps/delete \
+curl -X POST http://localhost:13000/api/folders/shared/tools/deps/delete \
   -H "Authorization: Bearer change_me"
 ```
 
@@ -289,7 +304,7 @@ After install, ToolDock auto-reloads the namespace so imports work immediately.
 Uninstall (pip/setuptools/wheel are protected):
 
 ```bash
-curl -X POST http://localhost:18080/api/folders/shared/tools/deps/uninstall \
+curl -X POST http://localhost:13000/api/folders/shared/tools/deps/uninstall \
   -H "Authorization: Bearer change_me" \
   -H "Content-Type: application/json" \
   -d '{"packages": ["requests"]}'
@@ -311,7 +326,7 @@ mcp_servers:
 ```
 
 If LiteLLM runs on the host (not in Docker), use:
-`http://localhost:18007/mcp/shared`
+`http://localhost:13000/mcp/shared`
 
 ### Claude Desktop
 
@@ -321,7 +336,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:18007/mcp/shared",
+      "url": "http://localhost:13000/mcp/shared",
       "headers": {
         "Authorization": "Bearer change_me"
       }
@@ -334,26 +349,25 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 
 ## API Reference
 
-### OpenAPI (Port 18006)
+### Tool API (OpenAPI transport)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/tools` | GET | List tools |
-| `/tools/{name}` | POST | Execute tool |
+| `/openapi/health` | GET | Health check via Admin gateway (13000) |
+| `/openapi/tools` | GET | List tools via Admin gateway (13000) |
+| `/openapi/tools/{name}` | POST | Execute tool via Admin gateway (13000) |
 
-### MCP (Port 18007)
+### MCP
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/mcp/namespaces` | GET | List namespaces |
+| `/mcp/namespaces` | GET | List namespaces via Admin gateway (13000) |
 | `/mcp` | POST | JSON-RPC endpoint (all namespaces) |
 | `/mcp/{namespace}` | POST | JSON-RPC endpoint (namespace) |
 | `/mcp/info` | GET | Non-standard discovery |
 | `/mcp/{namespace}/info` | GET | Non-standard discovery |
 
-### Backend API (Port 18080)
+### Backend API (via gateway)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -364,24 +378,28 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 | `/api/admin/logs` | GET | View logs |
 | `/api/admin/logs/files` | GET | List log files |
 | `/api/admin/metrics` | GET | Metrics for dashboard (error rates + tool calls) |
-| `/api/admin/namespaces` | GET | List all namespaces (native, fastmcp, external) |
+| `/api/admin/namespaces` | GET | List all namespaces (native, fastmcp) |
 | `/api/playground/tools` | GET | List tools for playground |
 | `/api/playground/execute` | POST | Execute tool (OpenAPI/MCP via real servers) |
 
-### FastMCP API (Port 18080)
+### FastMCP API (via gateway)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/fastmcp/registry/servers` | GET | Search MCP Registry |
 | `/api/fastmcp/registry/health` | GET | Check registry connectivity |
+| `/api/fastmcp/safety/check` | POST | Run install safety assessment |
 | `/api/fastmcp/servers` | GET | List installed servers |
 | `/api/fastmcp/servers` | POST | Install from registry |
+| `/api/fastmcp/servers/repo` | POST | Install from repo URL |
 | `/api/fastmcp/servers/manual` | POST | Add manual server |
+| `/api/fastmcp/servers/from-config` | POST | Add from Claude Desktop config |
 | `/api/fastmcp/servers/{id}` | GET | Get server details |
 | `/api/fastmcp/servers/{id}` | PUT | Update server config |
 | `/api/fastmcp/servers/{id}` | DELETE | Delete server |
 | `/api/fastmcp/servers/{id}/start` | POST | Start server |
 | `/api/fastmcp/servers/{id}/stop` | POST | Stop server |
+| `/api/fastmcp/sync` | POST | Re-sync running servers into tool registry |
 | `/api/fastmcp/servers/{id}/config` | GET | Get config file content |
 | `/api/fastmcp/servers/{id}/config` | PUT | Update config file |
 | `/api/fastmcp/servers/{id}/config/files` | GET | List config files |
@@ -391,7 +409,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 ## MCP Strict Mode Notes
 
 - `GET /mcp` and `GET /mcp/{namespace}` open SSE streams (requires `Accept: text/event-stream`).
-- POST requests require `Accept: application/json` (include `text/event-stream` if you can handle streaming responses).
+- For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is also accepted.
 - JSON-RPC batching is rejected.
 - Notifications-only requests return **202** with no body.
 - `Origin` header is validated against `CORS_ORIGINS`.
@@ -410,7 +428,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 ## Testing
 
 ```bash
-# Run all tests (470+)
+# Run all tests
 pytest tests/ -v
 
 # Run with coverage

@@ -4,7 +4,7 @@
 # ToolDock - Test Script for All Transports
 # ==================================================
 #
-# Tests all three servers: OpenAPI, MCP HTTP, and Backend API
+# Tests all transports through the single Admin gateway port
 #
 # Usage: ./test_both_transports.sh
 #
@@ -24,11 +24,11 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     set +a
 fi
 
-OPENAPI_PORT=${OPENAPI_PORT:-8006}
-MCP_PORT=${MCP_PORT:-8007}
-WEB_PORT=${WEB_PORT:-8080}
-ADMIN_PORT=${ADMIN_PORT:-3000}
+ADMIN_PORT=${ADMIN_PORT:-13000}
+ADMIN_URL="http://localhost:${ADMIN_PORT}"
 BEARER_TOKEN=${BEARER_TOKEN:-change_me_to_a_secure_token}
+MCP_PROTOCOL_VERSION=${MCP_PROTOCOL_VERSION:-2025-11-25}
+FAILURES=0
 
 # Colors
 RED='\033[0;31m'
@@ -41,9 +41,7 @@ echo "=============================================="
 echo "  ToolDock - Testing All Transports"
 echo "=============================================="
 echo ""
-echo "OpenAPI Port:    $OPENAPI_PORT"
-echo "MCP Port:        $MCP_PORT"
-echo "Backend API:     $WEB_PORT"
+echo "Gateway URL:     $ADMIN_URL"
 echo "Admin UI Port:   $ADMIN_PORT"
 echo ""
 
@@ -63,6 +61,7 @@ pass() {
 
 fail() {
     echo -e "${RED}✗ FAIL${NC}: $1"
+    FAILURES=$((FAILURES + 1))
 }
 
 section() {
@@ -74,21 +73,21 @@ section() {
 }
 
 # ==================================================
-section "1. Health Checks (No Auth Required)"
+section "1. Health Checks (No Auth Required, via gateway)"
 # ==================================================
 
-echo ">>> OpenAPI Health:"
-OPENAPI_HEALTH=$(curl -s "http://localhost:$OPENAPI_PORT/health")
+echo ">>> Tool API Health:"
+OPENAPI_HEALTH=$(curl -s "$ADMIN_URL/openapi/health")
 echo "$OPENAPI_HEALTH" | $JQ
 if echo "$OPENAPI_HEALTH" | grep -q '"status"'; then
-    pass "OpenAPI health check"
+    pass "Tool API health check"
 else
-    fail "OpenAPI health check"
+    fail "Tool API health check"
 fi
 echo ""
 
 echo ">>> MCP Health:"
-MCP_HEALTH=$(curl -s "http://localhost:$MCP_PORT/health")
+MCP_HEALTH=$(curl -s "$ADMIN_URL/mcp/health")
 echo "$MCP_HEALTH" | $JQ
 if echo "$MCP_HEALTH" | grep -q '"status"'; then
     pass "MCP health check"
@@ -98,7 +97,7 @@ fi
 echo ""
 
 echo ">>> Backend API Health:"
-WEB_HEALTH=$(curl -s "http://localhost:$WEB_PORT/health")
+WEB_HEALTH=$(curl -s "$ADMIN_URL/health")
 echo "$WEB_HEALTH" | $JQ
 if echo "$WEB_HEALTH" | grep -q '"status"'; then
     pass "Backend API health check"
@@ -107,11 +106,11 @@ else
 fi
 
 # ==================================================
-section "2. OpenAPI Server (Port $OPENAPI_PORT)"
+section "2. Tool API (OpenAPI transport via gateway)"
 # ==================================================
 
 echo ">>> List Tools:"
-TOOLS=$(curl -s "http://localhost:$OPENAPI_PORT/tools" \
+TOOLS=$(curl -s "$ADMIN_URL/openapi/tools" \
   -H "Authorization: Bearer $BEARER_TOKEN")
 echo "$TOOLS" | $JQ
 if echo "$TOOLS" | grep -q '"tools"'; then
@@ -122,7 +121,7 @@ fi
 echo ""
 
 echo ">>> Call hello_world tool:"
-RESULT=$(curl -s -X POST "http://localhost:$OPENAPI_PORT/tools/hello_world" \
+RESULT=$(curl -s -X POST "$ADMIN_URL/openapi/tools/hello_world" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "OpenAPI Test"}')
@@ -134,11 +133,11 @@ else
 fi
 
 # ==================================================
-section "3. MCP Server (Port $MCP_PORT)"
+section "3. MCP Transport (via gateway)"
 # ==================================================
 
 echo ">>> List Namespaces:"
-NAMESPACES=$(curl -s "http://localhost:$MCP_PORT/mcp/namespaces" \
+NAMESPACES=$(curl -s "$ADMIN_URL/mcp/namespaces" \
   -H "Authorization: Bearer $BEARER_TOKEN")
 echo "$NAMESPACES" | $JQ
 if echo "$NAMESPACES" | grep -q 'shared'; then
@@ -148,8 +147,8 @@ else
 fi
 echo ""
 
-echo ">>> Server Info (GET /mcp):"
-SERVER_INFO=$(curl -s "http://localhost:$MCP_PORT/mcp" \
+echo ">>> Server Info (GET /mcp/info):"
+SERVER_INFO=$(curl -s "$ADMIN_URL/mcp/info" \
   -H "Authorization: Bearer $BEARER_TOKEN")
 echo "$SERVER_INFO" | $JQ
 if echo "$SERVER_INFO" | grep -q 'tooldock'; then
@@ -160,15 +159,16 @@ fi
 echo ""
 
 echo ">>> MCP Initialize:"
-INIT=$(curl -s -X POST "http://localhost:$MCP_PORT/mcp" \
+INIT=$(curl -s -X POST "$ADMIN_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "initialize",
     "params": {
-      "protocolVersion": "2024-11-05",
+      "protocolVersion": "'"$MCP_PROTOCOL_VERSION"'",
       "capabilities": {},
       "clientInfo": {
         "name": "test-client",
@@ -185,8 +185,9 @@ fi
 echo ""
 
 echo ">>> MCP List Tools (namespace: shared):"
-MCP_TOOLS=$(curl -s -X POST "http://localhost:$MCP_PORT/mcp/shared" \
+MCP_TOOLS=$(curl -s -X POST "$ADMIN_URL/mcp/shared" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
   -d '{
     "jsonrpc": "2.0",
@@ -203,8 +204,9 @@ fi
 echo ""
 
 echo ">>> MCP Call hello_world tool (namespace: shared):"
-MCP_CALL=$(curl -s -X POST "http://localhost:$MCP_PORT/mcp/shared" \
+MCP_CALL=$(curl -s -X POST "$ADMIN_URL/mcp/shared" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
   -d '{
     "jsonrpc": "2.0",
@@ -226,8 +228,9 @@ fi
 echo ""
 
 echo ">>> MCP Ping:"
-PING=$(curl -s -X POST "http://localhost:$MCP_PORT/mcp" \
+PING=$(curl -s -X POST "$ADMIN_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
   -d '{
     "jsonrpc": "2.0",
@@ -243,11 +246,11 @@ else
 fi
 
 # ==================================================
-section "4. Backend API (Port $WEB_PORT)"
+section "4. Backend API (via gateway)"
 # ==================================================
 
 echo ">>> Dashboard API:"
-DASHBOARD=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/dashboard")
+DASHBOARD=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/dashboard")
 echo "$DASHBOARD" | $JQ
 if echo "$DASHBOARD" | grep -q '"server_name"'; then
     pass "Backend API dashboard"
@@ -257,7 +260,7 @@ fi
 echo ""
 
 echo ">>> List Folders:"
-FOLDERS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/folders")
+FOLDERS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/folders")
 echo "$FOLDERS" | $JQ
 if echo "$FOLDERS" | grep -q '"folders"'; then
     pass "Backend API list folders"
@@ -267,7 +270,7 @@ fi
 echo ""
 
 echo ">>> List Tools in 'shared' folder:"
-FOLDER_TOOLS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/folders/shared/tools")
+FOLDER_TOOLS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/folders/shared/tools")
 echo "$FOLDER_TOOLS" | $JQ
 if echo "$FOLDER_TOOLS" | grep -q '"tools"'; then
     pass "Backend API list tools in shared"
@@ -276,18 +279,18 @@ else
 fi
 echo ""
 
-echo ">>> List External Servers:"
-SERVERS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/servers")
+echo ">>> List MCP Servers:"
+SERVERS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/fastmcp/servers")
 echo "$SERVERS" | $JQ
-if echo "$SERVERS" | grep -q '"servers"'; then
-    pass "Backend API list servers"
+if echo "$SERVERS" | grep -q '\['; then
+    pass "Backend API list MCP servers"
 else
-    fail "Backend API list servers"
+    fail "Backend API list MCP servers"
 fi
 echo ""
 
 echo ">>> Reload Status:"
-RELOAD_STATUS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "http://localhost:$WEB_PORT/api/reload/status")
+RELOAD_STATUS=$(curl -s -H "Authorization: Bearer $BEARER_TOKEN" "$ADMIN_URL/api/reload/status")
 echo "$RELOAD_STATUS" | $JQ
 if echo "$RELOAD_STATUS" | grep -q '"enabled"'; then
     pass "Backend API reload status"
@@ -303,11 +306,18 @@ echo ""
 echo "All tests completed!"
 echo ""
 echo "Access points:"
-echo "  - OpenAPI:     http://localhost:$OPENAPI_PORT"
-echo "  - MCP HTTP:    http://localhost:$MCP_PORT"
-echo "  - Backend API: http://localhost:$WEB_PORT"
-echo "  - Admin UI:    http://localhost:$ADMIN_PORT"
+echo "  - Admin UI:    $ADMIN_URL"
+echo "  - Tool API:    $ADMIN_URL/openapi"
+echo "  - MCP HTTP:    $ADMIN_URL/mcp"
+echo "  - Backend API: $ADMIN_URL/api"
 echo ""
 echo "MCP Endpoints for LiteLLM:"
-echo "  - http://localhost:$MCP_PORT/mcp/shared"
+echo "  - $ADMIN_URL/mcp/shared"
 echo ""
+
+if [ "$FAILURES" -gt 0 ]; then
+    echo -e "${RED}Test result: $FAILURES failure(s)${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}Test result: all checks passed${NC}"

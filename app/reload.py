@@ -150,14 +150,11 @@ class ToolReloader:
         logger.info("Reloading all native namespaces")
         results: List[ReloadResult] = []
 
-        # Get all namespaces from registry that are native
-        all_namespaces = set(self.registry.list_namespaces())
-
-        # Also discover namespaces from filesystem that might not be loaded yet
+        # Native namespaces are filesystem-backed directories under tools_dir.
         discovered = set(discover_namespaces(str(self.tools_dir)))
 
-        # Combine both sets, excluding external namespaces
-        namespaces_to_reload = (all_namespaces | discovered) - self._external_namespaces
+        # Exclude namespaces explicitly marked as external/non-reloadable.
+        namespaces_to_reload = discovered - self._external_namespaces
 
         for namespace in sorted(namespaces_to_reload):
             result = self.reload_namespace(namespace)

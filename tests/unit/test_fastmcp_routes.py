@@ -17,6 +17,7 @@ class _StubFastMCPManager:
     def __init__(self):
         self.calls = {}
         self.deleted = None
+        self.registry = SimpleNamespace(get_stats=lambda: {"external": 2})
 
     async def list_registry_servers(self, limit=30, cursor=None, search=None):
         self.calls["list_registry_servers"] = {
@@ -47,7 +48,48 @@ class _StubFastMCPManager:
             last_error=None,
             startup_command="python",
             command_args=["-m", "demo_module"],
+            package_type="pypi",
+            source_url="https://github.com/example/demo",
         )
+
+    async def add_server_from_repo(self, repo_url, namespace, entrypoint=None, server_name=None, auto_start=True):
+        self.calls["add_server_from_repo"] = {
+            "repo_url": repo_url,
+            "namespace": namespace,
+            "entrypoint": entrypoint,
+            "server_name": server_name,
+            "auto_start": auto_start,
+        }
+        return SimpleNamespace(
+            id=2,
+            server_name=server_name or repo_url,
+            namespace=namespace,
+            version=None,
+            install_method="repo",
+            repo_url=repo_url,
+            entrypoint=entrypoint,
+            port=9200,
+            status="stopped",
+            pid=None,
+            last_error=None,
+            startup_command="python",
+            command_args=["server.py"],
+            package_type="repo",
+            source_url=repo_url,
+        )
+
+    async def assess_installation_safety(self, **kwargs):
+        self.calls["assess_installation_safety"] = kwargs
+        return {
+            "risk_level": "low",
+            "risk_score": 0,
+            "blocked": False,
+            "summary": "Low risk",
+            "checks": [],
+            "resolved_server": {"id": "server-123", "name": "demo"},
+            "required_env": [],
+            "suggested_namespace": "demo",
+        }
 
     def start_server(self, server_id):
         self.calls["start_server"] = {"server_id": server_id}
@@ -84,6 +126,10 @@ class _StubFastMCPManager:
     def delete_server(self, server_id):
         self.deleted = server_id
 
+    async def sync_from_db(self):
+        self.calls["sync_from_db"] = True
+        return {"running": 0, "connected": 0}
+
 
 class _FailingFastMCPManager:
     async def list_registry_servers(self, limit=30, cursor=None, search=None):
@@ -91,6 +137,12 @@ class _FailingFastMCPManager:
 
     async def add_server_from_registry(self, server_name, namespace, version=None, server_id=None):
         raise RuntimeError("install failed")
+
+    async def add_server_from_repo(self, repo_url, namespace, entrypoint=None, server_name=None, auto_start=True):
+        raise RuntimeError("repo install failed")
+
+    async def assess_installation_safety(self, **kwargs):
+        raise RuntimeError("safety failed")
 
     def start_server(self, server_id):
         raise RuntimeError("start failed")
@@ -107,6 +159,24 @@ def fastmcp_stub(monkeypatch: pytest.MonkeyPatch) -> _StubFastMCPManager:
     stub = _StubFastMCPManager()
     monkeypatch.setattr(fastmcp_routes, "_fastmcp_manager", stub)
     return stub
+
+
+@pytest.fixture(autouse=True)
+def cleanup_test_servers(data_dir):
+    """Clean up any test-created server records after each test."""
+    yield
+    # Cleanup runs after test completes (success or failure)
+    with get_db() as db:
+        # Delete any records with test-like namespaces
+        db.query(ExternalFastMCPServer).filter(
+            ExternalFastMCPServer.namespace.like("update_%") |
+            ExternalFastMCPServer.namespace.like("config_%") |
+            ExternalFastMCPServer.namespace.like("manual_%") |
+            ExternalFastMCPServer.namespace.like("test_%") |
+            ExternalFastMCPServer.namespace.like("provenance_%") |
+            ExternalFastMCPServer.namespace.like("legacy_%")
+        ).delete(synchronize_session=False)
+        db.commit()
 
 
 # ==================== Registry Endpoints ====================
@@ -203,6 +273,8 @@ def test_get_single_server(
             startup_command="python",
             command_args=["-m", "myserver"],
             status="stopped",
+            package_type="pypi",
+            source_url="https://github.com/example/test",
         )
         db.add(record)
         db.commit()
@@ -215,6 +287,8 @@ def test_get_single_server(
     assert payload["namespace"] == unique_namespace
     assert payload["command"] == "python"
     assert payload["args"] == ["-m", "myserver"]
+    assert payload["package_type"] == "pypi"
+    assert payload["source_url"] == "https://github.com/example/test"
 
     # Cleanup
     with get_db() as db:
@@ -238,18 +312,18 @@ def test_list_servers_without_auth(
     web_client: SyncASGIClient,
     fastmcp_stub: _StubFastMCPManager,
 ):
-    """GET endpoints should work without auth header."""
+    """GET endpoints require auth when BEARER_TOKEN is set."""
     response = web_client.get("/api/fastmcp/servers")
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def test_registry_servers_without_auth(
     web_client: SyncASGIClient,
     fastmcp_stub: _StubFastMCPManager,
 ):
-    """Registry list should work without auth."""
+    """Registry list requires auth when BEARER_TOKEN is set."""
     response = web_client.get("/api/fastmcp/registry/servers")
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def test_post_requires_auth(
@@ -282,8 +356,65 @@ def test_add_fastmcp_server(
     payload = response.json()
     assert payload["server_name"] == "demo"
     assert payload["namespace"] == "demo_ns"
+    assert payload["package_type"] == "pypi"
+    assert payload["source_url"] == "https://github.com/example/demo"
     assert fastmcp_stub.calls["add_server_from_registry"]["server_name"] == "demo"
     assert fastmcp_stub.calls["add_server_from_registry"]["server_id"] == "server-1234"
+
+
+def test_add_repo_fastmcp_server(
+    web_client: SyncASGIClient,
+    auth_headers: dict,
+    fastmcp_stub: _StubFastMCPManager,
+):
+    response = web_client.post(
+        "/api/fastmcp/servers/repo",
+        headers=auth_headers,
+        json={
+            "repo_url": "https://github.com/example/mcp-server.git",
+            "namespace": "repo_demo",
+            "entrypoint": "server.py",
+            "server_name": "Repo Demo",
+            "auto_start": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["namespace"] == "repo_demo"
+    assert payload["install_method"] == "repo"
+    assert payload["source_url"] == "https://github.com/example/mcp-server.git"
+    assert fastmcp_stub.calls["add_server_from_repo"]["namespace"] == "repo_demo"
+
+
+def test_safety_check_endpoint(
+    web_client: SyncASGIClient,
+    auth_headers: dict,
+    fastmcp_stub: _StubFastMCPManager,
+):
+    response = web_client.post(
+        "/api/fastmcp/safety/check",
+        headers=auth_headers,
+        json={"server_id": "server-1234"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["risk_level"] == "low"
+    assert fastmcp_stub.calls["assess_installation_safety"]["server_id"] == "server-1234"
+
+
+def test_sync_fastmcp_servers(
+    web_client: SyncASGIClient,
+    auth_headers: dict,
+    fastmcp_stub: _StubFastMCPManager,
+):
+    response = web_client.post("/api/fastmcp/sync", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["external_tools"] == 2
+    assert fastmcp_stub.calls["sync_from_db"] is True
 
 
 # ==================== Manual Server ====================
@@ -317,9 +448,43 @@ def test_add_manual_server(
     assert payload["args"] == ["-y", "@mcp/server-test"]
     assert payload["env"] == {"API_KEY": "secret"}
     assert payload["install_method"] == "manual"
+    assert payload["package_type"] == "manual"
     assert payload["status"] == "stopped"
 
     # Cleanup
+    with get_db() as db:
+        db.query(ExternalFastMCPServer).filter_by(namespace=unique_namespace).delete()
+        db.commit()
+
+
+def test_add_from_config_server_without_pip_package(
+    web_client: SyncASGIClient,
+    auth_headers: dict,
+):
+    init_db()
+    unique_namespace = f"fromcfg_{uuid4().hex[:8]}"
+
+    response = web_client.post(
+        "/api/fastmcp/servers/from-config",
+        headers=auth_headers,
+        json={
+            "namespace": unique_namespace,
+            "config": {
+                "command": "python",
+                "args": ["-m", "my_mcp_server"],
+                "env": {"API_KEY": "test-key"},
+            },
+            "auto_start": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["namespace"] == unique_namespace
+    assert payload["command"] == "python"
+    assert payload["args"] == ["-m", "my_mcp_server"]
+    assert payload["env"] == {"API_KEY": "test-key"}
+
     with get_db() as db:
         db.query(ExternalFastMCPServer).filter_by(namespace=unique_namespace).delete()
         db.commit()
@@ -405,6 +570,7 @@ def test_add_manual_server_duplicate_namespace(
 def test_update_server(
     web_client: SyncASGIClient,
     auth_headers: dict,
+    fastmcp_stub: _StubFastMCPManager,
 ):
     init_db()
     unique_namespace = f"update_{uuid4().hex[:8]}"
@@ -438,11 +604,7 @@ def test_update_server(
     assert payload["command"] == "node"
     assert payload["args"] == ["server.js"]
     assert payload["auto_start"] is True
-
-    # Cleanup
-    with get_db() as db:
-        db.query(ExternalFastMCPServer).filter_by(namespace=unique_namespace).delete()
-        db.commit()
+    # Cleanup handled by cleanup_test_servers fixture
 
 
 def test_update_server_not_found(
@@ -741,3 +903,57 @@ def test_manual_server_missing_command(
         },
     )
     assert response.status_code == 422
+
+
+def test_reserved_namespace_rejected(
+    web_client: SyncASGIClient,
+    auth_headers: dict,
+):
+    response = web_client.post(
+        "/api/fastmcp/servers/manual",
+        headers=auth_headers,
+        json={
+            "namespace": "tooldock-installer",
+            "server_name": "Reserved",
+            "command": "python",
+        },
+    )
+    assert response.status_code == 409
+    assert "reserved" in response.json()["detail"].lower()
+
+
+# ==================== Provenance Fields ====================
+
+
+def test_provenance_fields_null_when_absent(
+    web_client: SyncASGIClient,
+    auth_headers: dict,
+):
+    """package_type and source_url are null for legacy records."""
+    init_db()
+    unique_namespace = f"legacy_{uuid4().hex[:8]}"
+
+    with get_db() as db:
+        record = ExternalFastMCPServer(
+            server_name="legacy-server",
+            namespace=unique_namespace,
+            install_method="package",
+            startup_command="npx",
+            command_args=["-y", "some-package"],
+            status="stopped",
+        )
+        db.add(record)
+        db.commit()
+        server_id = record.id
+
+    response = web_client.get(f"/api/fastmcp/servers/{server_id}", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["package_type"] is None
+    assert payload["source_url"] is None
+
+    # Cleanup
+    with get_db() as db:
+        db.query(ExternalFastMCPServer).filter_by(namespace=unique_namespace).delete()
+        db.commit()

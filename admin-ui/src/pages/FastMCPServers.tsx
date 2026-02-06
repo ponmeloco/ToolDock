@@ -5,8 +5,10 @@ import { yaml } from '@codemirror/lang-yaml'
 import { json } from '@codemirror/lang-json'
 import {
   addFastMcpServer,
+  addRepoFastMcpServer,
   addManualFastMcpServer,
   checkRegistryHealth,
+  checkFastMcpServerSafety,
   deleteFastMcpServer,
   getFastMcpServer,
   getFastMcpServerConfig,
@@ -19,6 +21,7 @@ import {
   updateFastMcpServerConfig,
   FastMCPServer,
   FastMCPConfigFileInfo,
+  FastMCPSafetyResult,
 } from '../api/client'
 import {
   X,
@@ -32,9 +35,11 @@ import {
   FileCode,
   Terminal,
   Plus,
+  ExternalLink,
+  Shield,
 } from 'lucide-react'
 
-type TabType = 'registry' | 'manual'
+type TabType = 'registry' | 'repo' | 'manual'
 
 export default function FastMCPServers() {
   const queryClient = useQueryClient()
@@ -50,6 +55,11 @@ export default function FastMCPServers() {
   const [manualCommand, setManualCommand] = useState('')
   const [manualArgs, setManualArgs] = useState('')
   const [manualEnv, setManualEnv] = useState('')
+  const [repoUrl, setRepoUrl] = useState('')
+  const [repoNamespace, setRepoNamespace] = useState('')
+  const [repoServerName, setRepoServerName] = useState('')
+  const [repoEntrypoint, setRepoEntrypoint] = useState('')
+  const [repoEnv, setRepoEnv] = useState('')
 
   // Server detail panel state
   const [detailServerId, setDetailServerId] = useState<number | null>(null)
@@ -60,6 +70,10 @@ export default function FastMCPServers() {
   const [configFilename, setConfigFilename] = useState('config.yaml')
   const [configFiles, setConfigFiles] = useState<FastMCPConfigFileInfo[]>([])
   const [configDirty, setConfigDirty] = useState(false)
+
+  // Delete confirmation + feedback
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null)
 
   const suggestNamespace = (serverName: string): string => {
     const raw = serverName.split('/').pop() || serverName
@@ -88,9 +102,44 @@ export default function FastMCPServers() {
     )
   }
 
+  const packageTypeBadge = (type?: string | null) => {
+    if (!type) return null
+    const styles: Record<string, string> = {
+      npm: 'bg-green-100 text-green-700',
+      pypi: 'bg-blue-100 text-blue-700',
+      oci: 'bg-purple-100 text-purple-700',
+      remote: 'bg-gray-100 text-gray-600',
+      repo: 'bg-orange-100 text-orange-700',
+      manual: 'bg-slate-100 text-slate-600',
+      system: 'bg-indigo-100 text-indigo-700',
+    }
+    const cls = styles[type] || 'bg-gray-100 text-gray-600'
+    return (
+      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cls}`}>
+        {type}
+      </span>
+    )
+  }
+
+  const parseEnvLines = (raw: string): Record<string, string> | undefined => {
+    if (!raw.trim()) return undefined
+    const entries = raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [key, ...val] = line.split('=')
+        return [key.trim(), val.join('=').trim()] as const
+      })
+      .filter(([key]) => key.length > 0)
+    return entries.length ? Object.fromEntries(entries) : undefined
+  }
+
   const serversQuery = useQuery({
     queryKey: ['fastmcpServers'],
     queryFn: listFastMcpServers,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   })
 
   const registryHealthQuery = useQuery({
@@ -107,6 +156,25 @@ export default function FastMCPServers() {
     queryKey: ['fastmcpRegistry', search],
     queryFn: () => searchRegistryServers(search, 20),
     enabled: search.trim().length >= 2 && registryOnline,
+  })
+
+  const registrySafetyQuery = useQuery({
+    queryKey: ['fastmcpSafety', 'registry', selectedServer?.id, selectedServer?.name],
+    queryFn: () =>
+      checkFastMcpServerSafety({
+        server_id: selectedServer?.id || undefined,
+        server_name: selectedServer?.name || undefined,
+      }),
+    enabled: activeTab === 'registry' && registryOnline && Boolean(selectedServer),
+  })
+
+  const repoSafetyQuery = useQuery({
+    queryKey: ['fastmcpSafety', 'repo', repoUrl],
+    queryFn: () =>
+      checkFastMcpServerSafety({
+        repo_url: repoUrl.trim(),
+      }),
+    enabled: activeTab === 'repo' && repoUrl.trim().startsWith('http'),
   })
 
   // Server detail query
@@ -154,7 +222,7 @@ export default function FastMCPServers() {
         setConfigFilename(configFilesQuery.data.files[0].filename)
       }
     }
-  }, [configFilesQuery.data])
+  }, [configFilesQuery.data, configFilename])
 
   // Update config content
   useEffect(() => {
@@ -163,6 +231,12 @@ export default function FastMCPServers() {
       setConfigDirty(false)
     }
   }, [configContentQuery.data])
+
+  useEffect(() => {
+    if (!repoNamespace.trim() && typeof repoSafetyQuery.data?.suggested_namespace === 'string') {
+      setRepoNamespace(repoSafetyQuery.data.suggested_namespace)
+    }
+  }, [repoSafetyQuery.data, repoNamespace])
 
   const addMutation = useMutation({
     mutationFn: () => {
@@ -184,6 +258,34 @@ export default function FastMCPServers() {
     },
   })
 
+  const addRepoMutation = useMutation({
+    mutationFn: () => {
+      if (!repoUrl.trim() || !repoNamespace.trim()) {
+        throw new Error('Repository URL and namespace are required')
+      }
+      return addRepoFastMcpServer({
+        repo_url: repoUrl.trim(),
+        namespace: repoNamespace.trim(),
+        server_name: repoServerName.trim() || undefined,
+        entrypoint: repoEntrypoint.trim() || undefined,
+        env: parseEnvLines(repoEnv),
+        auto_start: false,
+      })
+    },
+    onSuccess: (data) => {
+      setRepoUrl('')
+      setRepoNamespace('')
+      setRepoServerName('')
+      setRepoEntrypoint('')
+      setRepoEnv('')
+      queryClient.invalidateQueries({ queryKey: ['fastmcpServers'] })
+      queryClient.invalidateQueries({ queryKey: ['allNamespaces'] })
+      if (data?.id) {
+        setDetailServerId(data.id)
+      }
+    },
+  })
+
   const addManualMutation = useMutation({
     mutationFn: () => {
       if (!manualNamespace || !manualServerName || !manualCommand) {
@@ -194,14 +296,7 @@ export default function FastMCPServers() {
         server_name: manualServerName,
         command: manualCommand,
         args: manualArgs.trim() ? manualArgs.split(/\s+/) : undefined,
-        env: manualEnv.trim()
-          ? Object.fromEntries(
-              manualEnv.split('\n').map((line) => {
-                const [key, ...val] = line.split('=')
-                return [key.trim(), val.join('=').trim()]
-              })
-            )
-          : undefined,
+        env: parseEnvLines(manualEnv),
       })
     },
     onSuccess: () => {
@@ -239,19 +334,27 @@ export default function FastMCPServers() {
 
   const startMutation = useMutation({
     mutationFn: (id: number) => startFastMcpServer(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fastmcpServers'] })
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServers'] })
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServerDetail', detailServerId] })
       queryClient.invalidateQueries({ queryKey: ['allNamespaces'] })
-      queryClient.invalidateQueries({ queryKey: ['fastmcpServerDetail', detailServerId] })
+    },
+    onError: async () => {
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServers'] })
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServerDetail', detailServerId] })
     },
   })
 
   const stopMutation = useMutation({
     mutationFn: (id: number) => stopFastMcpServer(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fastmcpServers'] })
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServers'] })
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServerDetail', detailServerId] })
       queryClient.invalidateQueries({ queryKey: ['allNamespaces'] })
-      queryClient.invalidateQueries({ queryKey: ['fastmcpServerDetail', detailServerId] })
+    },
+    onError: async () => {
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServers'] })
+      await queryClient.refetchQueries({ queryKey: ['fastmcpServerDetail', detailServerId] })
     },
   })
 
@@ -260,9 +363,16 @@ export default function FastMCPServers() {
     onSuccess: (_data, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['fastmcpServers'] })
       queryClient.invalidateQueries({ queryKey: ['allNamespaces'] })
+      setDeleteConfirmId(null)
       if (detailServerId === deletedId) {
         setDetailServerId(null)
       }
+      setDeleteMessage('Server deleted successfully.')
+      setTimeout(() => setDeleteMessage(null), 3000)
+    },
+    onError: () => {
+      setDeleteConfirmId(null)
+      queryClient.invalidateQueries({ queryKey: ['fastmcpServers'] })
     },
   })
 
@@ -270,14 +380,7 @@ export default function FastMCPServers() {
     if (!detailServerId) return
 
     const args = editArgs.trim() ? editArgs.split(/\s+/) : undefined
-    const env = editEnv.trim()
-      ? Object.fromEntries(
-          editEnv.split('\n').map((line) => {
-            const [key, ...val] = line.split('=')
-            return [key.trim(), val.join('=').trim()]
-          })
-        )
-      : undefined
+    const env = parseEnvLines(editEnv)
 
     updateServerMutation.mutate({
       id: detailServerId,
@@ -309,14 +412,42 @@ export default function FastMCPServers() {
   }
 
   const detailServer = serverDetailQuery.data
+  const renderSafetyPanel = (safety?: FastMCPSafetyResult, loading = false) => {
+    if (loading) {
+      return <div className="text-xs text-gray-500">Checking safety...</div>
+    }
+    if (!safety) return null
+
+    const riskCls =
+      safety.risk_level === 'high'
+        ? 'bg-red-50 border-red-200 text-red-700'
+        : safety.risk_level === 'medium'
+        ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+        : 'bg-green-50 border-green-200 text-green-700'
+
+    return (
+      <div className={`border rounded-lg p-3 ${riskCls}`}>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide">Safety</span>
+          <span className="text-xs font-medium">
+            {safety.risk_level} (score {safety.risk_score})
+          </span>
+        </div>
+        <div className="text-xs mt-1">{safety.summary}</div>
+        {safety.blocked && (
+          <div className="text-xs mt-1 font-medium">Installation blocked until failing checks are resolved.</div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="h-[calc(100vh-3rem)] flex">
       {/* Main Content */}
       <div className={`flex-1 overflow-auto p-6 space-y-6 ${detailServerId ? 'mr-[480px]' : ''}`}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">External MCP Servers</h1>
-          <p className="text-gray-600 text-sm">Install from the MCP Registry or add manual servers.</p>
+          <h1 className="text-2xl font-bold text-gray-900">MCP Servers</h1>
+          <p className="text-gray-600 text-sm">Install from Registry, repository URL, or manual command.</p>
         </div>
 
         {/* Tab Selector */}
@@ -329,7 +460,7 @@ export default function FastMCPServers() {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            From Registry
+            Registry
           </button>
           <button
             onClick={() => setActiveTab('manual')}
@@ -339,7 +470,17 @@ export default function FastMCPServers() {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Manual Server
+            Manual Command
+          </button>
+          <button
+            onClick={() => setActiveTab('repo')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'repo'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Repository URL
           </button>
         </div>
 
@@ -376,6 +517,8 @@ export default function FastMCPServers() {
                     const name = getRegistryName(server)
                     const id = getRegistryId(server)
                     const description = getRegistryDescription(server)
+                    const pkgType = server._package_type as string | undefined
+                    const sourceUrl = server._source_url as string | undefined
                     const isSelected = selectedServer?.id === id
                     const isSelectable = Boolean(name)
                     return (
@@ -393,7 +536,22 @@ export default function FastMCPServers() {
                           isSelected ? 'bg-primary-50' : ''
                         } ${!isSelectable ? 'cursor-not-allowed opacity-60' : ''}`}
                       >
-                        <div className="font-medium text-gray-800">{name || 'Unknown server'}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-800">{name || 'Unknown server'}</span>
+                          {packageTypeBadge(pkgType)}
+                          {sourceUrl && (
+                            <a
+                              href={sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-gray-400 hover:text-primary-600"
+                              title={sourceUrl}
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500">{description}</div>
                       </button>
                     )
@@ -437,16 +595,109 @@ export default function FastMCPServers() {
               </div>
               <button
                 onClick={() => addMutation.mutate()}
-                disabled={!registryOnline || addMutation.isPending}
+                disabled={
+                  !registryOnline ||
+                  addMutation.isPending ||
+                  !selectedServer ||
+                  !namespace.trim() ||
+                  Boolean(registrySafetyQuery.data?.blocked)
+                }
                 className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg disabled:opacity-50"
               >
                 {addMutation.isPending ? 'Installing...' : 'Install'}
               </button>
+              {renderSafetyPanel(registrySafetyQuery.data, registrySafetyQuery.isLoading)}
               {addMutation.error ? (
                 <div className="text-sm text-red-600">{(addMutation.error as Error).message}</div>
               ) : null}
             </div>
           </>
+        )}
+
+        {/* Repo Tab */}
+        {activeTab === 'repo' && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-4">
+            <div className="text-xs text-gray-400 uppercase tracking-wide">Install from Repository URL</div>
+            <p className="text-sm text-gray-600">
+              Clone an MCP server repo, then configure command/env in the detail panel.
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
+              <input
+                type="text"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/org/repo.git"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Namespace</label>
+                <input
+                  type="text"
+                  value={repoNamespace}
+                  onChange={(e) => setRepoNamespace(e.target.value)}
+                  placeholder="e.g. github"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Server Name (optional)</label>
+                <input
+                  type="text"
+                  value={repoServerName}
+                  onChange={(e) => setRepoServerName(e.target.value)}
+                  placeholder="Display name"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Entrypoint (optional)</label>
+                <input
+                  type="text"
+                  value={repoEntrypoint}
+                  onChange={(e) => setRepoEntrypoint(e.target.value)}
+                  placeholder="src/server.py"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Environment Variables (one per line: KEY=value)
+              </label>
+              <textarea
+                value={repoEnv}
+                onChange={(e) => setRepoEnv(e.target.value)}
+                placeholder="API_KEY=xxx&#10;BASE_URL=https://example.com"
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none font-mono text-sm"
+              />
+            </div>
+
+            {renderSafetyPanel(repoSafetyQuery.data, repoSafetyQuery.isLoading)}
+
+            <button
+              onClick={() => addRepoMutation.mutate()}
+              disabled={
+                addRepoMutation.isPending ||
+                !repoUrl.trim() ||
+                !repoNamespace.trim() ||
+                Boolean(repoSafetyQuery.data?.blocked)
+              }
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg disabled:opacity-50"
+            >
+              <Plus className="w-4 h-4" />
+              {addRepoMutation.isPending ? 'Installing...' : 'Install from Repo'}
+            </button>
+            {addRepoMutation.error ? (
+              <div className="text-sm text-red-600">{(addRepoMutation.error as Error).message}</div>
+            ) : null}
+          </div>
         )}
 
         {/* Manual Tab */}
@@ -529,6 +780,18 @@ export default function FastMCPServers() {
           </div>
         )}
 
+        {/* Delete feedback */}
+        {deleteMessage && (
+          <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+            {deleteMessage}
+          </div>
+        )}
+        {deleteMutation.error && !deleteMutation.isPending && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            {(deleteMutation.error as Error).message}
+          </div>
+        )}
+
         {/* Installed Servers List */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
@@ -554,6 +817,12 @@ export default function FastMCPServers() {
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-gray-400" />
                       <span className="font-medium text-gray-800">{server.namespace}</span>
+                      {server.is_system && (
+                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-100 text-indigo-700">
+                          <Shield className="w-3 h-3" />
+                          system
+                        </span>
+                      )}
                       <span
                         className={`text-xs px-1.5 py-0.5 rounded ${
                           server.status === 'running'
@@ -565,7 +834,7 @@ export default function FastMCPServers() {
                       >
                         {server.status}
                       </span>
-                      <span className="text-xs text-gray-400">{server.install_method}</span>
+                      {packageTypeBadge(server.package_type)}
                     </div>
                     <div className="text-xs text-gray-500 mt-1">{server.server_name}</div>
                     {server.last_error ? (
@@ -590,13 +859,31 @@ export default function FastMCPServers() {
                         <Play className="w-4 h-4" />
                       </button>
                     )}
-                    <button
-                      onClick={() => deleteMutation.mutate(server.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete server"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {server.is_system ? null : deleteConfirmId === server.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => deleteMutation.mutate(server.id)}
+                          disabled={deleteMutation.isPending}
+                          className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                        >
+                          {deleteMutation.isPending ? '...' : 'Yes'}
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteConfirmId(server.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete server"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                     <ChevronRight className="w-4 h-4 text-gray-400" />
                   </div>
                 </div>
@@ -614,8 +901,30 @@ export default function FastMCPServers() {
           {/* Header */}
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
             <div>
-              <h2 className="font-semibold text-gray-900">{detailServer?.namespace || 'Loading...'}</h2>
-              <p className="text-sm text-gray-500">{detailServer?.server_name}</p>
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-gray-900">{detailServer?.namespace || 'Loading...'}</h2>
+                {packageTypeBadge(detailServer?.package_type)}
+                {detailServer?.is_system && (
+                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-100 text-indigo-700">
+                    <Shield className="w-3 h-3" />
+                    system
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-sm text-gray-500">{detailServer?.server_name}</p>
+                {detailServer?.source_url && (
+                  <a
+                    href={detailServer.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-400 hover:text-primary-600"
+                    title={detailServer.source_url}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
             </div>
             <button
               onClick={closeServerDetail}
@@ -668,6 +977,21 @@ export default function FastMCPServers() {
                     )}
                   </div>
                 </div>
+
+                {detailServer.is_system && (
+                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-800">
+                    This is a protected system installer server. It can be configured and started/stopped, but not deleted.
+                  </div>
+                )}
+
+                {/* Repo hint for servers needing configuration */}
+                {detailServer.package_type === 'repo' &&
+                  detailServer.status === 'stopped' &&
+                  !detailServer.command && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                      Configure startup command below, then start the server.
+                    </div>
+                  )}
 
                 {/* Command Configuration */}
                 <div className="space-y-3">
@@ -807,35 +1131,59 @@ export default function FastMCPServers() {
           </div>
 
           {/* Footer Actions */}
-          <div className="p-4 border-t border-gray-200 flex items-center gap-2">
-            {detailServer?.status === 'running' ? (
-              <button
-                onClick={() => stopMutation.mutate(detailServerId)}
-                disabled={stopMutation.isPending}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm border border-orange-300 text-orange-600 hover:bg-orange-50 rounded-lg"
-              >
-                <Square className="w-4 h-4" />
-                Stop Server
-              </button>
-            ) : (
-              <button
-                onClick={() => startMutation.mutate(detailServerId)}
-                disabled={startMutation.isPending}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg"
-              >
-                <Play className="w-4 h-4" />
-                Start Server
-              </button>
+          <div className="p-4 border-t border-gray-200 space-y-2">
+            <div className="flex items-center gap-2">
+              {detailServer?.status === 'running' ? (
+                <button
+                  onClick={() => stopMutation.mutate(detailServerId)}
+                  disabled={stopMutation.isPending}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm border border-orange-300 text-orange-600 hover:bg-orange-50 rounded-lg"
+                >
+                  <Square className="w-4 h-4" />
+                  {stopMutation.isPending ? 'Stopping...' : 'Stop Server'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => startMutation.mutate(detailServerId)}
+                  disabled={startMutation.isPending}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg"
+                >
+                  <Play className="w-4 h-4" />
+                  {startMutation.isPending ? 'Starting...' : 'Start Server'}
+                </button>
+              )}
+              {detailServer?.is_system ? null : deleteConfirmId === detailServerId ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600">Delete?</span>
+                  <button
+                    onClick={() => deleteMutation.mutate(detailServerId)}
+                    disabled={deleteMutation.isPending}
+                    className="px-3 py-2 text-sm bg-red-600 text-white hover:bg-red-700 rounded-lg"
+                  >
+                    {deleteMutation.isPending ? 'Deleting...' : 'Yes'}
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirmId(null)}
+                    className="px-3 py-2 text-sm bg-gray-200 hover:bg-gray-300 rounded-lg"
+                  >
+                    No
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setDeleteConfirmId(detailServerId)}
+                  className="px-4 py-2 text-sm border border-red-300 text-red-600 hover:bg-red-50 rounded-lg"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {startMutation.error && (
+              <div className="text-xs text-red-600">{(startMutation.error as Error).message}</div>
             )}
-            <button
-              onClick={() => {
-                deleteMutation.mutate(detailServerId)
-              }}
-              disabled={deleteMutation.isPending}
-              className="px-4 py-2 text-sm border border-red-300 text-red-600 hover:bg-red-50 rounded-lg"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {stopMutation.error && (
+              <div className="text-xs text-red-600">{(stopMutation.error as Error).message}</div>
+            )}
           </div>
         </div>
       )}

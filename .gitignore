@@ -49,6 +49,9 @@ data/
 # ToolDock data directory (user-generated content)
 # Include the structure but not user data
 tooldock_data/external/cache/
+tooldock_data/external/servers/
+tooldock_data/external/logs/
+tooldock_data/external/.fastmcp_demo_seeded
 tooldock_data/tools/*/
 !tooldock_data/tools/shared/
 tooldock_data/logs/

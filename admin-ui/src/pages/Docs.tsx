@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Key, Send, ChevronDown, ChevronRight, Check, Copy, ExternalLink } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { getNamespaces, getSystemInfo } from '../api/client'
+import { getAllNamespaces, getAllTools, getSystemInfo, getTools, listFastMcpServers } from '../api/client'
 
 interface PathParam {
   name: string
@@ -29,6 +29,14 @@ interface EndpointCategory {
   baseUrl?: string
 }
 
+interface PathParamOption {
+  value: string
+  label: string
+}
+
+const TOOL_API_CATEGORY = 'Tool API'
+const MCP_TRANSPORT_CATEGORY = 'MCP Transport'
+
 function buildCategories(
   openapiPort: string,
   mcpPort: string,
@@ -37,21 +45,24 @@ function buildCategories(
 ): EndpointCategory[] {
   return [
     {
-      name: 'Backend API',
-      description: 'Core ToolDock API (same origin)',
+      name: 'Getting Started',
+      description: 'Core health and system endpoints',
       endpoints: [
         { method: 'GET', path: '/health', description: 'Backend API health check', auth: false },
+        { method: 'GET', path: '/api/dashboard', description: 'Dashboard overview', auth: true },
         { method: 'GET', path: '/api/admin/health', description: 'Aggregated health of all services', auth: true },
         { method: 'GET', path: '/api/admin/info', description: 'System information', auth: true },
+        { method: 'GET', path: '/api/admin/metrics', description: 'Service/tool metrics', auth: true },
+        { method: 'GET', path: '/api/admin/namespaces', description: 'Unified namespace list', auth: true },
         { method: 'GET', path: '/api/admin/logs?limit=20', description: 'Get recent logs', auth: true },
       ],
     },
     {
-      name: 'Namespaces',
-      description: 'Manage tool namespaces (folders) in ToolDock',
+      name: 'Namespaces & Tools',
+      description: 'Manage namespaces, tools, and per-namespace dependencies',
       endpoints: [
         { method: 'GET', path: '/api/folders', description: 'List all namespaces', auth: true },
-        { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name": "my_namespace"}' },
+        { method: 'POST', path: '/api/folders', description: 'Create a new namespace', auth: true, body: '{"name":"my_namespace"}' },
         {
           method: 'DELETE',
           path: '/api/folders/{namespace}',
@@ -59,12 +70,6 @@ function buildCategories(
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace to delete' }],
         },
-      ],
-    },
-    {
-      name: 'Tools',
-      description: 'Manage tools within namespaces (files, content, templates)',
-      endpoints: [
         {
           method: 'GET',
           path: '/api/folders/{namespace}/tools',
@@ -79,7 +84,7 @@ function buildCategories(
           auth: true,
           pathParams: [
             { name: 'namespace', description: 'Namespace name' },
-            { name: 'filename', description: 'Tool filename (e.g., example.py)' },
+            { name: 'filename', description: 'Tool filename' },
           ],
         },
         {
@@ -87,7 +92,7 @@ function buildCategories(
           path: '/api/folders/{namespace}/tools/create-from-template',
           description: 'Create tool from template',
           auth: true,
-          body: '{"name": "my_tool"}',
+          body: '{"name":"my_tool"}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
@@ -95,11 +100,18 @@ function buildCategories(
           path: '/api/folders/{namespace}/tools/{filename}',
           description: 'Update tool content',
           auth: true,
-          body: '{"content": "# Updated content"}',
+          body: '{"content":"# Updated content"}',
           pathParams: [
             { name: 'namespace', description: 'Namespace name' },
-            { name: 'filename', description: 'Tool filename (e.g., example.py)' },
+            { name: 'filename', description: 'Tool filename' },
           ],
+        },
+        {
+          method: 'POST',
+          path: '/api/folders/{namespace}/tools/validate',
+          description: 'Validate tool without saving',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
           method: 'GET',
@@ -113,7 +125,7 @@ function buildCategories(
           path: '/api/folders/{namespace}/tools/deps/install',
           description: 'Install namespace dependencies',
           auth: true,
-          body: '{"packages": ["requests==2.32.0"]}',
+          body: '{"requirements":"requests==2.32.0"}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
@@ -128,7 +140,7 @@ function buildCategories(
           path: '/api/folders/{namespace}/tools/deps/uninstall',
           description: 'Uninstall namespace dependencies (pip protected)',
           auth: true,
-          body: '{"packages": ["requests"]}',
+          body: '{"packages":["requests"]}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
@@ -141,45 +153,106 @@ function buildCategories(
       ],
     },
     {
-      name: 'Dependencies',
-      description: 'Manage per-namespace Python dependencies',
+      name: 'FastMCP Servers',
+      description: 'Manage MCP servers (registry, repo URL, manual) and safety checks',
       endpoints: [
         {
           method: 'GET',
-          path: '/api/folders/{namespace}/tools/deps',
-          description: 'Get namespace dependencies (venv + packages)',
+          path: '/api/fastmcp/registry/servers?search=github&limit=20',
+          description: 'Search MCP Registry',
           auth: true,
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        { method: 'POST', path: '/api/fastmcp/safety/check', description: 'Run install safety assessment', auth: true },
+        { method: 'GET', path: '/api/fastmcp/servers', description: 'List MCP servers', auth: true },
+        {
+          method: 'POST',
+          path: '/api/fastmcp/servers',
+          description: 'Install server from registry',
+          auth: true,
+          body: '{"server_id":"<registry-id>","server_name":"io.github.modelcontextprotocol/server-filesystem","namespace":"filesystem"}',
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/create',
-          description: 'Create namespace venv',
+          path: '/api/fastmcp/servers/repo',
+          description: 'Install server from repository URL',
           auth: true,
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+          body: '{"repo_url":"https://github.com/org/repo.git","namespace":"repo_ns","entrypoint":"src/server.py"}',
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/install',
-          description: 'Install namespace dependencies',
+          path: '/api/fastmcp/servers/manual',
+          description: 'Add manual command-based server',
           auth: true,
-          body: '{"packages": ["requests==2.32.0"]}',
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+          body: '{"namespace":"manual","server_name":"Manual","command":"python","args":["server.py"]}',
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/uninstall',
-          description: 'Uninstall namespace dependencies (pip protected)',
+          path: '/api/fastmcp/servers/from-config',
+          description: 'Add server from Claude Desktop style config',
           auth: true,
-          body: '{"packages": ["requests"]}',
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+          body: '{"namespace":"cfg","config":{"command":"python","args":["-m","mcp_server_fetch"]}}',
         },
         {
           method: 'POST',
-          path: '/api/folders/{namespace}/tools/deps/delete',
-          description: 'Delete namespace venv',
+          path: '/api/fastmcp/sync',
+          description: 'Re-sync running MCP servers into registry',
           auth: true,
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/fastmcp/servers/{server_id}/start',
+          description: 'Start MCP server',
+          auth: true,
+          pathParams: [{ name: 'server_id', description: 'Server ID', default: '1' }],
+        },
+        {
+          method: 'POST',
+          path: '/api/fastmcp/servers/{server_id}/stop',
+          description: 'Stop MCP server',
+          auth: true,
+          pathParams: [{ name: 'server_id', description: 'Server ID', default: '1' }],
+        },
+        {
+          method: 'DELETE',
+          path: '/api/fastmcp/servers/{server_id}',
+          description: 'Delete MCP server',
+          auth: true,
+          pathParams: [{ name: 'server_id', description: 'Server ID', default: '1' }],
+        },
+        {
+          method: 'GET',
+          path: '/api/fastmcp/servers/{server_id}/config/files',
+          description: 'List config files',
+          auth: true,
+          pathParams: [{ name: 'server_id', description: 'Server ID', default: '1' }],
+        },
+        {
+          method: 'GET',
+          path: '/api/fastmcp/servers/{server_id}/config',
+          description: 'Read config content',
+          auth: true,
+          pathParams: [{ name: 'server_id', description: 'Server ID', default: '1' }],
+        },
+      ],
+    },
+    {
+      name: 'Playground',
+      description: 'Test tools through backend helper routes',
+      endpoints: [
+        { method: 'GET', path: '/api/playground/tools', description: 'List tools for playground', auth: true },
+        {
+          method: 'POST',
+          path: '/api/playground/execute',
+          description: 'Execute tool via OpenAPI or MCP',
+          auth: true,
+          body: '{"tool_name":"hello_world","arguments":{"name":"World"},"transport":"openapi","namespace":"shared"}',
+        },
+        {
+          method: 'POST',
+          path: '/api/playground/mcp',
+          description: 'Send MCP-like JSON-RPC payload',
+          auth: true,
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
         },
       ],
     },
@@ -199,66 +272,24 @@ function buildCategories(
       ],
     },
     {
-      name: 'OpenAPI Transport',
-      description: `OpenAPI endpoints (public port ${openapiPort})`,
+      name: TOOL_API_CATEGORY,
+      description: `Tool API endpoints (public port ${openapiPort})`,
       baseUrl: openapiBase,
       endpoints: [
-        { method: 'GET', path: '/health', description: 'OpenAPI health check', auth: false },
+        { method: 'GET', path: '/health', description: 'Tool API health check', auth: false },
         { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
         {
           method: 'POST',
           path: '/tools/{tool_name}',
           description: 'Execute a tool',
           auth: true,
-          body: '{"name": "World"}',
-          pathParams: [{ name: 'tool_name', description: 'Tool name (e.g., hello_world)', default: 'hello_world' }],
+          body: '{"name":"World"}',
+          pathParams: [{ name: 'tool_name', description: 'Tool name', default: 'hello_world' }],
         },
       ],
     },
     {
-      name: 'FastMCP External',
-      description: 'Manage FastMCP external servers (registry)',
-      endpoints: [
-        {
-          method: 'GET',
-          path: '/api/fastmcp/registry/servers?search=github&limit=20',
-          description: 'Search MCP Registry',
-          auth: true,
-        },
-        { method: 'GET', path: '/api/fastmcp/servers', description: 'List FastMCP servers', auth: true },
-        {
-          method: 'POST',
-          path: '/api/fastmcp/servers',
-          description: 'Install FastMCP server',
-          auth: true,
-          body:
-            '{\"server_id\": \"<registry-id>\", \"server_name\": \"io.github.modelcontextprotocol/server-filesystem\", \"namespace\": \"filesystem\"}',
-        },
-        {
-          method: 'POST',
-          path: '/api/fastmcp/servers/{id}/start',
-          description: 'Start FastMCP server',
-          auth: true,
-          pathParams: [{ name: 'id', description: 'Server ID', default: '1' }],
-        },
-        {
-          method: 'POST',
-          path: '/api/fastmcp/servers/{id}/stop',
-          description: 'Stop FastMCP server',
-          auth: true,
-          pathParams: [{ name: 'id', description: 'Server ID', default: '1' }],
-        },
-        {
-          method: 'DELETE',
-          path: '/api/fastmcp/servers/{id}',
-          description: 'Delete FastMCP server',
-          auth: true,
-          pathParams: [{ name: 'id', description: 'Server ID', default: '1' }],
-        },
-      ],
-    },
-    {
-      name: 'MCP Transport',
+      name: MCP_TRANSPORT_CATEGORY,
       description: `MCP Streamable HTTP endpoints (public port ${mcpPort})`,
       baseUrl: mcpBase,
       endpoints: [
@@ -290,7 +321,7 @@ function buildCategories(
           path: '/mcp',
           description: 'Global JSON-RPC endpoint (all namespaces)',
           auth: true,
-          body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}',
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
         },
         {
           method: 'GET',
@@ -306,7 +337,7 @@ function buildCategories(
           path: '/mcp/{namespace}',
           description: 'MCP tools/list',
           auth: true,
-          body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}',
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
@@ -314,7 +345,7 @@ function buildCategories(
           path: '/mcp/{namespace}',
           description: 'MCP tools/call',
           auth: true,
-          body: '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hello_world", "arguments": {"name": "World"}}}',
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_world","arguments":{"name":"World"}}}',
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
       ],
@@ -349,7 +380,7 @@ export default function Docs() {
   const [openapiBaseUrl, setOpenapiBaseUrl] = useState('')
   const [mcpBaseUrl, setMcpBaseUrl] = useState('')
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['Backend Health', 'OpenAPI Transport', 'MCP'])
+    new Set(['Getting Started', TOOL_API_CATEGORY, MCP_TRANSPORT_CATEGORY])
   )
   const [activeEndpoint, setActiveEndpoint] = useState<{ category: string; endpoint: Endpoint } | null>(null)
   const [pathParamValues, setPathParamValues] = useState<Record<string, string>>({})
@@ -360,10 +391,10 @@ export default function Docs() {
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  // Fetch namespaces for autocomplete
+  // Fetch all namespaces (native + fastmcp + external) for autocomplete
   const namespacesQuery = useQuery({
-    queryKey: ['namespaces'],
-    queryFn: getNamespaces,
+    queryKey: ['allNamespaces'],
+    queryFn: getAllNamespaces,
     staleTime: 60000,
   })
 
@@ -373,7 +404,61 @@ export default function Docs() {
     staleTime: 60000,
   })
 
-  const namespaces = namespacesQuery.data?.map((ns) => ns.name) || []
+  const activePathParams = activeEndpoint?.endpoint.pathParams || []
+  const selectedNamespace = pathParamValues.namespace || ''
+  const needsToolNameOptions = activePathParams.some((param) => param.name === 'tool_name')
+  const needsServerIdOptions = activePathParams.some((param) => param.name === 'server_id')
+  const needsFilenameOptions = activePathParams.some((param) => param.name === 'filename')
+
+  const allToolsQuery = useQuery({
+    queryKey: ['docs-all-tools'],
+    queryFn: getAllTools,
+    staleTime: 60000,
+    enabled: needsToolNameOptions,
+  })
+
+  const fastMcpServersQuery = useQuery({
+    queryKey: ['docs-fastmcp-servers'],
+    queryFn: listFastMcpServers,
+    staleTime: 30000,
+    enabled: needsServerIdOptions,
+  })
+
+  const namespaceToolsQuery = useQuery({
+    queryKey: ['docs-namespace-tools', selectedNamespace],
+    queryFn: () => getTools(selectedNamespace),
+    staleTime: 60000,
+    enabled: needsFilenameOptions && Boolean(selectedNamespace),
+  })
+
+  const namespaces = useMemo(
+    () => namespacesQuery.data?.namespaces?.map((ns) => ns.name) || [],
+    [namespacesQuery.data]
+  )
+  const toolNameOptions: PathParamOption[] = useMemo(
+    () =>
+      allToolsQuery.data?.tools?.map((tool) => ({
+        value: tool.name,
+        label: `${tool.name} (${tool.namespace})`,
+      })) || [],
+    [allToolsQuery.data]
+  )
+  const serverIdOptions: PathParamOption[] = useMemo(
+    () =>
+      fastMcpServersQuery.data?.map((server) => ({
+        value: String(server.id),
+        label: `${server.id} - ${server.namespace} (${server.server_name})`,
+      })) || [],
+    [fastMcpServersQuery.data]
+  )
+  const filenameOptions: PathParamOption[] = useMemo(
+    () =>
+      namespaceToolsQuery.data?.map((tool) => ({
+        value: tool.filename,
+        label: tool.filename,
+      })) || [],
+    [namespaceToolsQuery.data]
+  )
   const openapiPort = String(infoQuery.data?.environment?.openapi_port || 'unknown')
   const mcpPort = String(infoQuery.data?.environment?.mcp_port || 'unknown')
   const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
@@ -391,6 +476,35 @@ export default function Docs() {
   const resolvedOpenapiBase = openapiBaseUrl || defaultOpenapiBase
   const resolvedMcpBase = mcpBaseUrl || defaultMcpBase
   const categories = buildCategories(openapiPort, mcpPort, resolvedOpenapiBase, resolvedMcpBase)
+  const toolApiDocsUrl = useAdminProxy
+    ? `${window.location.origin}/openapi/docs`
+    : resolvedOpenapiBase
+      ? `${resolvedOpenapiBase}/docs`
+      : ''
+  const toolApiSchemaUrl = useAdminProxy
+    ? `${window.location.origin}/openapi/openapi.json`
+    : resolvedOpenapiBase
+      ? `${resolvedOpenapiBase}/openapi.json`
+      : ''
+
+  const getPathParamOptions = useCallback(
+    (paramName: string): PathParamOption[] => {
+      if (paramName === 'namespace') {
+        return namespaces.map((ns) => ({ value: ns, label: ns }))
+      }
+      if (paramName === 'tool_name') {
+        return toolNameOptions
+      }
+      if (paramName === 'server_id') {
+        return serverIdOptions
+      }
+      if (paramName === 'filename') {
+        return filenameOptions
+      }
+      return []
+    },
+    [namespaces, toolNameOptions, serverIdOptions, filenameOptions]
+  )
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -445,6 +559,23 @@ export default function Docs() {
     setPathParamValues(initialParams)
   }
 
+  useEffect(() => {
+    if (!activeEndpoint?.endpoint.pathParams) return
+    let changed = false
+    const nextValues: Record<string, string> = { ...pathParamValues }
+    for (const param of activeEndpoint.endpoint.pathParams) {
+      if (nextValues[param.name]) continue
+      const options = getPathParamOptions(param.name)
+      if (options.length > 0) {
+        nextValues[param.name] = options[0].value
+        changed = true
+      }
+    }
+    if (changed) {
+      setPathParamValues(nextValues)
+    }
+  }, [activeEndpoint, pathParamValues, getPathParamOptions])
+
   const getResolvedPath = (): string => {
     if (!activeEndpoint) return ''
     let path = activeEndpoint.endpoint.path
@@ -456,8 +587,10 @@ export default function Docs() {
 
   const getBaseUrlForCategory = (categoryName: string): string => {
     const categoryInfo = categories.find((c) => c.name === categoryName)
-    const isTransport = categoryName === 'OpenAPI Transport' || categoryName === 'MCP Transport'
-    if (isTransport && useAdminProxy) {
+    if (categoryName === TOOL_API_CATEGORY && useAdminProxy) {
+      return `${window.location.origin}/openapi`
+    }
+    if (categoryName === MCP_TRANSPORT_CATEGORY && useAdminProxy) {
       return window.location.origin
     }
     const rawBase = categoryInfo?.baseUrl || window.location.origin
@@ -566,25 +699,27 @@ export default function Docs() {
         <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Quick Links</div>
         <div className="flex flex-wrap gap-2">
           <a
-            href={resolvedOpenapiBase ? `${resolvedOpenapiBase}/docs` : '#'}
+            href={toolApiDocsUrl || '#'}
             target="_blank"
             rel="noopener noreferrer"
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-              resolvedOpenapiBase ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+              toolApiDocsUrl ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
             }`}
           >
-            OpenAPI Swagger
+            Tool API Swagger
             <ExternalLink className="w-3 h-3" />
           </a>
           <a
-            href={resolvedOpenapiBase ? `${resolvedOpenapiBase}/openapi.json` : '#'}
+            href={toolApiSchemaUrl || '#'}
             target="_blank"
             rel="noopener noreferrer"
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-              resolvedOpenapiBase ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+              toolApiSchemaUrl
+                ? 'bg-gray-100 hover:bg-gray-200'
+                : 'bg-gray-50 text-gray-400 cursor-not-allowed'
             }`}
           >
-            OpenAPI Schema
+            Tool API Schema
             <ExternalLink className="w-3 h-3" />
           </a>
         </div>
@@ -626,15 +761,15 @@ export default function Docs() {
                 localStorage.setItem('tooldock_use_admin_proxy', String(e.target.checked))
               }}
             />
-            Use Admin Proxy for OpenAPI/MCP
+            Use Admin Proxy for Tool API/MCP
           </label>
           <span className="text-xs text-gray-500">
-            Routes through <span className="font-mono">{window.location.origin}</span> using `/tools` and `/mcp`.
+            Routes through <span className="font-mono">{window.location.origin}</span> using `/openapi` and `/mcp`.
           </span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">OpenAPI Base URL</label>
+            <label className="block text-xs text-gray-500 mb-1">Tool API Base URL</label>
             <input
               type="text"
               value={openapiBaseUrl}
@@ -673,7 +808,7 @@ export default function Docs() {
         <p className="text-xs text-gray-500 mt-2">
           Use your server hostname (not localhost) if you access the UI remotely. If your client runs in Docker on the
           same network, use <span className="font-mono">http://tooldock-backend:8007</span> for MCP and{' '}
-          <span className="font-mono">http://tooldock-backend:8006</span> for OpenAPI.
+          <span className="font-mono">http://tooldock-backend:8006</span> for Tool API.
         </p>
       </div>
 
@@ -810,7 +945,7 @@ export default function Docs() {
                                   <span className="text-gray-400"> - {param.description}</span>
                                 )}
                               </label>
-                              {param.name === 'namespace' && namespaces.length > 0 ? (
+                              {getPathParamOptions(param.name).length > 0 ? (
                                 <select
                                   value={pathParamValues[param.name] || ''}
                                   onChange={(e) =>
@@ -821,9 +956,9 @@ export default function Docs() {
                                   }
                                   className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                                 >
-                                  {namespaces.map((ns) => (
-                                    <option key={ns} value={ns}>
-                                      {ns}
+                                  {getPathParamOptions(param.name).map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
                                     </option>
                                   ))}
                                 </select>

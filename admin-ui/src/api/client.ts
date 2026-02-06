@@ -1,7 +1,7 @@
 // API Client for ToolDock Backend
 
 const API_BASE = '/api'
-const TOOLS_BASE = '/tools'
+const TOOLS_BASE = '/openapi/tools'
 
 // Get auth token from localStorage or prompt
 function getAuthToken(): string {
@@ -58,19 +58,6 @@ export interface Tool {
   size: number
 }
 
-export interface ExternalServerInfo {
-  server_id: string
-  namespace: string
-  endpoint: string
-  config: Record<string, unknown>
-  enabled: boolean
-}
-
-export interface ExternalServerList {
-  servers: ExternalServerInfo[]
-  total: number
-}
-
 export interface FastMCPRegistryResult {
   servers: Array<Record<string, unknown>>
   metadata?: Record<string, unknown>
@@ -94,6 +81,29 @@ export interface FastMCPServer {
   env: Record<string, string> | null
   auto_start: boolean
   config_path: string | null
+  // Provenance
+  package_type?: string
+  source_url?: string
+  is_system?: boolean
+}
+
+export interface FastMCPSafetyCheck {
+  id: string
+  status: 'pass' | 'warn' | 'fail' | 'info'
+  severity: 'low' | 'medium' | 'high'
+  message: string
+  detail?: string | null
+}
+
+export interface FastMCPSafetyResult {
+  risk_level: 'low' | 'medium' | 'high'
+  risk_score: number
+  blocked: boolean
+  summary: string
+  checks: FastMCPSafetyCheck[]
+  resolved_server?: Record<string, unknown>
+  required_env?: Array<Record<string, unknown>>
+  suggested_namespace?: string
 }
 
 export interface FastMCPConfigFile {
@@ -250,11 +260,6 @@ export async function getTools(namespace: string): Promise<Tool[]> {
   return data.tools || []
 }
 
-export async function getExternalServers(): Promise<ExternalServerList> {
-  const res = await fetchWithAuth(`${API_BASE}/servers`)
-  return res.json()
-}
-
 export async function searchRegistryServers(query: string, limit = 20): Promise<FastMCPRegistryResult> {
   const url = new URL(`${API_BASE}/fastmcp/registry/servers`, window.location.origin)
   url.searchParams.set('search', query)
@@ -290,6 +295,45 @@ export async function addFastMcpServer(
   if (!res.ok) {
     const error = await res.json()
     throw new Error(error.detail || 'Failed to add server')
+  }
+  return res.json()
+}
+
+export async function addRepoFastMcpServer(data: {
+  namespace: string
+  repo_url: string
+  server_name?: string
+  entrypoint?: string
+  auto_start?: boolean
+  env?: Record<string, string>
+  config_file?: string
+  config_filename?: string
+}): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/repo`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to install repo server')
+  }
+  return res.json()
+}
+
+export async function checkFastMcpServerSafety(data: {
+  server_id?: string
+  server_name?: string
+  repo_url?: string
+  command?: string
+  args?: string[]
+}): Promise<FastMCPSafetyResult> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/safety/check`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to check server safety')
   }
   return res.json()
 }

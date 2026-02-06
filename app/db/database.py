@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, Engine
+import sqlalchemy
+from sqlalchemy import create_engine, Engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.db.models import Base
 
+logger = logging.getLogger(__name__)
 
-DEFAULT_DB_URL = "sqlite:////data/db/tooldock.db"
+
+DEFAULT_DATA_DIR = os.path.join(os.getcwd(), "tooldock_data")
+DEFAULT_DB_URL = f"sqlite:///{os.path.join(DEFAULT_DATA_DIR, 'db', 'tooldock.db')}"
 
 # Lazy-initialized globals
 _ENGINE: Optional[Engine] = None
@@ -21,15 +26,12 @@ _SessionLocal: Optional[sessionmaker] = None
 
 
 def get_database_url() -> str:
-    db_url = os.getenv("DATABASE_URL")
+    db_url = os.getenv("DATABASE_URL", "").strip()
     if db_url:
         return db_url
 
-    data_dir = os.getenv("DATA_DIR")
-    if data_dir:
-        return f"sqlite:///{os.path.join(data_dir, 'db', 'tooldock.db')}"
-
-    return DEFAULT_DB_URL
+    data_dir = os.getenv("DATA_DIR", DEFAULT_DATA_DIR)
+    return f"sqlite:///{os.path.join(data_dir, 'db', 'tooldock.db')}"
 
 
 def _create_engine() -> Engine:
@@ -71,13 +73,44 @@ def reset_engine() -> None:
     _SessionLocal = None
 
 
+def _migrate_columns(engine: Engine) -> None:
+    """Add columns that may be missing from older databases.
+
+    SQLite-safe: ALTER TABLE ADD COLUMN is a no-op if the column
+    already exists (we check via inspector first).
+    """
+    inspector = sqlalchemy.inspect(engine)
+    tables = inspector.get_table_names()
+    if "external_fastmcp_servers" not in tables:
+        return
+
+    existing = {c["name"] for c in inspector.get_columns("external_fastmcp_servers")}
+    migrations = {
+        "startup_command": "ALTER TABLE external_fastmcp_servers ADD COLUMN startup_command TEXT",
+        "command_args": "ALTER TABLE external_fastmcp_servers ADD COLUMN command_args JSON",
+        "env_vars": "ALTER TABLE external_fastmcp_servers ADD COLUMN env_vars JSON",
+        "config_yaml": "ALTER TABLE external_fastmcp_servers ADD COLUMN config_yaml TEXT",
+        "transport_type": "ALTER TABLE external_fastmcp_servers ADD COLUMN transport_type VARCHAR(16) DEFAULT 'stdio' NOT NULL",
+        "server_url": "ALTER TABLE external_fastmcp_servers ADD COLUMN server_url TEXT",
+        "package_type": "ALTER TABLE external_fastmcp_servers ADD COLUMN package_type VARCHAR(32)",
+        "source_url": "ALTER TABLE external_fastmcp_servers ADD COLUMN source_url TEXT",
+    }
+    with engine.begin() as conn:
+        for col_name, ddl in migrations.items():
+            if col_name not in existing:
+                conn.execute(text(ddl))
+                logger.info(f"Migrated column: external_fastmcp_servers.{col_name}")
+
+
 def init_db() -> None:
     """Initialize database tables if they don't exist.
 
     Alembic migrations are the long-term path; this ensures
     a usable database for fresh installs.
     """
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    _migrate_columns(engine)
 
 
 @contextmanager

@@ -16,7 +16,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Namespaces', href: '/namespaces', icon: FolderTree },
   { name: 'Playground', href: '/playground', icon: Play },
-  { name: 'FastMCP', href: '/fastmcp', icon: Server },
+  { name: 'MCP Servers', href: '/fastmcp', icon: Server },
   { name: 'Logs', href: '/logs', icon: ScrollText },
   { name: 'Docs', href: '/docs', icon: BookOpen },
 ]
@@ -44,7 +44,7 @@ export default function Layout() {
         {/* Logo */}
         <div className="p-4 border-b border-gray-800">
           <h1 className="text-xl font-bold">ToolDock</h1>
-          <p className="text-gray-400 text-sm">Admin Panel</p>
+          <p className="text-gray-400 text-sm">Admin UI</p>
         </div>
 
         {/* Navigation */}

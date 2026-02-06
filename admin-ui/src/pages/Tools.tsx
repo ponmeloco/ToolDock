@@ -84,7 +84,7 @@ export default function Tools() {
       setOriginalContent(toolContentQuery.data.content)
       setLastValidation(toolContentQuery.data.validation ?? null)
     }
-  }, [toolContentQuery.data?.content, selectedFile])
+  }, [toolContentQuery.data?.content, toolContentQuery.data?.validation, selectedFile])
 
   useEffect(() => {
     if (depsQuery.data?.requirements !== undefined && depsQuery.data?.requirements !== null) {

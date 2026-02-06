@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**ToolDock** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **OpenAPI**, **MCP**, and **Web GUI**. MCP runs in **strict spec mode** while keeping namespace endpoints. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
+**ToolDock** is a multi-tenant MCP server with namespace-based routing, exposing Python tools via **Tool API (OpenAPI transport)**, **MCP**, and **Web GUI**. MCP runs in **strict spec mode** while keeping namespace endpoints. The core principle: **Tools are code-defined capabilities, not prompt-based logic.**
 
 ## Architecture
 
@@ -10,9 +10,10 @@
 ┌──────────────────┐     ┌─────────────────────────────────────┐
 │   Admin UI       │     │         ToolDock Backend             │
 │   (React/nginx)  │     ├─────────────────────────────────────┤
-│                  │     │  Port 18006 → OpenAPI/REST          │
-│  Port 13000      │────→│  Port 18007 → MCP HTTP              │
-│                  │     │  Port 18080 → Backend API           │
+│  Port 13000      │────→│  Internal: 8006 Tool API            │
+│  /api/*          │     │  Internal: 8007 MCP HTTP            │
+│  /openapi/*      │     │  Internal: 8080 Backend API         │
+│  /mcp/*          │     │                                     │
 └──────────────────┘     ├─────────────────────────────────────┤
                          │  /mcp/shared    → shared/ tools     │
 LiteLLM ────────────────→│  /mcp/team1     → team1/ tools      │
@@ -24,7 +25,8 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
                          ├───────────────────────────────┤
                          │  tools/shared/*.py            │
                          │  tools/team1/*.py             │
-                         │  external/config.yaml         │  ($DATA_DIR/external/config.yaml)
+                         │  external/servers/{ns}/       │
+                         │    config.yaml                │
                          │  logs/YYYY-MM-DD.jsonl        │
                          │  metrics.sqlite               │
                          │  venvs/{namespace}/           │
@@ -33,7 +35,7 @@ Claude Desktop ─────────→│  /mcp/github    → GitHub MCP 
 
 **Two-Container Architecture:**
 - `tooldock-backend`: Python FastAPI (all APIs)
-- `tooldock-admin`: React + nginx (Admin UI)
+- `tooldock-gateway`: React + nginx (Admin UI + reverse proxy)
 
 All three transports share the same tool registry — **define once, use everywhere**.
 
@@ -56,8 +58,8 @@ All three transports share the same tool registry — **define once, use everywh
 ### Tests
 | Directory | Purpose |
 |-----------|---------|
-| `tests/unit/` | Unit tests (~200 tests) |
-| `tests/integration/` | Integration tests (~200 tests) |
+| `tests/unit/` | Unit tests (~250 tests) |
+| `tests/integration/` | Integration tests (~240 tests) |
 | `tests/fixtures/` | Sample tools for testing |
 | `conftest.py` | Shared pytest fixtures |
 
@@ -98,10 +100,7 @@ def register_tools(registry: ToolRegistry) -> None:
 |----------|---------|-------------|
 | `BEARER_TOKEN` | (required) | API authentication token |
 | `SERVER_MODE` | `all` | openapi, mcp-http, web-gui, both, all |
-| `OPENAPI_PORT` | `18006` | OpenAPI server port |
-| `MCP_PORT` | `18007` | MCP HTTP server port |
-| `WEB_PORT` | `18080` | Backend API server port |
-| `ADMIN_PORT` | `13000` | Admin UI port (nginx) |
+| `ADMIN_PORT` | `13000` | Single exposed gateway port (Admin UI + `/api` + `/openapi` + `/mcp`) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
@@ -109,11 +108,14 @@ def register_tools(registry: ToolRegistry) -> None:
 | `MCP_PROTOCOL_VERSION` | `2025-11-25` | Default MCP protocol version |
 | `MCP_PROTOCOL_VERSIONS` | `2025-11-25,2025-03-26` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
+| `FASTMCP_DEMO_ENABLED` | `false` | Enable/disable seeded demo FastMCP server |
+| `FASTMCP_INSTALLER_ENABLED` | `true` | Enable/disable built-in installer MCP server |
+| `FASTMCP_INSTALLER_NAMESPACE` | `tooldock-installer` | Namespace for protected installer server |
 
 ## Testing
 
 ```bash
-# Run all tests (470+ tests)
+# Run all tests
 pytest tests/ -v
 
 # Run with coverage
@@ -132,6 +134,9 @@ pytest tests/unit/test_registry.py -v
 # Force rebuild all images
 ./start.sh --rebuild
 ./start.sh -r
+
+# Skip tests during startup (faster bootstrap)
+./start.sh --skip-tests
 ```
 
 The script:
@@ -151,8 +156,8 @@ docker compose up -d --build
 docker compose logs -f
 
 # Rebuild specific container
-docker compose build tooldock-admin
-docker compose up -d tooldock-admin
+docker compose build tooldock-gateway
+docker compose up -d tooldock-gateway
 
 # Stop all
 docker compose down
@@ -162,7 +167,7 @@ docker compose down
 
 ### Hot Reload
 ```bash
-curl -X POST http://localhost:18080/api/reload \
+curl -X POST http://localhost:13000/api/reload \
   -H "Authorization: Bearer change_me"
 ```
 
@@ -173,7 +178,7 @@ curl -X POST http://localhost:18080/api/reload \
 
 ### MCP Strict Mode Notes
 - GET endpoints return SSE streams (require `Accept: text/event-stream`)
-- POST requests require `Accept: application/json` (include `text/event-stream` if you can handle streaming responses)
+- For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is accepted
 - JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header validated against `CORS_ORIGINS`
@@ -191,25 +196,37 @@ curl -X POST http://localhost:18080/api/reload \
 
 ### FastMCP External Servers
 - Managed via `app/external/fastmcp_manager.py` (registry ingest + lifecycle)
-- Exposed via `/api/fastmcp/*` routes (Admin UI → FastMCP tab)
-- Two installation methods:
+- Exposed via `/api/fastmcp/*` routes (Admin UI → MCP Servers page)
+- Installation methods:
   - **Registry**: Search and install from MCP Registry (PyPI/npm packages)
+  - **Repo URL**: Install from git repository URL
   - **Manual**: Add servers using Claude Desktop config format (command, args, env)
+  - **From Config**: Paste Claude Desktop JSON config
+- Safety checks:
+  - `POST /api/fastmcp/safety/check` returns risk summary/checklist
+  - `blocked=true` indicates install should not continue
 - Package type handling:
-  - **PyPI**: Creates per-namespace venv, installs via pip, runs with `python -m <module>`
+  - **PyPI**: Runs with `uvx <package>` (uv handles isolation, no venv needed)
   - **npm**: Validates via `npm view`, runs with `npx -y <package>` (no venv needed)
-  - **Repo**: Clones git repo, installs deps, detects entrypoint
+  - **Repo**: Clones git repo, user configures startup command via detail panel
+- Provenance tracking:
+  - `package_type`: npm, pypi, oci, remote, repo, manual, system
+  - `source_url`: GitHub/registry URL for reference
+  - Type badges shown in search results and detail panel
+- Built-in installer server:
+  - Module: `app.external.installer_mcp_server`
+  - Namespace defaults to `tooldock-installer`
+  - Protected against deletion via API/UI
 - Server detail panel with:
   - Config file editor (YAML/JSON syntax highlighting)
   - Editable start command (command, args, env)
-  - Start/stop/delete controls
+  - Start/stop controls; delete disabled for system server
 - Config files stored in `DATA_DIR/external/servers/{namespace}/`
 
 ### Unified Namespaces
 - `/api/admin/namespaces` returns all namespace types:
   - **Native**: Python tools from `tooldock_data/tools/`
   - **FastMCP**: MCP servers from registry or manual config
-  - **External**: Legacy servers from `config.yaml`
 - Admin UI Namespaces page shows all types with status badges
 
 ## Common Pitfalls

@@ -12,17 +12,28 @@
 #   ./start.sh           # Normal start (uses cached images)
 #   ./start.sh --rebuild # Force rebuild all images
 #   ./start.sh -r        # Short form
+#   ./start.sh --skip-tests # Start stack without pytest
 # ==================================================
 
-set -e
+set -euo pipefail
 
 # Parse arguments
 FORCE_REBUILD=false
-for arg in "$@"; do
-    case $arg in
+RUN_TESTS=true
+while [ $# -gt 0 ]; do
+    case "$1" in
         --rebuild|-r)
             FORCE_REBUILD=true
             shift
+            ;;
+        --skip-tests|-s)
+            RUN_TESTS=false
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./start.sh [--rebuild|-r] [--skip-tests|-s]"
+            exit 1
             ;;
     esac
 done
@@ -65,6 +76,50 @@ print_info() {
     echo -e "${BLUE}→${NC} $1"
 }
 
+require_command() {
+    local cmd="$1"
+    local install_hint="$2"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        print_error "Missing required command: $cmd"
+        print_info "$install_hint"
+        exit 1
+    fi
+}
+
+run_with_timeout() {
+    local seconds="$1"
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --kill-after=10 "$seconds" "$@"
+        return $?
+    fi
+    print_warning "'timeout' command not found. Running without timeout."
+    "$@"
+    return $?
+}
+
+# ==================================================
+# Preflight Checks
+# ==================================================
+
+print_header "Preflight Checks"
+
+require_command "docker" "Install Docker Desktop or Docker Engine, then retry."
+require_command "curl" "Install curl and retry."
+
+if ! docker compose version >/dev/null 2>&1; then
+    print_error "Docker Compose v2 plugin is required ('docker compose')."
+    print_info "Install or enable Docker Compose v2, then retry."
+    exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    print_error "Docker daemon is not reachable (is Docker running, and do you have permission?)."
+    print_info "Start Docker Desktop/Engine and retry."
+    exit 1
+fi
+print_success "Docker and Docker Compose are available"
+
 # ==================================================
 # Step 1: Check .env file
 # ==================================================
@@ -91,10 +146,7 @@ COMPOSE_PROJECT_NAME=tooldock
 # Authentication (CHANGE THIS!)
 BEARER_TOKEN=change_me_to_a_secure_token
 
-# Ports
-OPENAPI_PORT=18006
-MCP_PORT=18007
-WEB_PORT=18080
+# Single exposed gateway port
 ADMIN_PORT=13000
 
 # MCP (strict mode defaults)
@@ -166,15 +218,18 @@ DATA_DIRS=(
 for dir in "${DATA_DIRS[@]}"; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
+        chmod 775 "$dir" 2>/dev/null || true
         print_success "Created $dir"
     else
+        chmod 775 "$dir" 2>/dev/null || true
         print_success "$dir exists"
     fi
 done
 
-# Ensure directories are writable by container user (UID 1000)
-chmod -R a+rwX tooldock_data/ 2>/dev/null || true
-print_success "Set permissions on tooldock_data/"
+if [ ! -x tooldock_data ]; then
+    chmod 775 tooldock_data 2>/dev/null || true
+fi
+print_success "Verified safe write permissions for data directories"
 
 # ==================================================
 # Step 3: Build Docker Images
@@ -186,6 +241,7 @@ print_header "Building Docker Images"
 build_image() {
     local service=$1
     local build_args=""
+    local build_status=0
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local spin_index=0
 
@@ -206,14 +262,16 @@ build_image() {
                 # Show spinner + truncated line
                 printf "\r\033[K  ${YELLOW}%s${NC} %.90s" "$spin_char" "$line"
             done
+        build_status=${PIPESTATUS[0]}
         printf "\r\033[K"  # Clear the last line
     else
         # Non-terminal: quiet build
         docker compose build $service $build_args --quiet 2>&1
+        build_status=$?
     fi
 
     # Check if build succeeded
-    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    if [ $build_status -eq 0 ]; then
         print_success "$service image built"
         return 0
     else
@@ -227,7 +285,7 @@ if [ "$FORCE_REBUILD" = true ]; then
 fi
 
 build_image "tooldock-backend" || exit 1
-build_image "tooldock-admin" || exit 1
+build_image "tooldock-gateway" || exit 1
 
 # ==================================================
 # Step 4: Start Stack
@@ -252,11 +310,11 @@ else
 fi
 
 # Check if admin is running
-if docker compose ps --status running -q tooldock-admin 2>/dev/null | grep -q .; then
-    print_success "Admin container started"
+if docker compose ps --status running -q tooldock-gateway 2>/dev/null | grep -q .; then
+    print_success "Gateway container started"
 else
-    print_error "Admin container failed to start"
-    docker compose logs tooldock-admin --tail=10
+    print_error "Gateway container failed to start"
+    docker compose logs tooldock-gateway --tail=10
     exit 1
 fi
 
@@ -309,16 +367,13 @@ wait_for_health() {
 print_info "Giving containers time to initialize..."
 sleep 2
 
-# Check each service
-BACKEND_PORT="${WEB_PORT:-18080}"
-OPENAPI_PORT="${OPENAPI_PORT:-18006}"
-MCP_PORT="${MCP_PORT:-18007}"
+# Check each service via single gateway port
 ADMIN_PORT="${ADMIN_PORT:-13000}"
 
 echo ""
 
-# Backend API (must succeed)
-if ! wait_for_health "Backend API (port $BACKEND_PORT)" "http://localhost:$BACKEND_PORT/health" "json"; then
+# Backend API via gateway (must succeed)
+if ! wait_for_health "Backend API via gateway (port $ADMIN_PORT)" "http://localhost:$ADMIN_PORT/health" "json"; then
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
     print_info "Backend logs:"
     docker compose logs tooldock-backend --tail=10 2>/dev/null
@@ -326,15 +381,15 @@ fi
 
 echo ""
 
-# OpenAPI Server
-if ! wait_for_health "OpenAPI Server (port $OPENAPI_PORT)" "http://localhost:$OPENAPI_PORT/health" "json"; then
+# Tool API via gateway
+if ! wait_for_health "Tool API via gateway (port $ADMIN_PORT)" "http://localhost:$ADMIN_PORT/openapi/health" "json"; then
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
 fi
 
 echo ""
 
-# MCP Server
-if ! wait_for_health "MCP Server (port $MCP_PORT)" "http://localhost:$MCP_PORT/health" "json"; then
+# MCP via gateway
+if ! wait_for_health "MCP via gateway (port $ADMIN_PORT)" "http://localhost:$ADMIN_PORT/mcp/health" "json"; then
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
 fi
 
@@ -343,8 +398,8 @@ echo ""
 # Admin UI
 if ! wait_for_health "Admin UI (port $ADMIN_PORT)" "http://localhost:$ADMIN_PORT" "http"; then
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
-    print_info "Admin UI logs:"
-    docker compose logs tooldock-admin --tail=10 2>/dev/null
+    print_info "Gateway logs:"
+    docker compose logs tooldock-gateway --tail=10 2>/dev/null
 fi
 
 echo ""
@@ -361,12 +416,23 @@ fi
 # ==================================================
 
 # Prefer running tests inside the backend container (stable Python 3.12)
-if docker compose ps --status running -q tooldock-backend 2>/dev/null | grep -q .; then
+if [ "$RUN_TESTS" != true ]; then
+    print_info "Skipping tests (--skip-tests)"
+    TEST_EXIT_CODE=0
+elif docker compose ps --status running -q tooldock-backend 2>/dev/null | grep -q .; then
     print_header "Running Unit Tests"
     print_info "Running pytest inside tooldock-backend container..."
 
-    TEST_OUTPUT=$(docker compose exec -T tooldock-backend python -m pytest tests/ -q --tb=no 2>&1)
+    # Use --kill-after to ensure cleanup if SIGTERM is ignored
+    set +e
+    TEST_OUTPUT=$(run_with_timeout 120 docker compose exec -T tooldock-backend python -m pytest tests/ -q --tb=no 2>&1)
     TEST_EXIT_CODE=$?
+    set -e
+
+    if [ $TEST_EXIT_CODE -eq 124 ] || [ $TEST_EXIT_CODE -eq 137 ]; then
+        print_error "Tests timed out after 120 seconds"
+        TEST_EXIT_CODE=1
+    fi
 
     SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
     if [ $TEST_EXIT_CODE -eq 0 ]; then
@@ -382,8 +448,16 @@ else
         print_header "Running Unit Tests"
         print_info "Running pytest on host..."
 
-        TEST_OUTPUT=$(python -m pytest tests/ -q --tb=no 2>&1)
+        # Use --kill-after to ensure cleanup if SIGTERM is ignored
+        set +e
+        TEST_OUTPUT=$(run_with_timeout 120 python -m pytest tests/ -q --tb=no 2>&1)
         TEST_EXIT_CODE=$?
+        set -e
+
+        if [ $TEST_EXIT_CODE -eq 124 ] || [ $TEST_EXIT_CODE -eq 137 ]; then
+            print_error "Tests timed out after 120 seconds"
+            TEST_EXIT_CODE=1
+        fi
 
         SUMMARY=$(echo "$TEST_OUTPUT" | tail -1)
         if [ $TEST_EXIT_CODE -eq 0 ]; then
@@ -409,17 +483,17 @@ print_header "Summary"
 
 echo ""
 echo "Services:"
-echo "  Backend API:  http://localhost:${WEB_PORT:-18080}"
-echo "  OpenAPI:      http://localhost:${OPENAPI_PORT:-18006}"
-echo "  MCP HTTP:     http://localhost:${MCP_PORT:-18007}"
 echo "  Admin UI:     http://localhost:${ADMIN_PORT:-13000}"
+echo "  Backend API:  http://localhost:${ADMIN_PORT:-13000}/api"
+echo "  Tool API:     http://localhost:${ADMIN_PORT:-13000}/openapi"
+echo "  MCP HTTP:     http://localhost:${ADMIN_PORT:-13000}/mcp"
 echo ""
 echo "MCP Strict Mode:"
-echo "  GET /mcp and GET /mcp/{namespace} return 405"
+echo "  GET /mcp and GET /mcp/{namespace} require Accept: text/event-stream"
 echo "  Notifications-only requests return 202"
 echo "  MCP-Protocol-Version validated if present"
 echo ""
-echo "API Docs:       http://localhost:${WEB_PORT:-18080}/docs"
+echo "API Docs:       http://localhost:${ADMIN_PORT:-13000}/docs"
 echo ""
 
 # Show container status

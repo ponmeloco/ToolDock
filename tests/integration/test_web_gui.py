@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.registry import ToolRegistry, ToolDefinition, reset_registry
 from app.web.server import create_web_app
+from app.web.routes import tools as tools_routes
+from app.web.routes import folders as folders_routes
 from app.reload import init_reloader, reset_reloader
 from tests.utils.sync_client import SyncASGIClient
 
@@ -755,6 +757,135 @@ def register_tools(registry):
         assert len(data["errors"]) > 0
 
 
+class TestUploadTool:
+    """Tests for POST /api/folders/{namespace}/tools endpoint."""
+
+    def test_upload_tool_success(
+        self,
+        client: SyncASGIClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        ns = "upload_ns"
+        (tools_dir / ns).mkdir(parents=True, exist_ok=True)
+        content = """
+from pydantic import BaseModel, ConfigDict
+from app.registry import ToolDefinition
+
+class UploadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str = "ok"
+
+async def upload_handler(payload: UploadInput):
+    return payload.value
+
+def register_tools(registry):
+    registry.register(ToolDefinition(name="upload_tool", description="Upload", input_model=UploadInput, handler=upload_handler))
+""".strip()
+
+        response = client.post(
+            f"/api/folders/{ns}/tools",
+            headers=auth_headers,
+            files={"file": ("upload_tool.py", content, "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["validation"]["is_valid"] is True
+        assert (tools_dir / ns / "upload_tool.py").exists()
+
+    def test_upload_tool_missing_namespace(
+        self,
+        client: SyncASGIClient,
+        auth_headers: dict,
+    ):
+        response = client.post(
+            "/api/folders/missing_ns/tools",
+            headers=auth_headers,
+            files={"file": ("tool.py", "# test", "text/plain")},
+        )
+        assert response.status_code == 404
+
+
+class TestDependenciesAPI:
+    """Tests for dependency management endpoints."""
+
+    def test_dependencies_lifecycle(
+        self,
+        client: SyncASGIClient,
+        auth_headers: dict,
+        tools_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        ns = "deps_ns"
+        (tools_dir / ns).mkdir(parents=True, exist_ok=True)
+        fake_venv = tools_dir.parent / "venvs" / ns
+        (fake_venv / "bin").mkdir(parents=True, exist_ok=True)
+        (fake_venv / "bin" / "python").write_text("#!/usr/bin/env python\n")
+
+        monkeypatch.setattr(tools_routes, "get_venv_dir", lambda namespace: fake_venv)
+        monkeypatch.setattr(tools_routes, "read_requirements", lambda namespace: "httpx==0.28.1\n")
+        monkeypatch.setattr(tools_routes, "list_packages", lambda namespace: [{"name": "httpx", "version": "0.28.1"}])
+        monkeypatch.setattr(tools_routes, "ensure_venv", lambda namespace: fake_venv)
+        monkeypatch.setattr(tools_routes, "delete_venv", lambda namespace: True)
+        monkeypatch.setattr(
+            tools_routes,
+            "install_requirements",
+            lambda namespace, requirements: {"success": True, "stdout": "installed", "stderr": ""},
+        )
+        monkeypatch.setattr(
+            tools_routes,
+            "uninstall_packages",
+            lambda namespace, packages: {"success": True, "stdout": "removed", "stderr": ""},
+        )
+
+        response = client.get(f"/api/folders/{ns}/tools/deps", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["exists"] is True
+
+        response = client.post(f"/api/folders/{ns}/tools/deps/create", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        response = client.post(
+            f"/api/folders/{ns}/tools/deps/install",
+            headers=auth_headers,
+            json={"requirements": "httpx==0.28.1"},
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        response = client.post(
+            f"/api/folders/{ns}/tools/deps/uninstall",
+            headers=auth_headers,
+            json={"packages": ["httpx"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        response = client.post(f"/api/folders/{ns}/tools/deps/delete", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["deleted"] is True
+
+    def test_dependencies_install_requires_requirements(
+        self,
+        client: SyncASGIClient,
+        auth_headers: dict,
+        tools_dir: Path,
+    ):
+        ns = "deps_req"
+        (tools_dir / ns).mkdir(parents=True, exist_ok=True)
+
+        response = client.post(
+            f"/api/folders/{ns}/tools/deps/install",
+            headers=auth_headers,
+            json={},
+        )
+        assert response.status_code == 400
+        assert "requirements" in response.json()["detail"]
+
+
 # ==================== Folders CRUD Tests ====================
 
 
@@ -777,6 +908,31 @@ class TestFoldersCRUD:
         data = response.json()
         assert data["name"] == "my_new_namespace"
         assert data["tool_count"] == 0
+
+    def test_create_folder_rolls_back_when_venv_creation_fails(
+        self,
+        client: SyncASGIClient,
+        auth_headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+        tools_dir: Path,
+    ):
+        """Folder creation cleans up partial state when venv creation fails."""
+        namespace = "broken_ns"
+
+        def _raise_venv_error(_: str):
+            raise RuntimeError("venv creation failed")
+
+        monkeypatch.setattr(folders_routes, "ensure_venv", _raise_venv_error)
+
+        response = client.post(
+            "/api/folders",
+            headers=auth_headers,
+            json={"name": namespace},
+        )
+
+        assert response.status_code == 500
+        assert not (tools_dir / namespace).exists()
+        assert not (tools_dir.parent / "venvs" / namespace).exists()
 
     def test_create_folder_reserved_name(
         self,

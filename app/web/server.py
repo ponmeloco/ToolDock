@@ -28,7 +28,6 @@ from app.utils import get_cors_origins
 from app.web.routes import (
     folders_router,
     tools_router,
-    servers_router,
     fastmcp_router,
     reload_router,
     admin_router,
@@ -48,8 +47,6 @@ SERVER_NAME = os.getenv("WEB_SERVER_NAME", "tooldock-backend")
 
 def create_web_app(
     registry: "ToolRegistry",
-    external_manager=None,
-    external_config=None,
 ) -> FastAPI:
     """
     Create the Backend API FastAPI application.
@@ -134,13 +131,7 @@ def create_web_app(
     # Initialize hot reload
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = f"{data_dir}/tools"
-    external_namespaces = None
-    if external_manager is not None:
-        try:
-            external_namespaces = set(external_manager.get_stats().get("namespaces", []))
-        except Exception:
-            external_namespaces = None
-    reloader = init_reloader(registry, tools_dir, external_namespaces=external_namespaces)
+    reloader = init_reloader(registry, tools_dir)
     logger.info(f"Hot reload initialized with tools_dir: {tools_dir}")
 
     # Initialize metrics store (for admin API aggregation)
@@ -150,9 +141,9 @@ def create_web_app(
     if os.getenv("PYTEST_CURRENT_TEST") is None:
         app.add_middleware(RequestLoggingMiddleware, service_name="web")
 
-    # Set external server context (for reload/sync)
-    from app.web.routes.servers import set_servers_context
-    set_servers_context(external_manager, external_config, reloader)
+    # Set admin context (for namespace tool counts)
+    from app.web.routes.admin import set_admin_context
+    set_admin_context(registry)
 
     # FastMCP manager (process control + registry updates)
     if fastmcp_router is not None:
@@ -161,6 +152,10 @@ def create_web_app(
             from app.web.routes.fastmcp import set_fastmcp_context
             fastmcp_manager = FastMCPServerManager(registry, manage_processes=True)
             set_fastmcp_context(fastmcp_manager)
+
+            @app.on_event("startup")
+            async def _seed_fastmcp_system_installer() -> None:
+                await fastmcp_manager.ensure_system_installer_server()
 
             @app.on_event("startup")
             async def _seed_fastmcp_demo() -> None:
@@ -178,7 +173,6 @@ def create_web_app(
     # Include API routes
     app.include_router(folders_router)
     app.include_router(tools_router)
-    app.include_router(servers_router)
     if fastmcp_router is not None:
         app.include_router(fastmcp_router)
     app.include_router(reload_router)

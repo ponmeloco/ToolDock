@@ -4,13 +4,14 @@
 #
 # Zwei separate Container - immer getrennt:
 #   - tooldock-backend: Python Backend (OpenAPI, MCP, API)
-#   - tooldock-admin: React Frontend (Admin UI)
+#   - tooldock-gateway: React Frontend + reverse proxy gateway
 #
 # Ports (konfigurierbar in .env):
-#   - 8006: OpenAPI/REST
-#   - 8007: MCP HTTP
+#   - 13000: Admin UI gateway (single exposed port)
+# Internal-only ports in backend container:
+#   - 8006: Tool API (OpenAPI transport)
+#   - 8007: MCP HTTP transport
 #   - 8080: Backend API
-#   - 3000: Admin UI
 #
 # Nutzung:
 #   docker compose up -d
@@ -41,16 +42,15 @@ services:
       - OPENAPI_PORT=8006
       - MCP_PORT=8007
       - WEB_PORT=8080
-      # Public/host ports (used for UI display and links)
-      - OPENAPI_PUBLIC_PORT=${OPENAPI_PORT:-18006}
-      - MCP_PUBLIC_PORT=${MCP_PORT:-18007}
-      - WEB_PUBLIC_PORT=${WEB_PORT:-18080}
+      # Public port is the Admin UI gateway
+      - OPENAPI_PUBLIC_PORT=${ADMIN_PORT:-13000}
+      - MCP_PUBLIC_PORT=${ADMIN_PORT:-13000}
+      - WEB_PUBLIC_PORT=${ADMIN_PORT:-13000}
       - HOST_DATA_DIR=${HOST_DATA_DIR:-./tooldock_data}
-    ports:
-      # Host:Container - host ports from .env, container ports fixed
-      - "${OPENAPI_PORT:-18006}:8006"
-      - "${MCP_PORT:-18007}:8007"
-      - "${WEB_PORT:-18080}:8080"
+    expose:
+      - "8006"
+      - "8007"
+      - "8080"
     volumes:
       - ./tooldock_data:/data:rw
     restart: unless-stopped
@@ -67,15 +67,15 @@ services:
       start_period: 10s
 
   # ============================================
-  # Admin UI: React (Nginx)
-  # Separate Image: tooldock-admin:latest
+  # Gateway UI: React (Nginx)
+  # Separate Image: tooldock-gateway:latest
   # ============================================
-  tooldock-admin:
+  tooldock-gateway:
     build:
       context: ./admin-ui
       dockerfile: Dockerfile
-    image: tooldock-admin:latest
-    container_name: tooldock-admin
+    image: tooldock-gateway:latest
+    container_name: tooldock-gateway
     ports:
       - "${ADMIN_PORT:-13000}:80"
     restart: unless-stopped

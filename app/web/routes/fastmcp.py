@@ -10,36 +10,20 @@ import os
 
 import httpx
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from app.auth import verify_token
 from app.db.database import get_db
 from app.db.models import ExternalFastMCPServer
-from app.external.fastmcp_manager import FastMCPServerManager
+from app.external.fastmcp_manager import FastMCPServerManager, is_system_namespace
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fastmcp", tags=["fastmcp"])
 
 _fastmcp_manager: Optional[FastMCPServerManager] = None
-
-
-def _optional_auth(authorization: Optional[str] = Header(None)) -> Optional[str]:
-    """Optional auth - returns None if no token, validates if present."""
-    if not authorization:
-        return None
-    expected = os.getenv("BEARER_TOKEN", "")
-    if not expected:
-        return None
-    if authorization.startswith("Bearer "):
-        token = authorization[7:]
-    else:
-        token = authorization
-    if token != expected:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    return token
 
 
 async def _sync_fastmcp_registry() -> None:
@@ -100,6 +84,34 @@ class AddFastMCPServerRequest(BaseModel):
     server_id: Optional[str] = Field(None, min_length=8)
     namespace: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     version: Optional[str] = None
+    env: Optional[Dict[str, str]] = Field(default=None, description="Environment variables")
+    config_file: Optional[str] = Field(default=None, description="Optional config file content")
+    config_filename: str = Field(default="config.yaml", description="Config filename")
+
+
+class AddRepoServerRequest(BaseModel):
+    """Add server directly from a repository URL."""
+    model_config = ConfigDict(extra="forbid")
+
+    namespace: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
+    repo_url: str = Field(..., min_length=8, description="Repository URL (https://...)")
+    server_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    entrypoint: Optional[str] = Field(default=None, description="Optional server entrypoint file")
+    auto_start: bool = Field(default=False, description="Auto-start on ToolDock startup")
+    env: Optional[Dict[str, str]] = Field(default=None, description="Environment variables")
+    config_file: Optional[str] = Field(default=None, description="Optional config file content")
+    config_filename: str = Field(default="config.yaml", description="Config filename")
+
+
+class SafetyCheckRequest(BaseModel):
+    """Request for install safety assessment."""
+    model_config = ConfigDict(extra="forbid")
+
+    server_name: Optional[str] = None
+    server_id: Optional[str] = None
+    repo_url: Optional[str] = None
+    command: Optional[str] = None
+    args: Optional[List[str]] = None
 
 
 class AddManualServerRequest(BaseModel):
@@ -191,8 +203,13 @@ class FastMCPServerResponse(BaseModel):
     last_error: Optional[str] = None
     auto_start: bool = False
 
+    # Provenance
+    package_type: Optional[str] = None
+    source_url: Optional[str] = None
+
     # Config file info
     config_path: Optional[str] = None
+    is_system: bool = False
 
 
 class ConfigFileResponse(BaseModel):
@@ -235,7 +252,10 @@ def _server_to_response(row: ExternalFastMCPServer) -> FastMCPServerResponse:
         pid=row.pid,
         last_error=row.last_error,
         auto_start=row.auto_start,
+        package_type=row.package_type,
+        source_url=row.source_url,
         config_path=config_path,
+        is_system=is_system_namespace(row.namespace),
     )
 
 
@@ -257,12 +277,38 @@ def _record_to_response(record: Any) -> FastMCPServerResponse:
         pid=getattr(record, "pid", None),
         last_error=getattr(record, "last_error", None),
         auto_start=getattr(record, "auto_start", False),
+        package_type=getattr(record, "package_type", None),
+        source_url=getattr(record, "source_url", None),
         config_path=None,
+        is_system=is_system_namespace(record.namespace),
     )
 
 
+def _apply_server_files_and_env(
+    server_id: int,
+    namespace: str,
+    env: Optional[Dict[str, str]] = None,
+    config_file: Optional[str] = None,
+    config_filename: str = "config.yaml",
+) -> None:
+    with get_db() as db:
+        record = db.get(ExternalFastMCPServer, server_id)
+        if not record:
+            return
+        if env is not None:
+            record.env_vars = env
+        db.commit()
+
+    if config_file:
+        server_dir = _get_server_dir(namespace)
+        server_dir.mkdir(parents=True, exist_ok=True)
+        config_path = server_dir / config_filename
+        config_path.write_text(config_file, encoding="utf-8")
+        logger.info(f"Created config for {namespace}: {config_path}")
+
+
 # ============================================================
-# Registry Routes (GET - optional auth)
+# Registry Routes (GET - require auth)
 # ============================================================
 
 @router.get("/registry/servers")
@@ -270,7 +316,7 @@ async def list_registry_servers(
     limit: int = 30,
     cursor: Optional[str] = None,
     search: Optional[str] = None,
-    _: Optional[str] = Depends(_optional_auth),
+    _: str = Depends(verify_token),
 ) -> Dict[str, Any]:
     """List available servers from MCP registry."""
     if _fastmcp_manager is None:
@@ -283,7 +329,7 @@ async def list_registry_servers(
 
 
 @router.get("/registry/health")
-async def registry_health(_: Optional[str] = Depends(_optional_auth)) -> Dict[str, Any]:
+async def registry_health(_: str = Depends(verify_token)) -> Dict[str, Any]:
     """Check if MCP registry is reachable."""
     if _fastmcp_manager is None:
         return {"status": "offline", "reason": "manager_not_initialized"}
@@ -295,12 +341,36 @@ async def registry_health(_: Optional[str] = Depends(_optional_auth)) -> Dict[st
         return {"status": "offline", "reason": str(exc)}
 
 
+@router.post("/safety/check")
+async def check_install_safety(
+    request: SafetyCheckRequest,
+    _: str = Depends(verify_token),
+) -> Dict[str, Any]:
+    """Run a deterministic pre-install safety assessment."""
+    if _fastmcp_manager is None:
+        raise HTTPException(status_code=500, detail="FastMCP manager not initialized")
+
+    if not request.server_id and not request.server_name and not request.repo_url:
+        raise HTTPException(status_code=422, detail="Provide server_id/server_name or repo_url")
+
+    try:
+        return await _fastmcp_manager.assess_installation_safety(
+            server_name=request.server_name,
+            server_id=request.server_id,
+            repo_url=request.repo_url,
+            command=request.command,
+            args=request.args,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # ============================================================
-# Server List/Get Routes (GET - optional auth)
+# Server List/Get Routes (GET - require auth)
 # ============================================================
 
 @router.get("/servers", response_model=List[FastMCPServerResponse])
-async def list_fastmcp_servers(_: Optional[str] = Depends(_optional_auth)) -> List[FastMCPServerResponse]:
+async def list_fastmcp_servers(_: str = Depends(verify_token)) -> List[FastMCPServerResponse]:
     """List all installed MCP servers."""
     with get_db() as db:
         rows = db.execute(select(ExternalFastMCPServer)).scalars().all()
@@ -308,7 +378,7 @@ async def list_fastmcp_servers(_: Optional[str] = Depends(_optional_auth)) -> Li
 
 
 @router.get("/servers/{server_id}", response_model=FastMCPServerResponse)
-async def get_fastmcp_server(server_id: int, _: Optional[str] = Depends(_optional_auth)) -> FastMCPServerResponse:
+async def get_fastmcp_server(server_id: int, _: str = Depends(verify_token)) -> FastMCPServerResponse:
     """Get a specific server's configuration."""
     with get_db() as db:
         record = db.get(ExternalFastMCPServer, server_id)
@@ -325,7 +395,7 @@ async def get_fastmcp_server(server_id: int, _: Optional[str] = Depends(_optiona
 async def get_server_config(
     server_id: int,
     filename: str = "config.yaml",
-    _: Optional[str] = Depends(_optional_auth)
+    _: str = Depends(verify_token)
 ) -> ConfigFileResponse:
     """Get server config file content (for code editor)."""
     with get_db() as db:
@@ -379,7 +449,7 @@ async def update_server_config_file(
 @router.get("/servers/{server_id}/config/files")
 async def list_server_config_files(
     server_id: int,
-    _: Optional[str] = Depends(_optional_auth)
+    _: str = Depends(verify_token)
 ) -> Dict[str, Any]:
     """List all config files for a server."""
     with get_db() as db:
@@ -418,6 +488,8 @@ async def add_fastmcp_server(request: AddFastMCPServerRequest, _: str = Depends(
 
     if not request.server_name and not request.server_id:
         raise HTTPException(status_code=422, detail="Either 'server_name' or 'server_id' is required")
+    if is_system_namespace(request.namespace):
+        raise HTTPException(status_code=409, detail=f"Namespace is reserved for system use: {request.namespace}")
 
     try:
         record = await _fastmcp_manager.add_server_from_registry(
@@ -429,7 +501,54 @@ async def add_fastmcp_server(request: AddFastMCPServerRequest, _: str = Depends(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    response = _record_to_response(record)
+    _apply_server_files_and_env(
+        server_id=record.id,
+        namespace=request.namespace,
+        env=request.env,
+        config_file=request.config_file,
+        config_filename=request.config_filename,
+    )
+
+    with get_db() as db:
+        latest = db.get(ExternalFastMCPServer, record.id)
+        response = _server_to_response(latest) if latest else _record_to_response(record)
+
+    await _sync_fastmcp_registry()
+    await _fanout_fastmcp_reload()
+    return response
+
+
+@router.post("/servers/repo", response_model=FastMCPServerResponse)
+async def add_repo_server(request: AddRepoServerRequest, _: str = Depends(verify_token)) -> FastMCPServerResponse:
+    """Add server from a repository URL."""
+    if _fastmcp_manager is None:
+        raise HTTPException(status_code=500, detail="FastMCP manager not initialized")
+    if is_system_namespace(request.namespace):
+        raise HTTPException(status_code=409, detail=f"Namespace is reserved for system use: {request.namespace}")
+
+    try:
+        record = await _fastmcp_manager.add_server_from_repo(
+            repo_url=request.repo_url,
+            namespace=request.namespace,
+            entrypoint=request.entrypoint,
+            server_name=request.server_name,
+            auto_start=request.auto_start,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _apply_server_files_and_env(
+        server_id=record.id,
+        namespace=request.namespace,
+        env=request.env,
+        config_file=request.config_file,
+        config_filename=request.config_filename,
+    )
+
+    with get_db() as db:
+        latest = db.get(ExternalFastMCPServer, record.id)
+        response = _server_to_response(latest) if latest else _record_to_response(record)
+
     await _sync_fastmcp_registry()
     await _fanout_fastmcp_reload()
     return response
@@ -444,6 +563,9 @@ async def add_manual_server(request: AddManualServerRequest, _: str = Depends(ve
     - args: Command line arguments
     - env: Environment variables
     """
+    if is_system_namespace(request.namespace):
+        raise HTTPException(status_code=409, detail=f"Namespace is reserved for system use: {request.namespace}")
+
     with get_db() as db:
         # Check namespace doesn't exist
         existing = db.execute(
@@ -461,6 +583,7 @@ async def add_manual_server(request: AddManualServerRequest, _: str = Depends(ve
             env_vars=request.env,
             auto_start=request.auto_start,
             status="stopped",
+            package_type="manual",
         )
         db.add(record)
         db.commit()
@@ -498,6 +621,9 @@ async def add_from_config(request: AddFromConfigRequest, _: str = Depends(verify
     }
     """
     from app.deps import ensure_venv, install_packages
+
+    if is_system_namespace(request.namespace):
+        raise HTTPException(status_code=409, detail=f"Namespace is reserved for system use: {request.namespace}")
 
     # Validate config structure
     config = request.config
@@ -659,7 +785,10 @@ async def delete_fastmcp_server(server_id: int, _: str = Depends(verify_token)) 
     try:
         _fastmcp_manager.delete_server(server_id)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        message = str(exc)
+        if "protected system server" in message:
+            raise HTTPException(status_code=403, detail=message) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
 
     await _sync_fastmcp_registry()
     return {"success": True, "fanout": await _fanout_fastmcp_reload()}

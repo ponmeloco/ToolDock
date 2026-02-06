@@ -28,10 +28,19 @@ from pydantic import BaseModel, ConfigDict
 
 from app.auth import verify_token
 from app.metrics_store import get_metrics_store, init_metrics_store
+from app.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+_tool_registry: Optional[ToolRegistry] = None
+
+
+def set_admin_context(registry: ToolRegistry) -> None:
+    """Inject the tool registry for namespace tool counts."""
+    global _tool_registry
+    _tool_registry = registry
 
 # In-memory log buffer (circular buffer for last N log entries)
 LOG_BUFFER_SIZE = 1000
@@ -114,7 +123,7 @@ class NamespaceInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    type: str  # "native", "fastmcp", "external"
+    type: str  # "native", "fastmcp"
     tool_count: int
     status: Optional[str] = None
     endpoint: Optional[str] = None
@@ -127,48 +136,6 @@ class NamespacesResponse(BaseModel):
 
     namespaces: List[NamespaceInfo]
     total: int
-
-
-class ServiceErrorRate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    requests: int
-    errors: int
-    error_rate: float
-
-
-class ServiceErrorRates(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    last_5m: ServiceErrorRate
-    last_1h: ServiceErrorRate
-    last_24h: ServiceErrorRate
-    last_7d: ServiceErrorRate
-
-
-class ToolCallCounts(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    total: int
-    success: int
-    error: int
-
-
-class ToolCallStats(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    last_5m: ToolCallCounts
-    last_1h: ToolCallCounts
-    last_24h: ToolCallCounts
-    last_7d: ToolCallCounts
-
-
-class MetricsResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    timestamp: str
-    services: dict
-    tool_calls: ToolCallStats
 
 
 class ServiceErrorRate(BaseModel):
@@ -819,7 +786,7 @@ async def get_system_info(
 @router.get("/namespaces", response_model=NamespacesResponse)
 async def list_namespaces(_: str = Depends(verify_token)) -> NamespacesResponse:
     """
-    List all namespaces (native, FastMCP, external).
+    List all namespaces (native, FastMCP).
 
     Returns unified list of all available namespaces with their types and tool counts.
     """
@@ -833,52 +800,44 @@ async def list_namespaces(_: str = Depends(verify_token)) -> NamespacesResponse:
 
     namespaces: List[NamespaceInfo] = []
 
-    # Native namespaces from filesystem
+    # Native namespaces - use actual registry tool count, not file count
     if tools_dir.exists():
         for d in sorted(tools_dir.iterdir()):
             if d.is_dir() and not d.name.startswith("_"):
-                tool_count = len(list(d.glob("*.py")))
-                namespaces.append(NamespaceInfo(
-                    name=d.name,
-                    type="native",
-                    tool_count=tool_count,
-                    status="active",
-                    endpoint=f"/mcp/{d.name}",
-                ))
+                # Get actual registered tools, not just file count
+                tool_count = 0
+                if _tool_registry:
+                    tool_count = len(_tool_registry.list_tools_for_namespace(d.name))
+                # Only show if has tools
+                if tool_count > 0:
+                    namespaces.append(NamespaceInfo(
+                        name=d.name,
+                        type="native",
+                        tool_count=tool_count,
+                        status="active",
+                        endpoint=f"/mcp/{d.name}",
+                    ))
 
-    # FastMCP namespaces from database
+    # FastMCP namespaces - only show if has tools OR is explicitly stopped
     with get_db() as db:
         rows = db.execute(select(ExternalFastMCPServer)).scalars().all()
         for row in rows:
+            tool_count = 0
+            if _tool_registry:
+                tool_count = len(_tool_registry.list_tools_for_namespace(row.namespace))
+
+            # Skip "running" servers with no tools (ghost entries)
+            # Show stopped servers (user can start them) and running with tools
+            if row.status == "running" and tool_count == 0:
+                continue
+
             namespaces.append(NamespaceInfo(
                 name=row.namespace,
                 type="fastmcp",
-                tool_count=0,  # Will be populated when server is running
+                tool_count=tool_count,
                 status=row.status,
                 endpoint=f"/mcp/{row.namespace}",
             ))
-
-    # External servers from config.yaml
-    config_path = Path(data_dir) / "external" / "config.yaml"
-    if config_path.exists():
-        import yaml
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-            servers = config.get("servers") or {}
-            for server_id, server_config in servers.items():
-                # Skip if already in FastMCP list
-                if any(ns.name == server_id for ns in namespaces):
-                    continue
-                namespaces.append(NamespaceInfo(
-                    name=server_id,
-                    type="external",
-                    tool_count=0,
-                    status="active" if server_config.get("enabled", True) else "disabled",
-                    endpoint=f"/mcp/{server_id}",
-                ))
-        except Exception as e:
-            logger.warning(f"Error reading external config: {e}")
 
     return NamespacesResponse(
         namespaces=namespaces,

@@ -6,17 +6,19 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
 from app.db.database import get_db
 from app.db.models import ExternalFastMCPServer, ExternalRegistryCache
-from app.deps import ensure_venv, install_packages, install_requirements, get_venv_dir, validate_npm_package
+from app.deps import install_requirements, get_venv_dir, validate_npm_package
 from app.external.fastmcp_proxy import FastMCPHttpProxy
 from app.external.registry_client import MCPRegistryClient
 from app.registry import ToolRegistry
@@ -25,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PORT_START = 19000
 DEFAULT_PORT_END = 19999
+SYSTEM_INSTALLER_DEFAULT_NAMESPACE = "tooldock-installer"
+SYSTEM_INSTALLER_NAME = "ToolDock Installer"
+SYSTEM_INSTALLER_MODULE = "app.external.installer_mcp_server"
+SYSTEM_INSTALLER_SOURCE_URL = "internal://tooldock/installer"
 
 
 class FastMCPServerManager:
@@ -38,9 +44,9 @@ class FastMCPServerManager:
     async def seed_demo_server(self) -> None:
         """
         Install and start a demo FastMCP server on first run.
-        Controlled by FASTMCP_DEMO_ENABLED (default true).
+        Controlled by FASTMCP_DEMO_ENABLED (default false).
         """
-        if os.getenv("FASTMCP_DEMO_ENABLED", "true").lower() not in {"1", "true", "yes"}:
+        if os.getenv("FASTMCP_DEMO_ENABLED", "false").lower() not in {"1", "true", "yes"}:
             return
 
         data_dir = _get_data_dir()
@@ -156,6 +162,224 @@ class FastMCPServerManager:
         except Exception as exc:
             logger.warning(f"FastMCP demo server install failed: {exc}")
 
+    async def ensure_system_installer_server(self) -> Optional[ExternalFastMCPServer]:
+        """Ensure the built-in ToolDock installer server exists and is auto-started."""
+        if os.getenv("FASTMCP_INSTALLER_ENABLED", "true").lower() not in {"1", "true", "yes"}:
+            return None
+
+        namespace = get_system_installer_namespace()
+        with get_db() as db:
+            record = db.execute(
+                select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == namespace)
+            ).scalar_one_or_none()
+            if record is None:
+                record = ExternalFastMCPServer(
+                    server_name=SYSTEM_INSTALLER_NAME,
+                    namespace=namespace,
+                    install_method="manual",
+                    startup_command="python",
+                    command_args=["-m", SYSTEM_INSTALLER_MODULE],
+                    status="stopped",
+                    auto_start=True,
+                    package_type="system",
+                    source_url=SYSTEM_INSTALLER_SOURCE_URL,
+                )
+                db.add(record)
+                db.commit()
+                db.refresh(record)
+                logger.info(f"Seeded system FastMCP installer server: {namespace}")
+            else:
+                changed = False
+                if not record.startup_command:
+                    record.startup_command = "python"
+                    changed = True
+                if not record.command_args:
+                    record.command_args = ["-m", SYSTEM_INSTALLER_MODULE]
+                    changed = True
+                if not record.auto_start:
+                    record.auto_start = True
+                    changed = True
+                if record.package_type != "system":
+                    record.package_type = "system"
+                    changed = True
+                if not record.source_url:
+                    record.source_url = SYSTEM_INSTALLER_SOURCE_URL
+                    changed = True
+                if changed:
+                    db.commit()
+                    db.refresh(record)
+
+        server_dir = _get_server_dir(namespace)
+        server_dir.mkdir(parents=True, exist_ok=True)
+        config_path = server_dir / "config.yaml"
+        if not config_path.exists():
+            config_path.write_text(
+                (
+                    "# ToolDock installer MCP server config\n"
+                    "# TOOLDOCK_INSTALLER_API_BASE: http://127.0.0.1:8080/api\n"
+                    "# TOOLDOCK_BEARER_TOKEN: optional override for API auth\n"
+                ),
+                encoding="utf-8",
+            )
+
+        with get_db() as db:
+            record = db.execute(
+                select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == namespace)
+            ).scalar_one_or_none()
+            return record
+
+    async def assess_installation_safety(
+        self,
+        *,
+        server_name: Optional[str] = None,
+        server_id: Optional[str] = None,
+        repo_url: Optional[str] = None,
+        command: Optional[str] = None,
+        args: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Build a deterministic, explainable risk assessment for a server install."""
+        checks: list[dict[str, Any]] = []
+        score = 0
+        resolved: Dict[str, Any] = {}
+        install_blocked = False
+        data: Optional[Dict[str, Any]] = None
+
+        def add_check(
+            check_id: str,
+            status: str,
+            severity: str,
+            message: str,
+            detail: Optional[str] = None,
+        ) -> None:
+            nonlocal score, install_blocked
+            checks.append(
+                {
+                    "id": check_id,
+                    "status": status,
+                    "severity": severity,
+                    "message": message,
+                    "detail": detail,
+                }
+            )
+            if status == "warn":
+                score += 2
+            elif status == "fail":
+                score += 4
+                install_blocked = True
+
+        if server_id or server_name:
+            data = await self.get_registry_server(server_name, server_id=server_id)
+            resolved_name = _get_server_name(data)
+            resolved_id = _get_server_id(data)
+            repo_url = repo_url or _extract_repo_url(data)
+            package = _pick_package(data)
+            package_type = str(package.get("registryType", "")).lower() if package else None
+            if not package_type and _has_remotes(data):
+                package_type = "remote"
+            resolved = {
+                "name": resolved_name,
+                "id": resolved_id,
+                "repo_url": repo_url,
+                "package_type": package_type,
+                "source_url": repo_url,
+            }
+            add_check(
+                "registry_lookup",
+                "pass",
+                "low",
+                "Server metadata resolved from MCP Registry.",
+            )
+        elif repo_url:
+            resolved = {
+                "name": None,
+                "id": None,
+                "repo_url": repo_url,
+                "package_type": "repo",
+                "source_url": repo_url,
+            }
+            add_check(
+                "registry_lookup",
+                "info",
+                "low",
+                "Using direct repository install without registry metadata.",
+            )
+        else:
+            raise ValueError("Provide either server_id/server_name or repo_url")
+
+        package_type = resolved.get("package_type") or "unknown"
+        if package_type in {"pypi", "npm"}:
+            add_check("package_type", "pass", "low", f"Package type '{package_type}' is supported directly.")
+        elif package_type in {"repo", "remote"}:
+            add_check(
+                "package_type",
+                "warn",
+                "medium",
+                f"Package type '{package_type}' requires manual review of source/runtime settings.",
+            )
+        else:
+            add_check(
+                "package_type",
+                "fail",
+                "high",
+                f"Unsupported or unknown package type: '{package_type}'.",
+            )
+
+        source_url = resolved.get("repo_url")
+        if source_url:
+            parsed = urlparse(source_url)
+            host = parsed.netloc.lower()
+            trusted_hosts = {"github.com", "gitlab.com", "bitbucket.org"}
+            if host in trusted_hosts:
+                add_check("source_host", "pass", "low", f"Source host '{host}' is in the trusted host list.")
+            elif host:
+                add_check("source_host", "warn", "medium", f"Source host '{host}' is not in the trusted host list.")
+            else:
+                add_check("source_host", "warn", "medium", "Source URL has no valid hostname.")
+        else:
+            add_check("source_url", "warn", "medium", "No source repository URL was provided by metadata.")
+
+        command_risk = _assess_command_risk(command, args or [])
+        if command_risk["status"] == "pass":
+            add_check("runtime_command", "pass", "low", command_risk["message"])
+        elif command_risk["status"] == "warn":
+            add_check("runtime_command", "warn", command_risk["severity"], command_risk["message"])
+        elif command_risk["status"] == "fail":
+            add_check("runtime_command", "fail", command_risk["severity"], command_risk["message"])
+        else:
+            add_check("runtime_command", "info", command_risk["severity"], command_risk["message"])
+
+        required_env = _extract_env_requirements(data) if data else []
+        if required_env:
+            add_check(
+                "required_env",
+                "info",
+                "low",
+                f"Server declares {len(required_env)} environment/header input(s).",
+            )
+        else:
+            add_check("required_env", "info", "low", "No required environment/header inputs declared in metadata.")
+
+        if score >= 7:
+            risk_level = "high"
+        elif score >= 3:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        suggested_name = resolved.get("name") or source_url or "server"
+        suggested_namespace = _slugify_namespace(str(suggested_name))
+
+        return {
+            "risk_level": risk_level,
+            "risk_score": score,
+            "blocked": install_blocked,
+            "summary": _risk_summary(risk_level, install_blocked),
+            "checks": checks,
+            "resolved_server": resolved,
+            "required_env": required_env,
+            "suggested_namespace": suggested_namespace,
+        }
+
     # =========================
     # Registry helpers
     # =========================
@@ -190,6 +414,22 @@ class FastMCPServerManager:
                         entry["description"] = description
                     if server_id:
                         entry["id"] = server_id
+
+            # Enrich with provenance info
+            entry = dict(entry)
+            pkg = _pick_package(entry)
+            repo_url = _extract_repo_url(entry)
+            if pkg:
+                entry["_package_type"] = str(pkg.get("registryType", "")).lower() or "unknown"
+            elif _has_remotes(entry):
+                entry["_package_type"] = "remote"
+            elif repo_url:
+                entry["_package_type"] = "repo"
+            else:
+                entry["_package_type"] = "unknown"
+            if repo_url:
+                entry["_source_url"] = repo_url
+
             normalized.append(entry)
         if filtered != servers:
             result = dict(result)
@@ -237,12 +477,30 @@ class FastMCPServerManager:
         version: Optional[str] = None,
         server_id: Optional[str] = None,
     ) -> ExternalFastMCPServer:
+        if is_system_namespace(namespace):
+            raise ValueError(f"Namespace is reserved for system use: {namespace}")
+
         data = await self.get_registry_server(server_name, server_id=server_id)
         resolved_name = _get_server_name(data) or server_name or server_id or "unknown"
         self._cache_registry_server(resolved_name, data)
 
+        # Get pre-filled config from registry client
+        client = MCPRegistryClient()
+        server_config = client.get_server_config(data)
+
         pkg = _pick_package(data)
         repo_url = _extract_repo_url(data)
+        source_url = repo_url
+
+        # Determine package_type from the picked package
+        if pkg:
+            package_type = str(pkg.get("registryType", "")).lower() or "unknown"
+        elif _has_remotes(data):
+            package_type = "remote"
+        elif repo_url:
+            package_type = "repo"
+        else:
+            package_type = "unknown"
 
         install_method = "package" if pkg else "repo"
         if install_method == "package" and pkg and pkg.get("registryType", "").lower() not in ("pypi", "npm"):
@@ -250,6 +508,7 @@ class FastMCPServerManager:
             if repo_url:
                 install_method = "repo"
                 pkg = None
+                package_type = "repo"
             else:
                 raise ValueError("Unsupported package type for FastMCP (only PyPI, npm, or repo)")
 
@@ -271,6 +530,8 @@ class FastMCPServerManager:
                 package_info=pkg,
                 repo_url=repo_url,
                 status="installing",
+                package_type=package_type,
+                source_url=source_url,
             )
             db.add(record)
             db.commit()
@@ -300,7 +561,12 @@ class FastMCPServerManager:
         repo_url: str,
         namespace: str,
         entrypoint: Optional[str] = None,
+        server_name: Optional[str] = None,
+        auto_start: bool = True,
     ) -> ExternalFastMCPServer:
+        if is_system_namespace(namespace):
+            raise ValueError(f"Namespace is reserved for system use: {namespace}")
+
         with get_db() as db:
             existing = db.execute(
                 select(ExternalFastMCPServer).where(ExternalFastMCPServer.namespace == namespace)
@@ -309,13 +575,15 @@ class FastMCPServerManager:
                 raise ValueError(f"Namespace already exists: {namespace}")
 
             record = ExternalFastMCPServer(
-                server_name=repo_url,
+                server_name=server_name or repo_url,
                 namespace=namespace,
                 install_method="repo",
                 repo_url=repo_url,
                 entrypoint=entrypoint,
                 status="installing",
-                auto_start=True,
+                auto_start=auto_start,
+                package_type="repo",
+                source_url=repo_url,
             )
             db.add(record)
             db.commit()
@@ -370,43 +638,39 @@ class FastMCPServerManager:
                     record.command_args = ["-y", spec]
                     record.status = "stopped"
                 else:
-                    # PyPI uses == for version pinning (e.g. pkg==1.2.3)
+                    # PyPI: use uvx which handles isolation automatically
                     spec = f"{identifier}=={version}" if version else identifier
-                    venv_dir = ensure_venv(namespace)
-                    record.venv_path = str(venv_dir)
-                    result = install_packages(namespace, [spec])
-                    if not result.get("success"):
-                        raise RuntimeError(result.get("stderr") or "Failed to install package")
-
-                    # Pre-fill command from package name
-                    module_name = _derive_module_name(identifier)
-                    record.startup_command = "python"
-                    record.command_args = ["-m", module_name]
+                    record.startup_command = "uvx"
+                    record.command_args = [spec]
                     record.status = "stopped"
 
             else:
                 repo_path = _ensure_repo(namespace, record.repo_url)
-                entrypoint = None
+
+                # If an explicit entrypoint was provided, use it directly
                 if record.entrypoint:
                     candidate = Path(record.entrypoint)
                     if not candidate.is_absolute():
                         candidate = repo_path / candidate
                     if candidate.exists():
-                        entrypoint = candidate
-
-                if entrypoint is None:
-                    entrypoint = _detect_entrypoint(repo_path)
-
-                if entrypoint is None:
-                    record.status = "error"
-                    record.last_error = "No FastMCP entrypoint found in repo"
+                        project_root = _find_repo_project_root(candidate, repo_path)
+                        _install_repo_deps(namespace, project_root)
+                        record.entrypoint = str(candidate)
+                        record.startup_command = "python"
+                        record.command_args = [str(candidate)]
+                        record.status = "stopped"
+                    else:
+                        record.status = "stopped"
+                        record.last_error = (
+                            "Repo cloned but specified entrypoint not found. "
+                            "Configure startup command in the detail panel."
+                        )
                 else:
-                    project_root = _find_repo_project_root(entrypoint, repo_path)
-                    _install_repo_deps(namespace, project_root)
-                    record.entrypoint = str(entrypoint)
-                    record.startup_command = "python"
-                    record.command_args = [str(entrypoint)]
+                    # No entrypoint specified — clone repo and let user configure
                     record.status = "stopped"
+                    record.last_error = (
+                        "Repo cloned. Configure startup command in the detail panel."
+                    )
 
             db.commit()
 
@@ -516,6 +780,8 @@ class FastMCPServerManager:
             record = db.get(ExternalFastMCPServer, server_id)
             if not record:
                 return
+            if is_system_namespace(record.namespace):
+                raise ValueError(f"Server '{record.namespace}' is a protected system server and cannot be deleted")
             namespace = record.namespace
             if record.pid:
                 _terminate_pid(record.pid)
@@ -525,7 +791,10 @@ class FastMCPServerManager:
         # Optionally cleanup repo folder
         repo_path = _get_server_dir(namespace)
         if repo_path.exists():
-            shutil.rmtree(repo_path, ignore_errors=True)
+            try:
+                _safe_rmtree_under(repo_path, repo_path.parent)
+            except Exception as exc:
+                logger.warning(f"Failed to delete repo directory for namespace {namespace}: {exc}")
 
         # Cleanup namespace venv (removes all packages for this namespace)
         try:
@@ -621,6 +890,15 @@ class FastMCPServerManager:
 # =========================
 
 
+def get_system_installer_namespace() -> str:
+    value = os.getenv("FASTMCP_INSTALLER_NAMESPACE", SYSTEM_INSTALLER_DEFAULT_NAMESPACE).strip()
+    return value or SYSTEM_INSTALLER_DEFAULT_NAMESPACE
+
+
+def is_system_namespace(namespace: str) -> bool:
+    return namespace == get_system_installer_namespace()
+
+
 def _get_data_dir() -> Path:
     return Path(os.getenv("DATA_DIR", "tooldock_data"))
 
@@ -644,7 +922,7 @@ def _ensure_repo(namespace: str, repo_url: Optional[str]) -> Path:
         _run_cmd(["git", "-C", str(repo_dir), "pull", "--ff-only"])
     else:
         if repo_dir.exists():
-            shutil.rmtree(repo_dir)
+            _safe_rmtree_under(repo_dir, repo_dir.parent)
         _run_cmd(["git", "clone", repo_url, str(repo_dir)])
 
     return repo_dir
@@ -822,6 +1100,17 @@ def _run_cmd(cmd: list[str]) -> None:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
 
+def _safe_rmtree_under(path: Path, base_dir: Path) -> None:
+    """Recursively delete only when path is a child of base_dir."""
+    resolved_path = path.resolve()
+    resolved_base = base_dir.resolve()
+    if not resolved_path.exists():
+        return
+    if resolved_path == resolved_base or resolved_base not in resolved_path.parents:
+        raise RuntimeError(f"Refusing to delete path outside base directory: {resolved_path}")
+    shutil.rmtree(resolved_path)
+
+
 def _is_pid_alive(pid: int) -> bool:
     """Check if a process with the given PID is still running."""
     try:
@@ -854,6 +1143,24 @@ def _get_server_name(data: Dict[str, Any]) -> Optional[str]:
     if isinstance(data, dict):
         return data.get("name")
     return None
+
+
+def _get_server_id(data: Dict[str, Any]) -> Optional[str]:
+    server = data.get("server", data)
+    value = server.get("id") if isinstance(server, dict) else None
+    if value:
+        return str(value)
+    if isinstance(data, dict):
+        fallback = data.get("id")
+        return str(fallback) if fallback else None
+    return None
+
+
+def _has_remotes(data: Dict[str, Any]) -> bool:
+    """Check if server data includes remote (HTTP) endpoints."""
+    server = data.get("server", data)
+    remotes = server.get("remotes") or []
+    return len(remotes) > 0
 
 
 def _pick_package(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -909,3 +1216,125 @@ def _extract_repo_url(data: Dict[str, Any]) -> Optional[str]:
                 return value
 
     return None
+
+
+def _extract_env_requirements(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not data:
+        return []
+
+    server = data.get("server", data)
+    requirements: list[Dict[str, Any]] = []
+
+    for pkg in (server.get("packages") or []):
+        for entry in (pkg.get("environmentVariables") or []):
+            name = entry.get("name")
+            if not name:
+                continue
+            requirements.append(
+                {
+                    "name": name,
+                    "description": entry.get("description") or "",
+                    "required": not bool(entry.get("isOptional", False)),
+                    "secret": bool(entry.get("isSecret", False)),
+                    "source": "env",
+                }
+            )
+
+    for remote in (server.get("remotes") or []):
+        for header in (remote.get("headers") or []):
+            name = header.get("name")
+            if not name:
+                continue
+            requirements.append(
+                {
+                    "name": name,
+                    "description": header.get("description") or "",
+                    "required": bool(header.get("isRequired", False)),
+                    "secret": bool(header.get("isSecret", False)),
+                    "source": "header",
+                }
+            )
+
+    # Keep stable output and de-duplicate by name/source.
+    deduped: dict[tuple[str, str], Dict[str, Any]] = {}
+    for req in requirements:
+        deduped[(req["name"], req["source"])] = req
+    return sorted(deduped.values(), key=lambda item: (item["source"], item["name"]))
+
+
+def _slugify_namespace(value: str) -> str:
+    raw = value.strip().lower()
+    if not raw:
+        return "server"
+    if "/" in raw:
+        raw = raw.split("/")[-1]
+    slug = re.sub(r"[^a-z0-9_-]+", "-", raw).strip("-")
+    if not slug:
+        slug = "server"
+    if not re.match(r"^[a-z]", slug):
+        slug = f"ns-{slug}"
+    return slug[:64]
+
+
+def _risk_summary(risk_level: str, blocked: bool) -> str:
+    if blocked:
+        return "High-risk signals detected. Resolve failing checks before installation."
+    if risk_level == "high":
+        return "Multiple warnings detected. Manual review strongly recommended."
+    if risk_level == "medium":
+        return "Moderate risk. Review source and runtime configuration before starting."
+    return "Low risk based on available metadata and runtime checks."
+
+
+def _assess_command_risk(command: Optional[str], args: List[str]) -> Dict[str, str]:
+    if not command:
+        return {
+            "status": "info",
+            "severity": "low",
+            "message": "No command provided yet. Risk will be re-evaluated after runtime config is set.",
+        }
+
+    cmd = command.strip().lower()
+    dangerous = {"bash", "sh", "zsh", "powershell", "pwsh", "cmd", "curl", "wget"}
+    if cmd in dangerous:
+        return {
+            "status": "fail",
+            "severity": "high",
+            "message": f"Command '{command}' is high-risk for arbitrary script execution.",
+        }
+
+    if cmd == "docker":
+        joined = " ".join(args or [])
+        if "--privileged" in joined or "-v /:" in joined:
+            return {
+                "status": "fail",
+                "severity": "high",
+                "message": "Docker command includes privileged/root filesystem flags.",
+            }
+        return {
+            "status": "warn",
+            "severity": "medium",
+            "message": "Docker-based servers should be reviewed for image provenance and flags.",
+        }
+
+    joined = " ".join(args or [])
+    suspicious_tokens = ("|", "&&", ";", "`", "$(")
+    if any(token in joined for token in suspicious_tokens):
+        return {
+            "status": "fail",
+            "severity": "high",
+            "message": "Arguments contain shell control operators; this is unsafe for server startup.",
+        }
+
+    if cmd in {"python", "python3", "node", "npx", "uvx"}:
+        return {
+            "status": "pass",
+            "severity": "low",
+            "message": f"Command '{command}' is a typical MCP runtime.",
+        }
+
+    return {
+        "status": "warn",
+        "severity": "medium",
+        "message": f"Command '{command}' is uncommon. Verify executable provenance.",
+    }

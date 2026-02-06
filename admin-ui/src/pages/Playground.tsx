@@ -29,13 +29,13 @@ export default function Playground() {
       executePlaygroundTool(name, payload, transport, namespace),
   })
 
-  const tools = toolsQuery.data?.tools || []
   const scopedTools = useMemo(() => {
+    const tools = toolsQuery.data?.tools || []
     if (scope === 'external') {
       return tools.filter((tool) => tool.type === 'external')
     }
     return tools.filter((tool) => tool.type !== 'external')
-  }, [tools, scope])
+  }, [toolsQuery.data?.tools, scope])
 
   // Group tools by namespace
   const namespaces = useMemo(() => {

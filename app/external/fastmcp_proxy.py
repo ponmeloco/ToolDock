@@ -7,6 +7,7 @@ a simpler JSON-RPC over HTTP mode for compatibility with various servers.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -31,10 +32,31 @@ class FastMCPHttpProxy:
         self._connected = False
         self._message_id = 0
         self._client: Optional[httpx.AsyncClient] = None
+        self._client_loop_id: Optional[int] = None
 
     @property
     def is_connected(self) -> bool:
-        return self._connected and self._client is not None
+        return self._connected
+
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        """Get an AsyncClient bound to the current event loop."""
+        loop = asyncio.get_running_loop()
+        loop_id = id(loop)
+
+        client_closed = bool(self._client and getattr(self._client, "is_closed", False))
+        if self._client is None or client_closed or self._client_loop_id != loop_id:
+            if self._client is not None:
+                try:
+                    await self._client.aclose()
+                except Exception:
+                    pass
+            self._client = httpx.AsyncClient(
+                headers=self.headers,
+                timeout=httpx.Timeout(10.0, read=30.0),
+            )
+            self._client_loop_id = loop_id
+
+        return self._client
 
     async def connect(self) -> None:
         """Connect to the server and discover tools."""
@@ -44,10 +66,7 @@ class FastMCPHttpProxy:
         logger.info(f"Connecting to MCP server {self.server_id} at {self.url}")
 
         try:
-            self._client = httpx.AsyncClient(
-                headers=self.headers,
-                timeout=httpx.Timeout(10.0, read=30.0),
-            )
+            await self._ensure_client()
 
             # Initialize the session
             await self._initialize()
@@ -90,8 +109,7 @@ class FastMCPHttpProxy:
 
     async def _send_request(self, method: str, params: Dict[str, Any]) -> Any:
         """Send a JSON-RPC request and wait for response."""
-        if not self._client:
-            raise RuntimeError("Client not initialized")
+        client = await self._ensure_client()
 
         self._message_id += 1
         request = {
@@ -101,7 +119,7 @@ class FastMCPHttpProxy:
             "params": params,
         }
 
-        response = await self._client.post(
+        response = await client.post(
             self.url,
             json=request,
             headers={"Accept": "application/json"},
@@ -115,8 +133,7 @@ class FastMCPHttpProxy:
 
     async def _send_notification(self, method: str, params: Dict[str, Any]) -> None:
         """Send a JSON-RPC notification (no response expected)."""
-        if not self._client:
-            raise RuntimeError("Client not initialized")
+        client = await self._ensure_client()
 
         notification = {
             "jsonrpc": "2.0",
@@ -125,7 +142,7 @@ class FastMCPHttpProxy:
         }
 
         # Notifications may return 202 (no content) or an empty response
-        await self._client.post(
+        await client.post(
             self.url,
             json=notification,
             headers={"Accept": "application/json"},
@@ -166,6 +183,7 @@ class FastMCPHttpProxy:
                 logger.warning(f"Error during disconnect of {self.server_id}: {exc}")
             finally:
                 self._client = None
+                self._client_loop_id = None
 
     def get_tool_schemas(self, namespace: str) -> list[Dict[str, Any]]:
         """Get tool schemas with namespace prefix."""

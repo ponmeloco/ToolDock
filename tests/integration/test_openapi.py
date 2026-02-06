@@ -327,3 +327,85 @@ class TestErrorHandling:
         assert response.status_code == 422
         data = response.json()
         assert "error" in data
+
+
+class TestAdminRoutes:
+    """Tests for /admin routes exposed by OpenAPI transport."""
+
+    def test_admin_tools_requires_auth(self, client: SyncASGIClient):
+        response = client.get("/admin/tools")
+        assert response.status_code == 401
+
+    def test_admin_tools_lists_native(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        response = client.get("/admin/tools", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "native" in data
+        assert "external" in data
+        assert data["native"]["count"] >= 2
+
+    def test_admin_reload_all(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        response = client.post("/admin/reload", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "success" in data
+        assert "results" in data
+
+    def test_admin_reload_namespace_error(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        response = client.post("/admin/reload/does-not-exist", headers=auth_headers)
+        assert response.status_code == 400
+
+    def test_admin_search_registry(
+        self, client: SyncASGIClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.external.registry_client import MCPRegistryClient
+
+        async def fake_search(self, query: str, limit: int = 20):
+            return [{"server": {"name": "demo", "description": "Demo server", "version": "1.0.0"}}]
+
+        def fake_config(self, server_data):
+            return {"type": "stdio", "args": ["npx", "@demo/server"]}
+
+        monkeypatch.setattr(MCPRegistryClient, "search_servers", fake_search)
+        monkeypatch.setattr(MCPRegistryClient, "get_server_config", fake_config)
+
+        response = client.get("/admin/servers/search?query=demo", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "demo"
+
+    def test_admin_fastmcp_reload_unavailable(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        response = client.post("/admin/fastmcp/reload", headers=auth_headers)
+        assert response.status_code == 503
+
+    def test_admin_fastmcp_reload_success(
+        self,
+        registry: ToolRegistry,
+        auth_headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("BEARER_TOKEN", "test_token")
+
+        class StubManager:
+            async def sync_from_db(self):
+                return {"running": 1, "connected": 1}
+
+        app = create_openapi_app(registry, fastmcp_manager=StubManager())
+        local_client = SyncASGIClient(app)
+        try:
+            response = local_client.post("/admin/fastmcp/reload", headers=auth_headers)
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "ok"
+            assert payload["result"]["running"] == 1
+        finally:
+            local_client.close()

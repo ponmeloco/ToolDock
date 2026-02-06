@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==================================================
-# Test External MCP Server Integration for ToolDock
+# Test MCP Server Integration for ToolDock
 # ==================================================
 #
 # Prerequisites:
@@ -19,9 +19,10 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     set +a
 fi
 
-# Configuration
-MCP_URL="${MCP_URL:-http://localhost:18007}"
-WEB_URL="${WEB_URL:-http://localhost:18080}"
+# Configuration (single exposed gateway by default)
+ADMIN_URL="${ADMIN_URL:-http://localhost:${ADMIN_PORT:-13000}}"
+MCP_URL="${MCP_URL:-$ADMIN_URL}"
+WEB_URL="${WEB_URL:-$ADMIN_URL}"
 TOKEN="${BEARER_TOKEN:-change_me_to_a_secure_token}"
 
 # Colors
@@ -32,11 +33,12 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo "========================================"
-echo "  External MCP Server Integration Tests"
+echo "  MCP Server Integration Tests"
 echo "========================================"
 echo ""
+echo "Admin URL: $ADMIN_URL"
 echo "MCP URL: $MCP_URL"
-echo "Web GUI URL: $WEB_URL"
+echo "Web API URL: $WEB_URL"
 echo ""
 
 # Helper functions
@@ -62,7 +64,7 @@ section() {
 section "Test 1: Health Checks"
 # ==================================================
 
-MCP_HEALTH=$(curl -s "$MCP_URL/health")
+MCP_HEALTH=$(curl -s "$MCP_URL/mcp/health")
 if echo "$MCP_HEALTH" | grep -q '"status"'; then
     pass "MCP health check"
     echo "  Response: $MCP_HEALTH"
@@ -91,15 +93,15 @@ else
 fi
 
 # ==================================================
-section "Test 3: List External Servers (Web GUI API)"
+section "Test 3: List MCP Servers (Web API)"
 # ==================================================
 
-SERVERS=$(curl -s "$WEB_URL/api/servers" -H "Authorization: Bearer $TOKEN")
-if echo "$SERVERS" | grep -q '"servers"'; then
-    pass "List external servers"
+SERVERS=$(curl -s "$WEB_URL/api/fastmcp/servers" -H "Authorization: Bearer $TOKEN")
+if echo "$SERVERS" | grep -q '\['; then
+    pass "List MCP servers"
     echo "  Response: $SERVERS"
 else
-    fail "List external servers failed"
+    fail "List MCP servers failed"
 fi
 
 # ==================================================
@@ -108,6 +110,7 @@ section "Test 4: List Tools via MCP"
 
 MCP_TOOLS=$(curl -s -X POST "$MCP_URL/mcp/shared" \
     -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
     -H "Authorization: Bearer $TOKEN" \
     -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}')
 if echo "$MCP_TOOLS" | grep -q '"tools"'; then
@@ -124,6 +127,7 @@ section "Test 5: Global MCP tools/list"
 
 GLOBAL_TOOLS=$(curl -s -X POST "$MCP_URL/mcp" \
     -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
     -H "Authorization: Bearer $TOKEN" \
     -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}')
 if echo "$GLOBAL_TOOLS" | grep -q '"tools"'; then
@@ -162,7 +166,7 @@ fi
 section "Test 8: Namespace Info"
 # ==================================================
 
-NS_INFO=$(curl -s "$MCP_URL/mcp/shared" -H "Authorization: Bearer $TOKEN")
+NS_INFO=$(curl -s "$MCP_URL/mcp/shared/info" -H "Authorization: Bearer $TOKEN")
 if echo "$NS_INFO" | grep -q 'shared'; then
     pass "Namespace info"
     echo "  Response: $NS_INFO"
@@ -176,6 +180,7 @@ section "Test 9: Invalid Namespace (should fail)"
 
 INVALID=$(curl -s -X POST "$MCP_URL/mcp/nonexistent" \
     -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
     -H "Authorization: Bearer $TOKEN" \
     -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}')
 if echo "$INVALID" | grep -q 'error\|Unknown namespace'; then
@@ -205,9 +210,10 @@ echo "========================================"
 echo ""
 echo "Summary:"
 echo "  - MCP Namespaces: $NAMESPACES"
-echo "  - External Servers: configured via tooldock_data/external/config.yaml"
+echo "  - MCP Servers: $SERVERS"
 echo ""
-echo "To add an external server, edit the config file and restart:"
-echo "  nano tooldock_data/external/config.yaml"
-echo "  docker compose restart"
+echo "To add a server, use the Admin UI MCP Servers page or call:"
+echo "  POST $WEB_URL/api/fastmcp/servers (registry)"
+echo "  POST $WEB_URL/api/fastmcp/servers/repo (repo URL)"
+echo "  POST $WEB_URL/api/fastmcp/servers/manual (manual command)"
 echo ""

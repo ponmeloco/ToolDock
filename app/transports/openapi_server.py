@@ -53,8 +53,6 @@ async def bearer_auth_dependency(request: Request) -> None:
 
 def create_openapi_app(
     registry: ToolRegistry,
-    external_manager=None,
-    external_config=None,
     fastmcp_manager=None,
 ) -> FastAPI:
     """
@@ -312,17 +310,11 @@ def create_openapi_app(
     # Initialize reloader for this registry
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = Path(data_dir) / "tools"
-    external_namespaces = None
-    if external_manager is not None:
-        try:
-            external_namespaces = set(external_manager.get_stats().get("namespaces", []))
-        except Exception:
-            external_namespaces = None
-    reloader = ToolReloader(registry, str(tools_dir), external_namespaces=external_namespaces)
+    reloader = ToolReloader(registry, str(tools_dir))
 
     # Include admin router and set context
     from app.admin.routes import router as admin_router, set_admin_context
-    set_admin_context(registry, external_manager, external_config, reloader, fastmcp_manager)
+    set_admin_context(registry, reloader, fastmcp_manager)
     app.include_router(admin_router)
 
     # Sync FastMCP external servers (read from DB, connect + register tools)

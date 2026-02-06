@@ -62,8 +62,6 @@ SUPPORTED_PROTOCOL_VERSIONS = [
 
 def create_mcp_http_app(
     registry: ToolRegistry,
-    external_manager=None,
-    external_config=None,
     fastmcp_manager=None,
 ) -> FastAPI:
     """
@@ -110,17 +108,11 @@ def create_mcp_http_app(
     # Initialize reloader (for admin endpoints)
     data_dir = os.getenv("DATA_DIR", "tooldock_data")
     tools_dir = os.path.join(data_dir, "tools")
-    external_namespaces = None
-    if external_manager is not None:
-        try:
-            external_namespaces = set(external_manager.get_stats().get("namespaces", []))
-        except Exception:
-            external_namespaces = None
-    reloader = ToolReloader(registry, tools_dir, external_namespaces=external_namespaces)
+    reloader = ToolReloader(registry, tools_dir)
 
     # Include admin router for runtime external management
     from app.admin.routes import router as admin_router, set_admin_context
-    set_admin_context(registry, external_manager, external_config, reloader, fastmcp_manager)
+    set_admin_context(registry, reloader, fastmcp_manager)
     app.include_router(admin_router)
 
     # ==================== Handler Functions ====================
@@ -348,14 +340,19 @@ def create_mcp_http_app(
         return None
 
     def _validate_accept_header(request: Request, require_stream: bool = False) -> Optional[Response]:
-        accept = request.headers.get("accept", "")
+        accept = request.headers.get("accept", "").lower()
         if require_stream:
             if "text/event-stream" not in accept:
                 return Response(status_code=406)
             return None
-        if "application/json" not in accept:
-            return Response(status_code=400)
-        return None
+        # For JSON-RPC POST endpoints, be permissive for compatibility:
+        # allow missing Accept, */*, application/*, or application/json.
+        if not accept:
+            return None
+        if "*/*" in accept or "application/*" in accept or "application/json" in accept:
+            return None
+        # Client explicitly asked for something incompatible with JSON responses.
+        return Response(status_code=406)
 
     async def process_jsonrpc_request(
         body: Dict[str, Any],

@@ -25,10 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Python dependencies
+# 2. Install Python dependencies + uv (for uvx PyPI server runner)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir uv
 
 # 3. Create non-root user for security
 RUN useradd -m -s /bin/bash appuser && \

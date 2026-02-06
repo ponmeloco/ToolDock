@@ -315,11 +315,11 @@ export default function Namespaces() {
             </div>
             <div className="flex items-center gap-2">
               <Server className="w-4 h-4 text-purple-600" />
-              <span>FastMCP - MCP servers from registry</span>
+              <span>FastMCP - MCP servers from registry, repo URL, or manual config</span>
             </div>
             <div className="flex items-center gap-2">
               <Cloud className="w-4 h-4 text-blue-600" />
-              <span>External - Configured in config.yaml</span>
+              <span>External - Reserved for non-native integrations</span>
             </div>
           </div>
         </div>
@@ -330,7 +330,7 @@ export default function Namespaces() {
         <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0" />
         <div className="text-sm text-yellow-800">
           <strong>Note:</strong> Deleting a native namespace will remove all tools within it.
-          FastMCP servers can be managed from the FastMCP Servers page.
+          FastMCP servers can be managed from the MCP Servers page.
         </div>
       </div>
     </div>

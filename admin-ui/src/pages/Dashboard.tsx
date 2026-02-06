@@ -4,7 +4,6 @@ import {
   getSystemInfo,
   getSystemMetrics,
   getNamespaces,
-  getExternalServers,
   listFastMcpServers,
 } from '../api/client'
 import {
@@ -42,11 +41,6 @@ export default function Dashboard() {
   const namespacesQuery = useQuery({
     queryKey: ['namespaces'],
     queryFn: getNamespaces,
-  })
-
-  const externalServersQuery = useQuery({
-    queryKey: ['externalServers'],
-    queryFn: getExternalServers,
   })
 
   const fastmcpServersQuery = useQuery({
@@ -214,9 +208,9 @@ export default function Dashboard() {
                 <div className="text-3xl font-bold text-primary-600">
                   {namespacesQuery.data?.length || 0}
                 </div>
-                {(externalServersQuery.data?.total || 0) + (fastmcpServersQuery.data?.length || 0) > 0 && (
+                {(fastmcpServersQuery.data?.length || 0) > 0 && (
                   <div className="text-xs text-gray-500">
-                    {(externalServersQuery.data?.total || 0) + (fastmcpServersQuery.data?.length || 0)} external
+                    {(fastmcpServersQuery.data?.length || 0)} MCP servers
                   </div>
                 )}
               </div>
@@ -242,7 +236,7 @@ export default function Dashboard() {
 
               <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">External</div>
               <div className="flex flex-wrap gap-2">
-                {externalServersQuery.data?.servers?.length || fastmcpServersQuery.data?.length ? (
+                {fastmcpServersQuery.data?.length ? (
                   <>
                     {fastmcpServersQuery.data?.map((server) => (
                       <span
@@ -263,28 +257,9 @@ export default function Dashboard() {
                         </span>
                       </span>
                     ))}
-                    {externalServersQuery.data?.servers?.map((server) => (
-                      <span
-                        key={`legacy-${server.server_id}`}
-                        className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs ${
-                          server.enabled
-                            ? 'bg-indigo-50 text-indigo-700'
-                            : 'bg-gray-100 text-gray-500'
-                        }`}
-                      >
-                        {server.namespace}
-                        <span
-                          className={`px-1.5 py-0.5 rounded-full ${
-                            server.enabled ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-600'
-                          }`}
-                        >
-                          legacy {server.enabled ? 'enabled' : 'disabled'}
-                        </span>
-                      </span>
-                    ))}
                   </>
                 ) : (
-                  <div className="text-sm text-gray-500">No external servers</div>
+                  <div className="text-sm text-gray-500">No MCP servers</div>
                 )}
               </div>
             </div>

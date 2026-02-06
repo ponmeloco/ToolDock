@@ -264,6 +264,26 @@ class TestNamespaces:
                 assert ns["endpoint"].startswith("/mcp/")
 
 
+class TestMetrics:
+    """Tests for /api/admin/metrics endpoint."""
+
+    def test_metrics_requires_auth(self, web_client: SyncASGIClient):
+        response = web_client.get("/api/admin/metrics")
+        assert response.status_code == 401
+
+    def test_metrics_returns_structure(
+        self, web_client: SyncASGIClient, auth_headers: dict
+    ):
+        response = web_client.get("/api/admin/metrics", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "timestamp" in data
+        assert "services" in data
+        assert "tool_calls" in data
+        for window in ["last_5m", "last_1h", "last_24h", "last_7d"]:
+            assert window in data["tool_calls"]
+
+
 class TestSecurityHeaders:
     """Tests for security-related behavior."""
 

@@ -29,14 +29,11 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import signal
 import sys
 from multiprocessing import Process
 from pathlib import Path
-from typing import Optional
 
 import uvicorn
 
@@ -57,16 +54,12 @@ logger = logging.getLogger("main")
 # DATA_DIR is the base directory for all data (tools, config, external)
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.getcwd(), "tooldock_data"))
 TOOLS_DIR = os.path.join(DATA_DIR, "tools")
-EXTERNAL_CONFIG = os.getenv("EXTERNAL_CONFIG", os.path.join(DATA_DIR, "external", "config.yaml"))
 
 # Ports
 OPENAPI_PORT = int(os.getenv("OPENAPI_PORT", "8006"))
 MCP_PORT = int(os.getenv("MCP_PORT", "8007"))
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 HOST = os.getenv("HOST", "0.0.0.0")
-
-# Global external server manager for shutdown handling
-_external_manager: Optional["ExternalServerManager"] = None
 
 
 def ensure_data_dirs():
@@ -114,55 +107,6 @@ def load_tools_into_registry():
     return registry
 
 
-async def init_external_servers(registry):
-    """Initialize external MCP servers from config."""
-    global _external_manager
-
-    from app.external.config import ExternalServerConfig
-    from app.external.server_manager import ExternalServerManager
-
-    logger.info("Initializing external MCP servers...")
-
-    _external_manager = ExternalServerManager(registry)
-
-    # Check if config file exists
-    if not Path(EXTERNAL_CONFIG).exists():
-        logger.info(f"No external config found at {EXTERNAL_CONFIG}, skipping")
-        return
-
-    try:
-        config = ExternalServerConfig(EXTERNAL_CONFIG)
-        result = await config.apply(_external_manager)
-
-        loaded = len(result.get("loaded", []))
-        failed = len(result.get("failed", []))
-
-        if loaded > 0:
-            logger.info(f"Loaded {loaded} external servers")
-        if failed > 0:
-            logger.warning(f"Failed to load {failed} external servers")
-
-        stats = registry.get_stats()
-        logger.info(
-            f"Total tools: {stats.get('native', 0)} native + {stats.get('external', 0)} external = {stats.get('total', 0)}"
-        )
-        logger.info(f"Namespaces: {registry.list_namespaces()}")
-
-    except Exception as e:
-        logger.error(f"Failed to init external servers: {e}", exc_info=True)
-        # Continue - external servers are optional
-
-
-async def shutdown_external_servers():
-    """Shutdown all external servers gracefully."""
-    global _external_manager
-
-    if _external_manager:
-        logger.info("Shutting down external servers...")
-        await _external_manager.shutdown_all()
-        _external_manager = None
-
-
 def start_openapi_server():
     """Start FastAPI OpenAPI Server for OpenWebUI."""
     logger.info(f"Starting OpenAPI Server on {HOST}:{OPENAPI_PORT}...")
@@ -175,24 +119,15 @@ def start_openapi_server():
     # Load native tools
     registry = load_tools_into_registry()
 
-    # Load external servers
-    asyncio.run(init_external_servers(registry))
-
-    # Create app (with admin routes)
-    from app.external.config import ExternalServerConfig
+    # Create app
     try:
         from app.external.fastmcp_manager import FastMCPServerManager
         fastmcp_manager = FastMCPServerManager(registry, manage_processes=False)
     except Exception as exc:
         logger.warning(f"FastMCP disabled: {exc}")
         fastmcp_manager = None
-    external_config = ExternalServerConfig(EXTERNAL_CONFIG)
-    app = create_openapi_app(
-        registry,
-        external_manager=_external_manager,
-        external_config=external_config,
-        fastmcp_manager=fastmcp_manager,
-    )
+
+    app = create_openapi_app(registry, fastmcp_manager=fastmcp_manager)
 
     # Start server
     uvicorn.run(
@@ -215,24 +150,15 @@ def start_mcp_http_server():
     # Load native tools
     registry = load_tools_into_registry()
 
-    # Load external servers
-    asyncio.run(init_external_servers(registry))
-
     # Create app
-    from app.external.config import ExternalServerConfig
     try:
         from app.external.fastmcp_manager import FastMCPServerManager
         fastmcp_manager = FastMCPServerManager(registry, manage_processes=False)
     except Exception as exc:
         logger.warning(f"FastMCP disabled: {exc}")
         fastmcp_manager = None
-    external_config = ExternalServerConfig(EXTERNAL_CONFIG)
-    app = create_mcp_http_app(
-        registry,
-        external_manager=_external_manager,
-        external_config=external_config,
-        fastmcp_manager=fastmcp_manager,
-    )
+
+    app = create_mcp_http_app(registry, fastmcp_manager=fastmcp_manager)
 
     # Start server
     uvicorn.run(
@@ -255,13 +181,8 @@ def start_web_gui_server():
     # Load native tools (for stats display)
     registry = load_tools_into_registry()
 
-    # Load external servers
-    asyncio.run(init_external_servers(registry))
-
     # Create app
-    from app.external.config import ExternalServerConfig
-    external_config = ExternalServerConfig(EXTERNAL_CONFIG)
-    app = create_web_app(registry, external_manager=_external_manager, external_config=external_config)
+    app = create_web_app(registry)
 
     # Start server
     uvicorn.run(
@@ -374,22 +295,8 @@ def main():
         sys.exit(1)
 
 
-def setup_signal_handlers():
-    """Setup signal handlers for graceful shutdown."""
-
-    def signal_handler(sig, frame):
-        logger.info(f"Received signal {sig}, shutting down...")
-        asyncio.run(shutdown_external_servers())
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-
 if __name__ == "__main__":
-    setup_signal_handlers()
     try:
         main()
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
-        asyncio.run(shutdown_external_servers())

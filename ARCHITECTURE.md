@@ -143,7 +143,7 @@ tooldock_data/tools/
 
 **Strict MCP Notes:**
 - GET endpoints return SSE streams (require `Accept: text/event-stream`)
-- POST requests require `Accept: application/json` (include `text/event-stream` if you can handle streaming responses)
+- For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is accepted
 - JSON-RPC batching is rejected
 - Notifications-only requests return **202** with no body
 - `Origin` header is validated against `CORS_ORIGINS`
@@ -173,10 +173,12 @@ tooldock_data/tools/
 - `DELETE /api/folders/{namespace}/tools/{file}` - Delete tool
 - `GET /api/folders/{namespace}/tools/deps` - Get namespace dependencies
 - `POST /api/folders/{namespace}/tools/deps/install` - Install dependencies
-- `GET /api/servers` - List external servers
-- `POST /api/servers` - Add external server
-- `DELETE /api/servers/{server_id}` - Remove external server
-- `POST /api/servers/reload` - Reload external servers from config
+- `GET /api/fastmcp/servers` - List FastMCP servers
+- `POST /api/fastmcp/servers` - Install from registry
+- `POST /api/fastmcp/servers/manual` - Add manual server
+- `POST /api/fastmcp/servers/{id}/start` - Start server
+- `POST /api/fastmcp/servers/{id}/stop` - Stop server
+- `DELETE /api/fastmcp/servers/{id}` - Delete server
 
 ---
 
@@ -219,30 +221,14 @@ ToolDock Container
 
 ### Configuration
 
-```yaml
-# tooldock_data/external/config.yaml (or $DATA_DIR/external/config.yaml)
-servers:
-  github:
-    source: registry
-    name: "modelcontextprotocol/server-github"
-    enabled: true
-    env:
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
-
-  mssql:
-    source: custom
-    command: npx
-    args: ["-y", "@anthropic/mcp-server-mssql"]
-    env:
-      MSSQL_CONNECTION_STRING: ${MSSQL_CONNECTION_STRING}
-```
+FastMCP server metadata/config is stored in SQLite (`external_fastmcp_servers`)
+and server files live under `DATA_DIR/external/servers/{namespace}`.
 
 ### Lifecycle
-1. Container starts
-2. `config.yaml` is read
-3. For each enabled server: subprocess is started
-4. MCPServerProxy connects via STDIO
-5. Tools are discovered and registered under namespace
+1. Server is installed from registry (or added manually) via `/api/fastmcp/*`
+2. FastMCP metadata is persisted in DB
+3. On start/sync, subprocesses are launched and connected through HTTP proxying
+4. Tools are discovered and registered under the server namespace
 
 ---
 
@@ -379,7 +365,7 @@ Environment variables control behavior:
 
 ### Adding External MCP Servers
 
-1. Edit `tooldock_data/external/config.yaml`
-2. Add server configuration
-3. Restart server
-4. Access via `/mcp/{server_id}`
+1. Use the FastMCP Admin UI tab (or `/api/fastmcp/*` endpoints)
+2. Install from registry or add a manual command-based server
+3. Start server from the detail panel
+4. Access via `/mcp/{namespace}`

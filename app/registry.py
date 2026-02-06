@@ -12,7 +12,7 @@ from app.errors import ToolNotFoundError, ToolTimeoutError, ToolValidationError
 from app.utils import get_request_id, set_request_context
 
 if TYPE_CHECKING:
-    from app.external.proxy import MCPServerProxy
+    from app.external.fastmcp_proxy import FastMCPHttpProxy
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ class ToolRegistry:
     async def _call_external_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
         """Execute an external tool via its proxy."""
         tool_info = self._external_tools[name]
-        proxy: "MCPServerProxy" = tool_info["proxy"]
+        proxy: "FastMCPHttpProxy" = tool_info["proxy"]
         original_name = tool_info["original_name"]
 
         logger.debug(f"Calling external tool {name} -> {proxy.server_id}:{original_name}")
@@ -255,7 +255,7 @@ class ToolRegistry:
         schema: Dict[str, Any],
         server_id: str,
         original_name: str,
-        proxy: "MCPServerProxy",
+        proxy: "FastMCPHttpProxy",
         namespace: Optional[str] = None,
     ) -> None:
         """
@@ -267,7 +267,7 @@ class ToolRegistry:
             schema: JSON Schema for input
             server_id: External server identifier
             original_name: Original tool name on the server
-            proxy: MCPServerProxy instance for execution
+            proxy: FastMCPHttpProxy instance for execution
             namespace: Namespace for this tool (defaults to server_id)
         """
         ns = namespace or server_id

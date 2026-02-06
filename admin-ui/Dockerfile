@@ -12,6 +12,9 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Lint before building (fail image build on lint errors)
+RUN npm run lint
+
 # Build the application
 RUN npm run build
 
