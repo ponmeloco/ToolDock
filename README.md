@@ -153,7 +153,7 @@ METRICS_RETENTION_DAYS=30  # SQLite metrics retention window
 
 # Optional - MCP Protocol (strict mode)
 MCP_PROTOCOL_VERSION=2024-11-05
-MCP_PROTOCOL_VERSIONS=2024-11-05,2025-03-26,2025-11-25
+MCP_PROTOCOL_VERSIONS=2024-11-05,2025-03-26
 
 # Optional - Host display (Admin UI)
 HOST_DATA_DIR=./tooldock_data
@@ -374,13 +374,17 @@ Add to LM Studio MCP config:
 | `/openapi/tools` | GET | List tools via Admin gateway (13000) |
 | `/openapi/tools/{name}` | POST | Execute tool via Admin gateway (13000) |
 
-### MCP
+### MCP (Streamable HTTP)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/mcp/namespaces` | GET | List namespaces via Admin gateway (13000) |
 | `/mcp` | POST | JSON-RPC endpoint (all namespaces) |
 | `/mcp/{namespace}` | POST | JSON-RPC endpoint (namespace) |
+| `/mcp` | GET | SSE stream for server-initiated messages (all namespaces) |
+| `/mcp/{namespace}` | GET | SSE stream for server-initiated messages (namespace) |
+| `/mcp/sse` | GET/POST | Compatibility alias for `/mcp` |
+| `/mcp/{namespace}/sse` | GET/POST | Compatibility alias for `/mcp/{namespace}` |
 | `/mcp/info` | GET | Non-standard discovery |
 | `/mcp/{namespace}/info` | GET | Non-standard discovery |
 
@@ -425,16 +429,20 @@ Add to LM Studio MCP config:
 
 ## MCP Strict Mode Notes
 
+ToolDock implements the **MCP Streamable HTTP** transport per spec revisions `2024-11-05` and `2025-03-26`.
+
 - Authentication is enforced for all MCP endpoints, including `localhost`.
 - Clients must send `Authorization: Bearer <BEARER_TOKEN>` on both `GET /mcp*` (SSE) and `POST /mcp*` (JSON-RPC).
 - Missing/invalid auth returns **401** even from `localhost`.
-- `GET /mcp` and `GET /mcp/{namespace}` open SSE streams (requires `Accept: text/event-stream`).
+- `POST /mcp*` returns JSON-RPC responses as `Content-Type: application/json` (HTTP body).
+- `GET /mcp*` opens SSE streams for **server-initiated messages only** (requires `Accept: text/event-stream`). POST responses are never echoed to GET streams, per spec.
 - For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is also accepted.
-- JSON-RPC batching is rejected.
+- JSON-RPC batching is rejected (returns `-32600`).
 - Notifications-only requests return **202** with no body.
+- `Mcp-Session-Id` header is included on all responses; stable per server process.
 - `Origin` header is validated against `CORS_ORIGINS`.
-- `MCP-Protocol-Version` is accepted if present. Unsupported values are ignored for compatibility.
-- MCP protocol negotiation happens via `initialize.params.protocolVersion` (supported versions configured via `MCP_PROTOCOL_VERSIONS`).
+- `MCP-Protocol-Version` header is accepted if present. Unsupported values are ignored for compatibility.
+- Protocol version negotiation happens via `initialize.params.protocolVersion` (supported: `2024-11-05`, `2025-03-26`; configurable via `MCP_PROTOCOL_VERSIONS`).
 
 ---
 

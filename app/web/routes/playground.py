@@ -9,6 +9,7 @@ Provides endpoints for tool testing via different transports:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -208,7 +209,7 @@ async def execute_tool(
             mcp_headers = {
                 **headers,
                 "Accept": "application/json",
-                "MCP-Protocol-Version": "2025-11-25",
+                "MCP-Protocol-Version": os.getenv("MCP_PROTOCOL_VERSION", "2024-11-05"),
             }
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:

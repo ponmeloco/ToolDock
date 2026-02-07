@@ -106,7 +106,7 @@ def register_tools(registry: ToolRegistry) -> None:
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
 | `METRICS_RETENTION_DAYS` | `30` | Days to keep metrics in SQLite |
 | `MCP_PROTOCOL_VERSION` | `2024-11-05` | Default MCP protocol version |
-| `MCP_PROTOCOL_VERSIONS` | `2024-11-05,2025-03-26,2025-11-25` | Comma-separated supported versions |
+| `MCP_PROTOCOL_VERSIONS` | `2024-11-05,2025-03-26` | Comma-separated supported versions |
 | `HOST_DATA_DIR` | `./tooldock_data` | Host path for UI display |
 | `FASTMCP_DEMO_ENABLED` | `false` | Enable/disable seeded demo FastMCP server |
 | `FASTMCP_INSTALLER_ENABLED` | `true` | Enable/disable built-in installer MCP server |
@@ -177,14 +177,18 @@ curl -X POST http://localhost:13000/api/reload \
 - Real-time execution results
 
 ### MCP Strict Mode Notes
-- Authentication is enforced on all MCP endpoints, including localhost traffic.
-- Clients must send `Authorization: Bearer <BEARER_TOKEN>` for both `GET /mcp*` (SSE) and `POST /mcp*` (JSON-RPC).
-- GET endpoints return SSE streams (require `Accept: text/event-stream`)
+- Implements **MCP Streamable HTTP** per spec revisions `2024-11-05` and `2025-03-26`
+- Authentication is enforced on all MCP endpoints, including localhost traffic
+- Clients must send `Authorization: Bearer <BEARER_TOKEN>` for both `GET /mcp*` (SSE) and `POST /mcp*` (JSON-RPC)
+- `POST /mcp*` returns `Content-Type: application/json` (single JSON response per spec)
+- `GET /mcp*` opens SSE streams for server-initiated messages only (requires `Accept: text/event-stream`); POST responses are **not** echoed to GET streams per spec
 - For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is accepted
-- JSON-RPC batching is rejected
+- JSON-RPC batching is rejected (server returns `-32600`)
 - Notifications-only requests return **202** with no body
+- `Mcp-Session-Id` header included on responses; stable per server process
 - `Origin` header validated against `CORS_ORIGINS`
 - `MCP-Protocol-Version` accepted if present (unsupported values ignored for compatibility)
+- Protocol version negotiation via `initialize.params.protocolVersion`
 
 ### Persistent Logging
 - Daily log files: `DATA_DIR/logs/YYYY-MM-DD.jsonl`
