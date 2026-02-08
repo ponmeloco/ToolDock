@@ -42,7 +42,7 @@ from app.registry import ToolRegistry
 from app.reload import ToolReloader
 from app.errors import ToolError, ToolNotFoundError
 from app.auth import verify_token, is_auth_enabled
-from app.utils import get_cors_origins
+from app.utils import get_cors_origins, set_request_context
 
 logger = logging.getLogger("mcp-http")
 
@@ -261,6 +261,7 @@ def create_mcp_http_app(
 
         ns_info = f" (namespace={namespace})" if namespace else ""
         logger.info(f"MCP: tools/call - name={tool_name}{ns_info}")
+        set_request_context(tool_name=tool_name)
 
         # Validate tool belongs to namespace (if namespace is specified)
         if namespace and not registry.tool_in_namespace(tool_name, namespace):
@@ -659,6 +660,12 @@ def create_mcp_http_app(
 
         method = body.get("method") if isinstance(body, dict) else "batch"
         is_initialize = method == "initialize"
+
+        # Enrich request context for logging/metrics.
+        # For tools/call the tool_name is set later in handle_call_tool;
+        # for other methods, record the JSON-RPC method itself.
+        if method and method != "tools/call":
+            set_request_context(tool_name=f"mcp:{method}")
 
         # Session validation: skip for initialize (creates a new session),
         # validate for all other requests if header is present

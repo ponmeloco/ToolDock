@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 
 
-from app.utils import generate_request_id, set_request_context, clear_request_context, get_request_id
+from app.utils import generate_request_id, set_request_context, clear_request_context, get_request_id, get_tool_name
 from app.metrics_store import get_metrics_store
 
 
@@ -153,6 +153,10 @@ class RequestLoggingMiddleware:
         finally:
             # Calculate duration
             duration_ms = (time.time() - start_time) * 1000
+
+            # Re-read tool_name from context — handlers (e.g. MCP tools/call)
+            # may have set it after the middleware extracted path-based info.
+            tool_name = get_tool_name() or tool_name
 
             # Log the request (skip health checks to reduce noise)
             if path != "/health":
