@@ -182,21 +182,23 @@ def create_web_app(
                 import asyncio
 
                 # Retry briefly, because the other transport processes may still be booting.
+                remaining = {name for name, _ in targets}
                 async with httpx.AsyncClient(timeout=0.8) as client:
                     for attempt in range(6):
-                        any_ok = False
                         for name, url in targets:
+                            if name not in remaining:
+                                continue
                             try:
                                 resp = await client.post(url, headers=headers)
                                 if resp.status_code < 400:
-                                    any_ok = True
+                                    remaining.discard(name)
                                 else:
                                     logger.debug(
                                         f"FastMCP startup fanout to {name} failed: {resp.status_code}"
                                     )
                             except Exception as exc:
                                 logger.debug(f"FastMCP startup fanout to {name} error: {exc}")
-                        if any_ok:
+                        if not remaining:
                             return
                         await asyncio.sleep(0.5)
 
