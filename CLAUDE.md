@@ -12,12 +12,12 @@
 │   (React/nginx)  │     ├─────────────────────────────────────┤
 │  Port 13000      │────→│  Internal: 8006 Tool API            │
 │  /api/*          │     │  Internal: 8007 MCP HTTP            │
-│  /openapi/*      │     │  Internal: 8080 Backend API         │
-│  /mcp/*          │     │                                     │
+│  /{ns}/openapi/* │     │  Internal: 8080 Backend API         │
+│  /{ns}/mcp       │     │                                     │
 └──────────────────┘     ├─────────────────────────────────────┤
-                         │  /mcp/shared    → shared/ tools     │
-LiteLLM ────────────────→│  /mcp/team1     → team1/ tools      │
-Claude Desktop ─────────→│  /mcp/github    → GitHub MCP        │
+                         │  /shared/mcp    → shared/ tools     │
+LiteLLM ────────────────→│  /team1/mcp     → team1/ tools      │
+Claude Desktop ─────────→│  /github/mcp    → GitHub MCP        │
                          └─────────────────────────────────────┘
                                          │
                          ┌───────────────┴───────────────┐
@@ -100,7 +100,7 @@ def register_tools(registry: ToolRegistry) -> None:
 |----------|---------|-------------|
 | `BEARER_TOKEN` | (required) | API authentication token |
 | `SERVER_MODE` | `all` | openapi, mcp-http, web-gui, both, all |
-| `ADMIN_PORT` | `13000` | Single exposed gateway port (Admin UI + `/api` + `/openapi` + `/mcp`) |
+| `ADMIN_PORT` | `13000` | Single exposed gateway port (Admin UI + `/api` + `/{ns}/openapi` + `/{ns}/mcp`) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `DATA_DIR` | `tooldock_data` | Data directory path |
 | `LOG_RETENTION_DAYS` | `30` | Days to keep log files |
@@ -176,16 +176,25 @@ curl -X POST http://localhost:13000/api/reload \
 - JSON input editor with syntax highlighting
 - Real-time execution results
 
+### URL Routing
+- **Namespace-scoped**: `/{namespace}/mcp` (namespace-first, tenant-first routing)
+- **Global**: `/mcp` (all namespaces)
+- **OpenAPI namespace-scoped**: `/{namespace}/openapi/tools`, `/{namespace}/openapi/health`
+- **Reserved prefixes**: `api`, `mcp`, `openapi`, `docs`, `assets`, `health`, `tools`, `static` — cannot be used as namespace names in `/{namespace}/mcp` routes
+
 ### MCP Strict Mode Notes
 - Implements **MCP Streamable HTTP** per spec revisions `2024-11-05` and `2025-03-26`
 - Authentication is enforced on all MCP endpoints, including localhost traffic
-- Clients must send `Authorization: Bearer <BEARER_TOKEN>` for both `GET /mcp*` (SSE) and `POST /mcp*` (JSON-RPC)
-- `POST /mcp*` returns `Content-Type: application/json` (single JSON response per spec)
-- `GET /mcp*` opens SSE streams for server-initiated messages only (requires `Accept: text/event-stream`); POST responses are **not** echoed to GET streams per spec
-- For `POST /mcp*`, `Accept: application/json` is recommended; missing `Accept` is accepted
+- Clients must send `Authorization: Bearer <BEARER_TOKEN>` for both `GET /{ns}/mcp` (SSE) and `POST /{ns}/mcp` (JSON-RPC)
+- `POST` returns `Content-Type: application/json` (single JSON response per spec)
+- `GET` opens SSE streams for server-initiated messages only (requires `Accept: text/event-stream`); POST responses are **not** echoed to GET streams per spec
+- For `POST`, `Accept: application/json` is recommended; missing `Accept` is accepted
 - JSON-RPC batching is rejected (server returns `-32600`)
 - Notifications-only requests return **202** with no body
-- `Mcp-Session-Id` header included on responses; stable per server process
+- Per-client session management: `initialize` creates a unique session, `DELETE` terminates it
+- `Mcp-Session-Id` header returned on `initialize` response; client echoes it on subsequent requests
+- Requests with invalid/expired session ID return **404**; requests without header are accepted (lenient)
+- Sessions expire after 24 hours; eviction happens during new session creation
 - `Origin` header validated against `CORS_ORIGINS`
 - `MCP-Protocol-Version` accepted if present (unsupported values ignored for compatibility)
 - Protocol version negotiation via `initialize.params.protocolVersion`

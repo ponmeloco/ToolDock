@@ -6,15 +6,14 @@ It uses the same ToolRegistry as the OpenAPI server, so tools only need
 to be defined once.
 
 Supports namespace-based routing:
-- /mcp/{namespace} - MCP endpoint for a specific namespace
-- /mcp/namespaces - List all available namespaces
+- /{namespace}/mcp - Namespace-scoped endpoint
 - /mcp - Global endpoint (all tools)
 
 Security:
 - Optional bearer token authentication (configurable via BEARER_TOKEN)
 - Configurable CORS origins (via CORS_ORIGINS environment variable)
 
-MCP Spec: https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http
+MCP Spec: https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
 
 Usage:
     from app.transports.mcp_http_server import create_mcp_http_app
@@ -29,6 +28,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -59,6 +59,13 @@ SUPPORTED_PROTOCOL_VERSIONS = [
     v.strip() for v in _supported_versions.split(",") if v.strip()
 ]
 
+# Reserved prefixes that cannot be used as namespace names in /{namespace}/mcp routes.
+# FastAPI registers static routes before dynamic ones in declaration order, but this
+# set acts as a safety net for edge cases.
+RESERVED_PREFIXES = {
+    "api", "mcp", "openapi", "docs", "assets", "health", "tools", "static",
+}
+
 
 def create_mcp_http_app(
     registry: ToolRegistry,
@@ -68,9 +75,8 @@ def create_mcp_http_app(
     Create a FastAPI app for MCP Streamable HTTP Transport.
 
     The server provides:
+    - /{namespace}/mcp - Namespace-scoped endpoint
     - /mcp - Global endpoint (all tools from all namespaces)
-    - /mcp/{namespace} - Namespace-specific endpoint
-    - /mcp/namespaces - List available namespaces
 
     Args:
         registry: The shared ToolRegistry containing all registered tools
@@ -105,9 +111,8 @@ def create_mcp_http_app(
 
     # Store registry in app state
     app.state.registry = registry
-    # Many MCP clients expect a session identifier header (even if the transport
-    # itself does not define durable sessions). Use a stable per-process value.
-    app.state.mcp_session_id = str(uuid.uuid4())
+    # Per-client session store: {session_id: {namespace, created_at, client_info}}
+    app.state._mcp_sessions: Dict[str, dict] = {}
     # SSE subscribers: GET streams for server-initiated messages only.
     # Per MCP spec (2025-03-26), POST responses are NOT echoed here.
     app.state._mcp_sse_subscribers_global: set[asyncio.Queue] = set()
@@ -130,7 +135,11 @@ def create_mcp_http_app(
         params: Dict[str, Any],
         namespace: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Handle MCP initialize request."""
+        """Handle MCP initialize request.
+
+        Returns the JSON-RPC response dict. The caller (_handle_mcp_post)
+        creates the session and attaches the Mcp-Session-Id header.
+        """
         client_info = params.get("clientInfo", {})
         requested_version = params.get("protocolVersion")
         if requested_version and requested_version not in SUPPORTED_PROTOCOL_VERSIONS:
@@ -234,6 +243,21 @@ def create_mcp_http_app(
         """Handle MCP tools/call request."""
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
+
+        # Resolve tool name: strip client prefixes (default__x) and recover
+        # dropped namespace prefixes (install_x → ns:install_x).
+        if tool_name and not registry.has_tool(tool_name):
+            resolved = tool_name
+            if "__" in tool_name:
+                resolved = tool_name.rsplit("__", 1)[-1]
+            if not registry.has_tool(resolved):
+                suffix = f":{resolved}"
+                for t in registry.list_all():
+                    if t["name"].endswith(suffix):
+                        resolved = t["name"]
+                        break
+            if registry.has_tool(resolved):
+                tool_name = resolved
 
         ns_info = f" (namespace={namespace})" if namespace else ""
         logger.info(f"MCP: tools/call - name={tool_name}{ns_info}")
@@ -395,14 +419,62 @@ def create_mcp_http_app(
                     "message": f"Parse error: unsupported Content-Type '{ct}', expected application/json",
                 },
             },
-            headers=_session_headers(),
         )
 
     def _sse_message(payload: Dict[str, Any]) -> bytes:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
 
-    def _session_headers() -> Dict[str, str]:
-        return {"Mcp-Session-Id": getattr(app.state, "mcp_session_id", "")}
+    _SESSION_MAX_AGE = 24 * 60 * 60  # 24 hours
+
+    def _create_session(
+        namespace: Optional[str] = None,
+        client_info: Optional[dict] = None,
+    ) -> str:
+        """Create a new MCP session and return its ID."""
+        session_id = str(uuid.uuid4())
+        now = time.time()
+        app.state._mcp_sessions[session_id] = {
+            "namespace": namespace,
+            "created_at": now,
+            "client_info": client_info or {},
+        }
+        # Evict expired sessions
+        cutoff = now - _SESSION_MAX_AGE
+        expired = [
+            sid for sid, meta in app.state._mcp_sessions.items()
+            if meta["created_at"] < cutoff
+        ]
+        for sid in expired:
+            del app.state._mcp_sessions[sid]
+        return session_id
+
+    def _validate_session(request: Request) -> Optional[Response]:
+        """Validate Mcp-Session-Id header if present.
+
+        Returns None if valid or absent (lenient). Returns a 404 Response
+        if the header is present but the session is unknown/expired.
+        """
+        session_id = request.headers.get("mcp-session-id")
+        if not session_id:
+            return None  # Lenient: allow sessionless requests
+        if session_id not in app.state._mcp_sessions:
+            return _json_response(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid or expired session",
+                    },
+                },
+                status_code=404,
+            )
+        return None
+
+    def _session_headers(session_id: Optional[str] = None) -> Dict[str, str]:
+        if session_id:
+            return {"Mcp-Session-Id": session_id}
+        return {}
 
     def _json_response(
         content: Any,
@@ -549,7 +621,208 @@ def create_mcp_http_app(
                 }
             }
 
-    # ==================== Endpoints ====================
+    # ==================== Shared Route Handlers ====================
+
+    async def _handle_mcp_post(
+        request: Request,
+        namespace: Optional[str] = None,
+    ) -> Response:
+        """Shared POST handler for all MCP endpoints."""
+        origin_error = _validate_origin(request)
+        if origin_error:
+            return origin_error
+        protocol_error = _validate_protocol_header(request)
+        if protocol_error:
+            return protocol_error
+        accept_error = _validate_accept_header(request, require_stream=False)
+        if accept_error:
+            return accept_error
+        content_type_error = _validate_content_type(request)
+        if content_type_error:
+            return content_type_error
+
+        # Parse body early so we can detect method before session validation
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            logger.error("MCP: JSON parse error")
+            return _json_response(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32700,
+                        "message": "Parse error"
+                    }
+                },
+            )
+
+        method = body.get("method") if isinstance(body, dict) else "batch"
+        is_initialize = method == "initialize"
+
+        # Session validation: skip for initialize (creates a new session),
+        # validate for all other requests if header is present
+        if not is_initialize:
+            session_error = _validate_session(request)
+            if session_error:
+                return session_error
+
+        # Determine current session_id from header (for non-initialize requests)
+        current_session_id = request.headers.get("mcp-session-id")
+
+        # Validate namespace exists (if specified)
+        if namespace is not None:
+            if not registry.has_namespace(namespace):
+                logger.warning(f"MCP: Request to unknown namespace: {namespace}")
+                req_id = body.get("id") if isinstance(body, dict) else None
+                return _json_response(
+                    content={
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {
+                            "code": -32600,
+                            "message": f"Unknown namespace: {namespace}",
+                            "data": {
+                                "available_namespaces": registry.list_namespaces()
+                            }
+                        }
+                    },
+                    headers=_session_headers(current_session_id),
+                )
+
+        try:
+            ns_label = f"/{namespace}" if namespace else ""
+            logger.debug(f"MCP POST{ns_label}: method={method}")
+
+            response = await process_jsonrpc_request(body, namespace)
+
+            # For initialize: create a new session and include it in headers
+            if is_initialize and response and "result" in response:
+                client_info = {}
+                if isinstance(body, dict):
+                    client_info = body.get("params", {}).get("clientInfo", {})
+                current_session_id = _create_session(namespace, client_info)
+
+            headers = _session_headers(current_session_id)
+
+            if response is None:
+                return Response(status_code=202, headers=headers)
+            return _json_response(content=response, headers=headers)
+
+        except Exception:
+            logger.error("MCP POST Error", exc_info=True)
+            return _json_response(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32603,
+                        "message": "Internal error"
+                    }
+                },
+                headers=_session_headers(current_session_id),
+            )
+
+    async def _handle_mcp_sse_get(
+        request: Request,
+        namespace: Optional[str] = None,
+    ) -> Response:
+        """Shared GET SSE handler for all MCP endpoints."""
+        origin_error = _validate_origin(request)
+        if origin_error:
+            return origin_error
+        protocol_error = _validate_protocol_header(request)
+        if protocol_error:
+            return protocol_error
+        accept_error = _validate_accept_header(request, require_stream=True)
+        if accept_error:
+            return accept_error
+
+        session_error = _validate_session(request)
+        if session_error:
+            return session_error
+
+        if namespace is not None and not registry.has_namespace(namespace):
+            return _json_response(
+                content={
+                    "error": f"Unknown namespace: {namespace}",
+                    "available_namespaces": registry.list_namespaces(),
+                },
+                status_code=404,
+            )
+
+        current_session_id = request.headers.get("mcp-session-id")
+        resp_headers = {
+            "Cache-Control": "no-cache",
+            **_session_headers(current_session_id),
+        }
+
+        async def event_stream():
+            if os.getenv("PYTEST_CURRENT_TEST") is not None:
+                yield b": ok\n\n"
+                return
+
+            q = _subscribe_sse(namespace)
+            try:
+                yield b": connected\n\n"
+                while True:
+                    try:
+                        item = await asyncio.wait_for(q.get(), timeout=15)
+                        yield _sse_message(item)
+                    except TimeoutError:
+                        yield b": heartbeat\n\n"
+            except asyncio.CancelledError:
+                return
+            finally:
+                _unsubscribe_sse(namespace, q)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers=resp_headers,
+        )
+
+    async def _handle_mcp_delete(request: Request) -> Response:
+        """Shared DELETE handler — terminate an MCP session."""
+        session_id = request.headers.get("mcp-session-id")
+        if not session_id:
+            return _json_response(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32600,
+                        "message": "Missing Mcp-Session-Id header",
+                    },
+                },
+                status_code=400,
+            )
+        if session_id not in app.state._mcp_sessions:
+            return _json_response(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid or expired session",
+                    },
+                },
+                status_code=404,
+            )
+        del app.state._mcp_sessions[session_id]
+        logger.info(f"MCP session terminated: {session_id}")
+        return Response(status_code=200)
+
+    def _validate_dynamic_namespace(namespace: str) -> Optional[Response]:
+        """Return a 404 response if namespace is a reserved prefix."""
+        if namespace in RESERVED_PREFIXES:
+            return _json_response(
+                content={"error": f"Reserved prefix: {namespace}"},
+                status_code=404,
+            )
+        return None
+
+    # ==================== Static Endpoints (registered FIRST) ====================
 
     @app.get("/health")
     async def health():
@@ -574,7 +847,7 @@ def create_mcp_http_app(
         """
         List all available namespaces.
 
-        Each namespace can be accessed via /mcp/{namespace}
+        Each namespace can be accessed via /{namespace}/mcp
         """
         namespaces = registry.list_namespaces()
         stats = registry.get_stats()
@@ -585,100 +858,28 @@ def create_mcp_http_app(
             "total": len(namespaces),
         }
 
-    @app.post("/mcp/{namespace}")
-    async def mcp_namespace_endpoint(
-        namespace: str,
-        request: Request,
-        _: str = Depends(verify_token),
-    ):
-        """
-        MCP Streamable HTTP Endpoint for a specific namespace.
+    @app.get("/mcp/info")
+    async def mcp_info(_: str = Depends(verify_token)):
+        """Non-standard discovery endpoint."""
+        stats = registry.get_stats()
+        ns_list = registry.list_namespaces()
+        return {
+            "server": SERVER_NAME,
+            "protocol": "MCP",
+            "protocolVersion": PROTOCOL_VERSION,
+            "supportedProtocolVersions": SUPPORTED_PROTOCOL_VERSIONS,
+            "transport": "streamable-http",
+            "endpoint": "/mcp",
+            "namespace_endpoints": [f"/{ns}/mcp" for ns in ns_list],
+            "methods": list(METHOD_HANDLERS.keys()),
+            "tools": {
+                "native": stats.get("native", 0),
+                "external": stats.get("external", 0),
+                "total": stats.get("total", 0),
+            },
+        }
 
-        Only tools registered under this namespace are accessible.
-        Handles JSON-RPC 2.0 requests conforming to the MCP specification.
-
-        Args:
-            namespace: The namespace to use (e.g., 'shared', 'team1', 'github')
-        """
-        origin_error = _validate_origin(request)
-        if origin_error:
-            return origin_error
-        protocol_error = _validate_protocol_header(request)
-        if protocol_error:
-            return protocol_error
-        accept_error = _validate_accept_header(request, require_stream=False)
-        if accept_error:
-            return accept_error
-        content_type_error = _validate_content_type(request)
-        if content_type_error:
-            return content_type_error
-
-        # Validate namespace exists
-        if not registry.has_namespace(namespace):
-            logger.warning(f"MCP: Request to unknown namespace: {namespace}")
-            # Try to extract request id from body before returning error
-            req_id = None
-            try:
-                raw = await request.json()
-                if isinstance(raw, dict):
-                    req_id = raw.get("id")
-            except Exception:
-                pass
-            return _json_response(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {
-                        "code": -32600,
-                        "message": f"Unknown namespace: {namespace}",
-                        "data": {
-                            "available_namespaces": registry.list_namespaces()
-                        }
-                    }
-                },
-                headers=_session_headers(),
-            )
-
-        try:
-            body = await request.json()
-            method = body.get("method") if isinstance(body, dict) else "batch"
-            logger.debug(f"MCP POST /{namespace}: method={method}")
-
-            response = await process_jsonrpc_request(body, namespace)
-            if response is None:
-                # Notification or JSON-RPC response - return 202 Accepted (no content)
-                return Response(status_code=202, headers=_session_headers())
-            # Per MCP spec, POST responses are returned as HTTP body only.
-            # GET SSE streams are for server-initiated messages, not echoed responses.
-            return _json_response(content=response, headers=_session_headers())
-
-        except json.JSONDecodeError:
-            logger.error("MCP: JSON parse error")
-            return _json_response(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32700,
-                        "message": "Parse error"
-                    }
-                },
-                headers=_session_headers(),
-            )
-
-        except Exception:
-            logger.error("MCP POST Error", exc_info=True)
-            return _json_response(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32603,
-                        "message": "Internal error"
-                    }
-                },
-                headers=_session_headers(),
-            )
+    # ==================== Global /mcp Endpoints ====================
 
     @app.post("/mcp")
     async def mcp_endpoint(request: Request, _: str = Depends(verify_token)):
@@ -688,113 +889,95 @@ def create_mcp_http_app(
         Handles JSON-RPC 2.0 requests conforming to the MCP specification.
         All tools from all namespaces are accessible.
         """
-        origin_error = _validate_origin(request)
-        if origin_error:
-            return origin_error
-        protocol_error = _validate_protocol_header(request)
-        if protocol_error:
-            return protocol_error
-        accept_error = _validate_accept_header(request, require_stream=False)
-        if accept_error:
-            return accept_error
-        content_type_error = _validate_content_type(request)
-        if content_type_error:
-            return content_type_error
-
-        try:
-            body = await request.json()
-            method = body.get("method") if isinstance(body, dict) else "batch"
-            logger.debug(f"MCP POST: method={method}")
-
-            response = await process_jsonrpc_request(body, namespace=None)
-            if response is None:
-                # Notification or JSON-RPC response - return 202 Accepted (no content)
-                return Response(status_code=202, headers=_session_headers())
-            return _json_response(content=response, headers=_session_headers())
-
-        except json.JSONDecodeError:
-            logger.error("MCP: JSON parse error")
-            return _json_response(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32700,
-                        "message": "Parse error"
-                    }
-                },
-                headers=_session_headers(),
-            )
-
-        except Exception:
-            logger.error("MCP POST Error", exc_info=True)
-            return _json_response(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32603,
-                        "message": "Internal error"
-                    }
-                },
-                headers=_session_headers(),
-            )
+        return await _handle_mcp_post(request, namespace=None)
 
     @app.api_route("/mcp", methods=["DELETE"])
     async def mcp_delete_global(request: Request, _: str = Depends(verify_token)):
-        """DELETE /mcp — session termination. Not supported; return 405."""
-        return _json_response(
-            content={
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {
-                    "code": -32600,
-                    "message": "Method not allowed: DELETE is not supported",
-                },
-            },
-            status_code=405,
-            headers={**_session_headers(), "Allow": "GET, POST"},
-        )
+        """DELETE /mcp — terminate an MCP session."""
+        return await _handle_mcp_delete(request)
 
-    @app.api_route("/mcp/{namespace}", methods=["DELETE"])
-    async def mcp_delete_namespace(namespace: str, request: Request, _: str = Depends(verify_token)):
-        """DELETE /mcp/{namespace} — session termination. Not supported; return 405."""
-        return _json_response(
-            content={
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {
-                    "code": -32600,
-                    "message": "Method not allowed: DELETE is not supported",
-                },
-            },
-            status_code=405,
-            headers={**_session_headers(), "Allow": "GET, POST"},
-        )
+    @app.get("/mcp")
+    async def mcp_get_stream(request: Request, _: str = Depends(verify_token)):
+        """GET /mcp opens an SSE stream (may be idle)."""
+        return await _handle_mcp_sse_get(request, namespace=None)
 
-    @app.get("/mcp/info")
-    async def mcp_info(_: str = Depends(verify_token)):
-        """Non-standard discovery endpoint."""
-        stats = registry.get_stats()
-        return {
-            "server": SERVER_NAME,
-            "protocol": "MCP",
-            "protocolVersion": PROTOCOL_VERSION,
-            "supportedProtocolVersions": SUPPORTED_PROTOCOL_VERSIONS,
-            "transport": "streamable-http",
-            "endpoint": "/mcp",
-            "namespace_endpoints": [f"/mcp/{ns}" for ns in registry.list_namespaces()],
-            "methods": list(METHOD_HANDLERS.keys()),
-            "tools": {
-                "native": stats.get("native", 0),
-                "external": stats.get("external", 0),
-                "total": stats.get("total", 0),
-            },
-        }
+    @app.api_route("/mcp/sse", methods=["GET", "POST"])
+    async def mcp_sse_alias(request: Request, _: str = Depends(verify_token)):
+        """
+        Compatibility endpoint for clients that use /sse for both:
+        - GET: open SSE stream
+        - POST: send JSON-RPC messages
+        """
+        if request.method == "POST":
+            return await _handle_mcp_post(request, namespace=None)
+        return await _handle_mcp_sse_get(request, namespace=None)
 
-    @app.get("/mcp/{namespace}/info")
-    async def mcp_namespace_info(namespace: str, _: str = Depends(verify_token)):
+    # ==================== /{namespace}/mcp Endpoints ====================
+
+    @app.post("/{namespace}/mcp")
+    async def ns_mcp_post(
+        namespace: str,
+        request: Request,
+        _: str = Depends(verify_token),
+    ):
+        """
+        MCP Streamable HTTP Endpoint for a specific namespace (preferred URL pattern).
+
+        Only tools registered under this namespace are accessible.
+        """
+        reserved_error = _validate_dynamic_namespace(namespace)
+        if reserved_error:
+            return reserved_error
+        return await _handle_mcp_post(request, namespace=namespace)
+
+    @app.get("/{namespace}/mcp")
+    async def ns_mcp_get(
+        namespace: str,
+        request: Request,
+        _: str = Depends(verify_token),
+    ):
+        """GET /{namespace}/mcp opens an SSE stream for server-initiated messages."""
+        reserved_error = _validate_dynamic_namespace(namespace)
+        if reserved_error:
+            return reserved_error
+        return await _handle_mcp_sse_get(request, namespace=namespace)
+
+    @app.api_route("/{namespace}/mcp", methods=["DELETE"])
+    async def ns_mcp_delete(
+        namespace: str,
+        request: Request,
+        _: str = Depends(verify_token),
+    ):
+        """DELETE /{namespace}/mcp — terminate an MCP session."""
+        reserved_error = _validate_dynamic_namespace(namespace)
+        if reserved_error:
+            return reserved_error
+        return await _handle_mcp_delete(request)
+
+    @app.api_route("/{namespace}/mcp/sse", methods=["GET", "POST"])
+    async def ns_mcp_sse_alias(
+        namespace: str,
+        request: Request,
+        _: str = Depends(verify_token),
+    ):
+        """
+        Compatibility endpoint for clients that use /sse:
+        - GET: open SSE stream
+        - POST: send JSON-RPC messages
+        """
+        reserved_error = _validate_dynamic_namespace(namespace)
+        if reserved_error:
+            return reserved_error
+        if request.method == "POST":
+            return await _handle_mcp_post(request, namespace=namespace)
+        return await _handle_mcp_sse_get(request, namespace=namespace)
+
+    @app.get("/{namespace}/mcp/info")
+    async def ns_mcp_info(namespace: str, _: str = Depends(verify_token)):
         """Non-standard discovery endpoint for a namespace."""
+        reserved_error = _validate_dynamic_namespace(namespace)
+        if reserved_error:
+            return reserved_error
         if not registry.has_namespace(namespace):
             return _json_response(
                 content={
@@ -811,120 +994,10 @@ def create_mcp_http_app(
             "protocolVersion": PROTOCOL_VERSION,
             "supportedProtocolVersions": SUPPORTED_PROTOCOL_VERSIONS,
             "transport": "streamable-http",
-            "endpoint": f"/mcp/{namespace}",
+            "endpoint": f"/{namespace}/mcp",
             "methods": list(METHOD_HANDLERS.keys()),
             "tools_count": len(tools),
         }
-
-    @app.get("/mcp")
-    async def mcp_get_stream(request: Request, _: str = Depends(verify_token)):
-        """GET /mcp opens an SSE stream (may be idle)."""
-        origin_error = _validate_origin(request)
-        if origin_error:
-            return origin_error
-        protocol_error = _validate_protocol_header(request)
-        if protocol_error:
-            return protocol_error
-        accept_error = _validate_accept_header(request, require_stream=True)
-        if accept_error:
-            return accept_error
-
-        async def event_stream():
-            # In tests, keep the stream finite so ASGI clients don't hang.
-            if os.getenv("PYTEST_CURRENT_TEST") is not None:
-                yield b": ok\n\n"
-                return
-
-            q = _subscribe_sse(None)
-            try:
-                # Some clients (e.g. LiteLLM's MCP streamable HTTP client) expect
-                # SSE `data:` payloads to be JSON-RPC messages. Avoid sending a
-                # non-JSON-RPC "open" event that can cause parse errors.
-                yield b": connected\n\n"
-                while True:
-                    try:
-                        item = await asyncio.wait_for(q.get(), timeout=15)
-                        yield _sse_message(item)
-                    except TimeoutError:
-                        yield b": heartbeat\n\n"
-            except asyncio.CancelledError:
-                return
-            finally:
-                _unsubscribe_sse(None, q)
-
-        return StreamingResponse(
-            event_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", **_session_headers()},
-        )
-
-    @app.api_route("/mcp/sse", methods=["GET", "POST"])
-    async def mcp_sse_alias(request: Request, _: str = Depends(verify_token)):
-        """
-        Compatibility endpoint for clients that use /sse for both:
-        - GET: open SSE stream
-        - POST: send JSON-RPC messages
-        """
-        if request.method == "POST":
-            return await mcp_endpoint(request, _)
-        return await mcp_get_stream(request, _)
-
-    @app.get("/mcp/{namespace}")
-    async def mcp_get_namespace_stream(namespace: str, request: Request, _: str = Depends(verify_token)):
-        """GET /mcp/{namespace} opens an SSE stream (may be idle)."""
-        origin_error = _validate_origin(request)
-        if origin_error:
-            return origin_error
-        protocol_error = _validate_protocol_header(request)
-        if protocol_error:
-            return protocol_error
-        accept_error = _validate_accept_header(request, require_stream=True)
-        if accept_error:
-            return accept_error
-        if not registry.has_namespace(namespace):
-            return _json_response(
-                content={
-                    "error": f"Unknown namespace: {namespace}",
-                    "available_namespaces": registry.list_namespaces(),
-                },
-                status_code=404,
-            )
-
-        async def event_stream():
-            if os.getenv("PYTEST_CURRENT_TEST") is not None:
-                yield b": ok\n\n"
-                return
-
-            q = _subscribe_sse(namespace)
-            try:
-                yield b": connected\n\n"
-                while True:
-                    try:
-                        item = await asyncio.wait_for(q.get(), timeout=15)
-                        yield _sse_message(item)
-                    except TimeoutError:
-                        yield b": heartbeat\n\n"
-            except asyncio.CancelledError:
-                return
-            finally:
-                _unsubscribe_sse(namespace, q)
-
-        return StreamingResponse(
-            event_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", **_session_headers()},
-        )
-
-    @app.api_route("/mcp/{namespace}/sse", methods=["GET", "POST"])
-    async def mcp_namespace_sse_alias(namespace: str, request: Request, _: str = Depends(verify_token)):
-        """
-        Compatibility endpoint for clients that use /sse for both:
-        - GET: open SSE stream
-        - POST: send JSON-RPC messages
-        """
-        if request.method == "POST":
-            return await mcp_namespace_endpoint(namespace, request, _)
-        return await mcp_get_namespace_stream(namespace, request, _)
 
     # Sync FastMCP external servers (read from DB, connect + register tools)
     if fastmcp_manager is not None:

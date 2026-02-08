@@ -131,18 +131,18 @@ class TestHealthEndpoint:
         assert "text/event-stream" in response.headers.get("content-type", "")
 
     def test_get_mcp_namespace_stream(self, client: SyncASGIClient, auth_headers: dict):
-        """GET /mcp/{namespace} returns SSE stream when Accept is correct."""
+        """GET /{namespace}/mcp returns SSE stream when Accept is correct."""
         response = client.get(
-            "/mcp/shared",
+            "/shared/mcp",
             headers={**auth_headers, "Accept": "text/event-stream"},
         )
         assert response.status_code == 200
         assert "text/event-stream" in response.headers.get("content-type", "")
 
     def test_get_mcp_namespace_stream_alias(self, client: SyncASGIClient, auth_headers: dict):
-        """GET /mcp/{namespace}/sse returns SSE stream for compatibility with some clients."""
+        """GET /{namespace}/mcp/sse returns SSE stream for compatibility with some clients."""
         response = client.get(
-            "/mcp/shared/sse",
+            "/shared/mcp/sse",
             headers={**auth_headers, "Accept": "text/event-stream"},
         )
         assert response.status_code == 200
@@ -291,7 +291,7 @@ class TestMCPInitialize:
     ):
         """Test initialize on namespace-specific endpoint."""
         response = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -312,9 +312,9 @@ class TestMCPInitialize:
     def test_initialize_namespace_sse_alias_post(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """POST /mcp/{namespace}/sse should behave like POST /mcp/{namespace}."""
+        """POST /{namespace}/mcp/sse should behave like POST /{namespace}/mcp."""
         response = client.post(
-            "/mcp/shared/sse",
+            "/shared/mcp/sse",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -392,7 +392,7 @@ class TestMCPListTools:
     ):
         """Test listing tools for a specific namespace."""
         response = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -414,9 +414,9 @@ class TestMCPListTools:
     def test_list_tools_namespace_sse_alias_post(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """POST /mcp/{namespace}/sse should behave like POST /mcp/{namespace}."""
+        """POST /{namespace}/mcp/sse should behave like POST /{namespace}/mcp."""
         response = client.post(
-            "/mcp/shared/sse",
+            "/shared/mcp/sse",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -437,7 +437,7 @@ class TestMCPListTools:
     ):
         """Test that tools include input schemas."""
         response = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -465,7 +465,7 @@ class TestMCPCallTool:
     ):
         """Test successful tool execution."""
         response = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -490,7 +490,7 @@ class TestMCPCallTool:
     ):
         """Test tool call with default arguments."""
         response = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -512,7 +512,7 @@ class TestMCPCallTool:
         """Test calling a tool from wrong namespace fails."""
         # Try to call 'multiply_ten' (team namespace) from 'shared' endpoint
         response = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -584,7 +584,7 @@ class TestNamespaceRouting:
         self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test getting namespace info via non-standard endpoint."""
-        response = client.get("/mcp/shared/info", headers=auth_headers)
+        response = client.get("/shared/mcp/info", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -595,7 +595,7 @@ class TestNamespaceRouting:
         self, client: SyncASGIClient, auth_headers: dict
     ):
         """Test accessing unknown namespace info returns 404."""
-        response = client.get("/mcp/nonexistent/info", headers=auth_headers)
+        response = client.get("/nonexistent/mcp/info", headers=auth_headers)
 
         assert response.status_code == 404
         data = response.json()
@@ -851,7 +851,7 @@ class TestMCPClientFlow:
         """A complete client flow: initialize -> initialized -> tools/list -> tools/call."""
         # Step 1: initialize
         resp = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -871,7 +871,7 @@ class TestMCPClientFlow:
 
         # Step 2: initialized notification
         resp = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -883,7 +883,7 @@ class TestMCPClientFlow:
 
         # Step 3: tools/list
         resp = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -899,7 +899,7 @@ class TestMCPClientFlow:
 
         # Step 4: tools/call
         resp = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -913,24 +913,40 @@ class TestMCPClientFlow:
         assert call_data["result"]["isError"] is False
         assert "Flow" in call_data["result"]["content"][0]["text"]
 
-    def test_session_id_stable_across_requests(
+    def test_session_id_from_initialize(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """Mcp-Session-Id stays the same across multiple requests."""
-        ids = set()
-        for i in range(3):
-            resp = client.post(
-                "/mcp",
-                headers=auth_headers,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": i + 1,
-                    "method": "ping",
-                    "params": {},
+        """Initialize creates a unique session; echoing it back works."""
+        resp = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "stable-test"},
                 },
-            )
-            ids.add(resp.headers.get("Mcp-Session-Id"))
-        assert len(ids) == 1, f"Expected stable session ID, got {ids}"
+            },
+        )
+        assert resp.status_code == 200
+        session_id = resp.headers.get("Mcp-Session-Id")
+        assert session_id
+
+        # Echoing back the session ID returns same ID in response
+        resp2 = client.post(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "ping",
+                "params": {},
+            },
+        )
+        assert resp2.status_code == 200
+        assert resp2.headers.get("Mcp-Session-Id") == session_id
 
 
 # ==================== POST to Unknown Namespace Tests ====================
@@ -944,7 +960,7 @@ class TestMCPUnknownNamespacePost:
     ):
         """POST to unknown namespace returns JSON-RPC error with available namespaces."""
         resp = client.post(
-            "/mcp/nonexistent",
+            "/nonexistent/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -1150,7 +1166,7 @@ class TestMCPSSEInternals:
             transport = httpx.ASGITransport(app=live_app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
-                    "/mcp/shared",
+                    "/shared/mcp",
                     headers={
                         "Authorization": "Bearer test_token",
                         "Accept": "application/json, text/event-stream",
@@ -1195,16 +1211,15 @@ class TestMCPSSEInternals:
     def test_sse_stream_returns_event_stream_content_type(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """GET /mcp/shared SSE stream has correct content-type."""
+        """GET /shared/mcp SSE stream has correct content-type."""
         # In pytest mode, stream short-circuits with ': ok\n\n'
         resp = client.get(
-            "/mcp/shared",
+            "/shared/mcp",
             headers={**auth_headers, "Accept": "text/event-stream"},
         )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
-        # Verify it has the session ID header
-        assert resp.headers.get("Mcp-Session-Id")
+        # Without Mcp-Session-Id in request, response won't have one
         # Verify Cache-Control
         assert "no-cache" in resp.headers.get("cache-control", "")
 
@@ -1333,7 +1348,7 @@ class TestSpecCompliance:
     ):
         """Namespace endpoint Content-Type must also be exact."""
         resp = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -1364,7 +1379,7 @@ class TestSpecCompliance:
     ):
         """Namespace POST with wrong Content-Type should return -32700."""
         resp = client.post(
-            "/mcp/shared",
+            "/shared/mcp",
             headers={**auth_headers, "Content-Type": "text/xml"},
             content=b'{"jsonrpc":"2.0","id":1,"method":"ping"}',
         )
@@ -1390,33 +1405,76 @@ class TestSpecCompliance:
         if "error" in data:
             assert "Content-Type" not in data["error"].get("message", "")
 
-    def test_delete_global_returns_405(
+    def test_delete_without_session_returns_400(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """DELETE /mcp should return 405 with JSON-RPC error body."""
+        """DELETE /mcp without Mcp-Session-Id returns 400."""
         resp = client.delete("/mcp", headers=auth_headers)
-        assert resp.status_code == 405
+        assert resp.status_code == 400
         data = resp.json()
-        assert data["jsonrpc"] == "2.0"
-        assert data["error"]["code"] == -32600
-        assert "Allow" in resp.headers
-        assert "GET" in resp.headers["Allow"]
-        assert "POST" in resp.headers["Allow"]
-
-    def test_delete_namespace_returns_405(
-        self, client: SyncASGIClient, auth_headers: dict
-    ):
-        """DELETE /mcp/{namespace} should return 405 with JSON-RPC error body."""
-        resp = client.delete("/mcp/shared", headers=auth_headers)
-        assert resp.status_code == 405
-        data = resp.json()
-        assert data["jsonrpc"] == "2.0"
         assert data["error"]["code"] == -32600
 
-    def test_202_notification_includes_session_id(
+    def test_delete_with_invalid_session_returns_404(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """202 responses for notifications must include Mcp-Session-Id header."""
+        """DELETE /mcp with invalid session returns 404."""
+        resp = client.delete(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": "nonexistent"},
+        )
+        assert resp.status_code == 404
+
+    def test_delete_with_valid_session_returns_200(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """DELETE /mcp with valid session terminates it and returns 200."""
+        # Create session via initialize
+        resp = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "delete-test"},
+                },
+            },
+        )
+        session_id = resp.headers.get("Mcp-Session-Id")
+        assert session_id
+
+        # DELETE with that session
+        resp = client.delete(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+        )
+        assert resp.status_code == 200
+
+        # Session should now be invalid
+        resp = client.post(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "ping",
+            },
+        )
+        assert resp.status_code == 404
+
+    def test_delete_namespace_without_session_returns_400(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """DELETE /{namespace}/mcp without session returns 400."""
+        resp = client.delete("/shared/mcp", headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_202_notification_without_session_has_no_session_header(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """202 responses for notifications without session header don't include one."""
         resp = client.post(
             "/mcp",
             headers=auth_headers,
@@ -1426,29 +1484,46 @@ class TestSpecCompliance:
             },
         )
         assert resp.status_code == 202
-        assert "mcp-session-id" in resp.headers or "Mcp-Session-Id" in resp.headers
+        # No session header sent → no session header returned
+        assert resp.headers.get("Mcp-Session-Id") is None
 
-    def test_202_notification_namespace_includes_session_id(
+    def test_202_notification_with_session_echoes_it(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """Namespace 202 responses must include Mcp-Session-Id header."""
+        """202 responses echo back Mcp-Session-Id when client sends one."""
+        # Create a session first
         resp = client.post(
-            "/mcp/shared",
+            "/mcp",
             headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "notif-test"},
+                },
+            },
+        )
+        session_id = resp.headers.get("Mcp-Session-Id")
+
+        resp = client.post(
+            "/shared/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
             json={
                 "jsonrpc": "2.0",
                 "method": "notifications/initialized",
             },
         )
         assert resp.status_code == 202
-        assert "mcp-session-id" in resp.headers or "Mcp-Session-Id" in resp.headers
+        assert resp.headers.get("Mcp-Session-Id") == session_id
 
     def test_unknown_namespace_echoes_request_id(
         self, client: SyncASGIClient, auth_headers: dict
     ):
         """Unknown namespace error should echo the request id from body, not None."""
         resp = client.post(
-            "/mcp/nonexistent",
+            "/nonexistent/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -1461,12 +1536,12 @@ class TestSpecCompliance:
         assert data["id"] == 42
         assert data["error"]["code"] == -32600
 
-    def test_unknown_namespace_includes_session_header(
+    def test_unknown_namespace_without_session_has_no_session_header(
         self, client: SyncASGIClient, auth_headers: dict
     ):
-        """Unknown namespace error response must include Mcp-Session-Id."""
+        """Unknown namespace error without session header doesn't include one."""
         resp = client.post(
-            "/mcp/nonexistent",
+            "/nonexistent/mcp",
             headers=auth_headers,
             json={
                 "jsonrpc": "2.0",
@@ -1474,4 +1549,222 @@ class TestSpecCompliance:
                 "method": "ping",
             },
         )
-        assert "mcp-session-id" in resp.headers or "Mcp-Session-Id" in resp.headers
+        assert resp.headers.get("Mcp-Session-Id") is None
+
+
+# ==================== Session Management Tests ====================
+
+
+class TestMCPSessionManagement:
+    """Tests for per-client MCP session management."""
+
+    def test_initialize_creates_unique_session(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Each initialize call creates a unique session ID."""
+        sessions = set()
+        for i in range(3):
+            resp = client.post(
+                "/mcp",
+                headers=auth_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": i + 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "clientInfo": {"name": f"client-{i}"},
+                    },
+                },
+            )
+            assert resp.status_code == 200
+            sid = resp.headers.get("Mcp-Session-Id")
+            assert sid
+            sessions.add(sid)
+        assert len(sessions) == 3, f"Expected 3 unique sessions, got {sessions}"
+
+    def test_valid_session_accepted(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Requests with a valid session ID are accepted."""
+        resp = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "valid-test"},
+                },
+            },
+        )
+        session_id = resp.headers.get("Mcp-Session-Id")
+
+        resp = client.post(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
+        assert resp.status_code == 200
+        assert "result" in resp.json()
+
+    def test_invalid_session_returns_404(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Requests with an invalid session ID return 404."""
+        resp = client.post(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": "bogus-session-id"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
+        assert resp.status_code == 404
+        data = resp.json()
+        assert data["error"]["code"] == -32600
+        assert "session" in data["error"]["message"].lower()
+
+    def test_no_session_header_accepted_lenient(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Requests without Mcp-Session-Id are accepted (lenient mode)."""
+        resp = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "ping",
+                "params": {},
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["result"] == {}
+
+    def test_delete_terminates_session(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """DELETE with valid session removes it; subsequent requests get 404."""
+        # Create session
+        resp = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "delete-lifecycle"},
+                },
+            },
+        )
+        session_id = resp.headers.get("Mcp-Session-Id")
+
+        # Terminate session
+        resp = client.delete(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+        )
+        assert resp.status_code == 200
+
+        # Session is now invalid
+        resp = client.post(
+            "/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "ping",
+            },
+        )
+        assert resp.status_code == 404
+
+    def test_namespace_session_lifecycle(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Session works across namespace endpoints."""
+        # Initialize on namespace endpoint
+        resp = client.post(
+            "/shared/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "ns-session"},
+                },
+            },
+        )
+        session_id = resp.headers.get("Mcp-Session-Id")
+        assert session_id
+
+        # Use session for tools/list
+        resp = client.post(
+            "/shared/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("Mcp-Session-Id") == session_id
+
+        # Delete session via namespace endpoint
+        resp = client.delete(
+            "/shared/mcp",
+            headers={**auth_headers, "Mcp-Session-Id": session_id},
+        )
+        assert resp.status_code == 200
+
+    def test_sse_get_with_invalid_session_returns_404(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """GET SSE with invalid session returns 404."""
+        resp = client.get(
+            "/mcp",
+            headers={
+                **auth_headers,
+                "Accept": "text/event-stream",
+                "Mcp-Session-Id": "invalid-session",
+            },
+        )
+        assert resp.status_code == 404
+
+    def test_initialize_error_does_not_create_session(
+        self, client: SyncASGIClient, auth_headers: dict
+    ):
+        """Failed initialize (bad protocol version) should not create a session."""
+        resp = client.post(
+            "/mcp",
+            headers=auth_headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "9999-99-99",
+                    "clientInfo": {"name": "bad-version"},
+                },
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "error" in data
+        # No session should be created on error
+        assert resp.headers.get("Mcp-Session-Id") is None
