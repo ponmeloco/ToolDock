@@ -125,12 +125,12 @@ This only fixes Docker’s local metadata directory; it does **not** affect your
 │   (React)        │     ├─────────────────────────────────────┤
 │  Port 13000      │────→│  Internal: 8006 Tool API            │
 │  /api/*          │     │  Internal: 8007 MCP HTTP            │
-│  /openapi/*      │     │  Internal: 8080 Backend API         │
-│  /mcp/*          │     │                                     │
+│  /{ns}/openapi/* │     │  Internal: 8080 Backend API         │
+│  /{ns}/mcp       │     │                                     │
 └──────────────────┘     │                                     │
                          ├─────────────────────────────────────┤
-LiteLLM ────────────────→│  /mcp/shared    → shared/ tools     │
-Claude Desktop ─────────→│  /mcp/team1     → team1/ tools      │
+LiteLLM ────────────────→│  /shared/mcp    → shared/ tools     │
+Claude Desktop ─────────→│  /team1/mcp     → team1/ tools      │
                          └─────────────────────────────────────┘
 ```
 
@@ -172,11 +172,13 @@ FASTMCP_INSTALLER_NAMESPACE=tooldock-installer
 
 Each folder in `tooldock_data/tools/` becomes a separate endpoint:
 
-| Folder | MCP Endpoint |
-|--------|--------------|
-| `tools/shared/` | `/mcp/shared` |
-| `tools/team1/` | `/mcp/team1` |
-| `tools/finance/` | `/mcp/finance` |
+| Folder | MCP Endpoint | OpenAPI Endpoint |
+|--------|-------------|------------------|
+| `tools/shared/` | `/shared/mcp` | `/shared/openapi/tools` |
+| `tools/team1/` | `/team1/mcp` | `/team1/openapi/tools` |
+| `tools/finance/` | `/finance/mcp` | `/finance/openapi/tools` |
+
+The `/{namespace}/mcp` pattern uses tenant-first routing.
 
 ---
 
@@ -320,13 +322,13 @@ curl -X POST http://localhost:13000/api/folders/shared/files/deps/uninstall \
 mcp_servers:
   - server_name: "tooldock"
     # If LiteLLM runs in Docker on the same network, use the service name:
-    url: "http://tooldock-backend:8007/mcp/shared"
+    url: "http://tooldock-backend:8007/shared/mcp"
     api_key_header: "Authorization"
     api_key_value: "Bearer change_me"
 ```
 
 If LiteLLM runs on the host (not in Docker), use:
-`http://localhost:13000/mcp/shared`
+`http://localhost:13000/shared/mcp`
 
 ### Claude Desktop
 
@@ -336,7 +338,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:13000/mcp/shared",
+      "url": "http://localhost:13000/shared/mcp",
       "headers": {
         "Authorization": "Bearer change_me"
       }
@@ -353,7 +355,7 @@ Add to LM Studio MCP config:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:13000/mcp/shared",
+      "url": "http://localhost:13000/shared/mcp",
       "headers": {
         "Authorization": "Bearer change_me"
       }
@@ -370,23 +372,26 @@ Add to LM Studio MCP config:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/openapi/health` | GET | Health check via Admin gateway (13000) |
-| `/openapi/tools` | GET | List tools via Admin gateway (13000) |
-| `/openapi/tools/{name}` | POST | Execute tool via Admin gateway (13000) |
+| `/openapi/health` | GET | Health check via Admin gateway (global) |
+| `/openapi/tools` | GET | List all tools (global) |
+| `/openapi/tools/{name}` | POST | Execute tool (global) |
+| `/{namespace}/openapi/health` | GET | Health check (namespace) |
+| `/{namespace}/openapi/tools` | GET | List tools (namespace only) |
+| `/{namespace}/openapi/tools/{name}` | POST | Execute tool (namespace only) |
 
 ### MCP (Streamable HTTP)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/mcp/namespaces` | GET | List namespaces via Admin gateway (13000) |
+| `/{namespace}/mcp` | POST | JSON-RPC endpoint (namespace, **preferred**) |
+| `/{namespace}/mcp` | GET | SSE stream (namespace) |
+| `/{namespace}/mcp/info` | GET | Discovery (namespace) |
+| `/{namespace}/mcp/sse` | GET/POST | Compatibility alias |
 | `/mcp` | POST | JSON-RPC endpoint (all namespaces) |
-| `/mcp/{namespace}` | POST | JSON-RPC endpoint (namespace) |
-| `/mcp` | GET | SSE stream for server-initiated messages (all namespaces) |
-| `/mcp/{namespace}` | GET | SSE stream for server-initiated messages (namespace) |
-| `/mcp/sse` | GET/POST | Compatibility alias for `/mcp` |
-| `/mcp/{namespace}/sse` | GET/POST | Compatibility alias for `/mcp/{namespace}` |
-| `/mcp/info` | GET | Non-standard discovery |
-| `/mcp/{namespace}/info` | GET | Non-standard discovery |
+| `/mcp` | GET | SSE stream (all namespaces) |
+| `/mcp/namespaces` | GET | List namespaces |
+| `/mcp/info` | GET | Discovery (global) |
+| `/mcp/sse` | GET/POST | Compatibility alias |
 
 ### Backend API (via gateway)
 

@@ -268,44 +268,80 @@ function buildCategories(): EndpointCategory[] {
     },
     {
       name: TOOL_API_CATEGORY,
-      description: 'Tool API endpoints (via gateway /openapi)',
+      description: 'Tool API endpoints — global (/openapi) and namespace-scoped (/{namespace}/openapi)',
       endpoints: [
         { method: 'GET', path: '/health', description: 'Tool API health check', auth: false },
-        { method: 'GET', path: '/tools', description: 'List all available tools', auth: true },
+        { method: 'GET', path: '/tools', description: 'List all tools (global)', auth: true },
         {
           method: 'POST',
           path: '/tools/{tool_name}',
-          description: 'Execute a tool',
+          description: 'Execute a tool (global)',
           auth: true,
           body: '{"name":"World"}',
           pathParams: [{ name: 'tool_name', description: 'Tool name', default: 'hello_world' }],
+        },
+        {
+          method: 'GET',
+          path: '/{namespace}/openapi/health',
+          description: 'Namespace health check',
+          auth: false,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'GET',
+          path: '/{namespace}/openapi/tools',
+          description: 'List tools in namespace',
+          auth: true,
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/{namespace}/openapi/tools/{tool_name}',
+          description: 'Execute tool in namespace',
+          auth: true,
+          body: '{"name":"World"}',
+          pathParams: [
+            { name: 'namespace', description: 'Namespace name' },
+            { name: 'tool_name', description: 'Tool name', default: 'hello_world' },
+          ],
         },
       ],
     },
     {
       name: MCP_TRANSPORT_CATEGORY,
-      description: 'MCP Streamable HTTP endpoints (via gateway /mcp)',
+      description: 'MCP Streamable HTTP — namespace-first (/{namespace}/mcp) and global (/mcp)',
       endpoints: [
         { method: 'GET', path: '/mcp/health', description: 'MCP health check', auth: false },
         { method: 'GET', path: '/mcp/namespaces', description: 'List MCP namespaces', auth: true },
         {
+          method: 'POST',
+          path: '/{namespace}/mcp',
+          description: 'MCP tools/list (namespace)',
+          auth: true,
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
+          method: 'POST',
+          path: '/{namespace}/mcp',
+          description: 'MCP tools/call (namespace)',
+          auth: true,
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_world","arguments":{"name":"World"}}}',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
+        },
+        {
           method: 'GET',
-          path: '/mcp',
-          description: 'SSE stream (requires Accept: text/event-stream)',
+          path: '/{namespace}/mcp',
+          description: 'SSE stream (namespace, requires Accept: text/event-stream)',
           auth: true,
           headers: { Accept: 'text/event-stream' },
           note: 'This keeps a streaming connection open.',
+          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
           method: 'GET',
-          path: '/mcp/info',
-          description: 'Non-standard discovery (all namespaces)',
-          auth: true,
-        },
-        {
-          method: 'GET',
-          path: '/mcp/{namespace}/info',
-          description: 'Non-standard discovery (namespace)',
+          path: '/{namespace}/mcp/info',
+          description: 'Discovery (namespace)',
           auth: true,
           pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
@@ -318,28 +354,17 @@ function buildCategories(): EndpointCategory[] {
         },
         {
           method: 'GET',
-          path: '/mcp/{namespace}',
-          description: 'SSE stream (requires Accept: text/event-stream)',
+          path: '/mcp',
+          description: 'SSE stream (global, requires Accept: text/event-stream)',
           auth: true,
           headers: { Accept: 'text/event-stream' },
           note: 'This keeps a streaming connection open.',
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
         {
-          method: 'POST',
-          path: '/mcp/{namespace}',
-          description: 'MCP tools/list',
+          method: 'GET',
+          path: '/mcp/info',
+          description: 'Discovery (global)',
           auth: true,
-          body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
-        },
-        {
-          method: 'POST',
-          path: '/mcp/{namespace}',
-          description: 'MCP tools/call',
-          auth: true,
-          body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_world","arguments":{"name":"World"}}}',
-          pathParams: [{ name: 'namespace', description: 'Namespace name' }],
         },
       ],
     },
@@ -541,6 +566,12 @@ export default function Docs() {
 
   const getBaseUrlForCategory = (categoryName: string): string => {
     if (categoryName === TOOL_API_CATEGORY) {
+      // Namespace-scoped routes (/{ns}/openapi/*) go to gateway root;
+      // global routes (/health, /tools/*) go via /openapi prefix.
+      const resolvedPath = getResolvedPath()
+      if (resolvedPath.match(/^\/[^/]+\/openapi/)) {
+        return window.location.origin
+      }
       return `${window.location.origin}/openapi`
     }
     if (categoryName === MCP_TRANSPORT_CATEGORY) {
@@ -706,6 +737,8 @@ export default function Docs() {
           This UI routes through the gateway at <span className="font-mono">{window.location.origin}</span> using
           <span className="font-mono"> /api</span>, <span className="font-mono">/openapi</span>, and{' '}
           <span className="font-mono">/mcp</span>.
+          Namespace-scoped routes use <span className="font-mono">/{'{namespace}'}/mcp</span> and{' '}
+          <span className="font-mono">/{'{namespace}'}/openapi</span>.
         </p>
       </div>
 

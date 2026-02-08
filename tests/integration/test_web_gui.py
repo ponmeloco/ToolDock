@@ -1077,4 +1077,4 @@ class TestFoldersCRUD:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["endpoint"] == "/mcp/myns"
+        assert data["endpoint"] == "/myns/mcp"

@@ -73,30 +73,41 @@ The gateway exposes a single host port (default `13000`) and proxies `/openapi`,
 
 ## Namespace Routing
 
-Each folder in `tooldock_data/tools/` becomes a separate MCP namespace:
+Each folder in `tooldock_data/tools/` becomes a separate namespace:
 
 ```
 tooldock_data/tools/
-├── shared/           →  /mcp/shared
-├── team1/            →  /mcp/team1
-├── finance/          →  /mcp/finance
-└── github/           →  /mcp/github (external)
+├── shared/           →  /shared/mcp  +  /shared/openapi/tools
+├── team1/            →  /team1/mcp   +  /team1/openapi/tools
+├── finance/          →  /finance/mcp +  /finance/openapi/tools
+└── github/           →  /github/mcp  (external)
 ```
 
-### MCP Endpoint Structure (Strict Mode)
+### URL Patterns
 
+**Preferred (namespace-first):**
 ```
-/mcp                    → Global endpoint (JSON-RPC 2.0 POST)
+/{namespace}/mcp            → Namespace MCP endpoint (JSON-RPC 2.0 POST/GET SSE)
+/{namespace}/mcp/info       → Non-standard discovery (GET)
+/{namespace}/mcp/sse        → Compatibility alias
+/{namespace}/openapi/tools  → List tools in namespace (GET)
+/{namespace}/openapi/tools/{name} → Execute tool (POST)
+/{namespace}/openapi/health → Namespace health check (GET)
+```
+
+**Global:**
+```
+/mcp                    → Global MCP endpoint (JSON-RPC 2.0 POST/GET SSE)
 /mcp/namespaces         → List available namespaces
-/mcp/{namespace}        → Namespace-specific endpoint (JSON-RPC 2.0 POST)
 /mcp/info               → Non-standard discovery (GET)
-/mcp/{namespace}/info   → Non-standard discovery (GET)
+/tools                  → List all tools (GET)
+/tools/{name}           → Execute any tool (POST)
 ```
 
 ### Namespace Isolation
 
 - Each namespace has its own set of tools
-- `tools/list` on `/mcp/shared` returns only shared tools
+- `tools/list` on `/shared/mcp` returns only shared tools
 - `tools/call` validates tool belongs to requested namespace
 - External MCP servers register as separate namespaces
 
@@ -110,11 +121,16 @@ tooldock_data/tools/
 - **Use Case:** OpenWebUI, REST clients, web integrations
 - **Authentication:** Bearer Token
 
-**Endpoints:**
+**Endpoints (global):**
 - `GET /health` - Health check
 - `GET /tools` - List all tools (all namespaces)
 - `POST /tools/{name}` - Execute a tool
 - `GET /openapi.json` - OpenAPI specification
+
+**Endpoints (namespace-scoped):**
+- `GET /{namespace}/openapi/health` - Namespace health check
+- `GET /{namespace}/openapi/tools` - List tools in namespace
+- `POST /{namespace}/openapi/tools/{name}` - Execute tool in namespace
 
 ---
 
@@ -127,15 +143,17 @@ tooldock_data/tools/
 - **Authentication:** Bearer Token
 - **Specification:** https://modelcontextprotocol.io/specification
 
-**Endpoints (Strict MCP):**
+**Endpoints (namespace-first, preferred):**
+- `POST /{namespace}/mcp` - Namespace JSON-RPC 2.0 endpoint
+- `GET /{namespace}/mcp` - SSE stream (Accept: `text/event-stream`)
+- `GET /{namespace}/mcp/info` - Non-standard discovery
+
+**Endpoints (global):**
 - `GET /health` - Health check
 - `GET /mcp/namespaces` - List namespaces
 - `POST /mcp` - Global JSON-RPC 2.0 endpoint
-- `POST /mcp/{namespace}` - Namespace-specific JSON-RPC
 - `GET /mcp` - SSE stream (Accept: `text/event-stream`)
-- `GET /mcp/{namespace}` - SSE stream (Accept: `text/event-stream`)
 - `GET /mcp/info` - Non-standard discovery
-- `GET /mcp/{namespace}/info` - Non-standard discovery
 
 **MCP Methods:**
 - `initialize` - Initialize session
@@ -243,7 +261,7 @@ and server files live under `DATA_DIR/external/servers/{namespace}`.
 ### MCP Namespace Request Flow
 
 ```
-Client JSON-RPC Request to /mcp/shared
+Client JSON-RPC Request to /shared/mcp
      │
      ▼
 ┌─────────────┐
@@ -360,8 +378,8 @@ Environment variables control behavior:
 
 1. Create folder `tooldock_data/tools/myteam/`
 2. Add Python tool files
-3. Restart server
-4. Access via `/mcp/myteam`
+3. Restart server (or hot-reload via API)
+4. Access via `/myteam/mcp` (MCP) or `/myteam/openapi/tools` (REST)
 
 ### Adding a New Transport
 
@@ -375,4 +393,4 @@ Environment variables control behavior:
 1. Use the FastMCP Admin UI tab (or `/api/fastmcp/*` endpoints)
 2. Install from registry or add a manual command-based server
 3. Start server from the detail panel
-4. Access via `/mcp/{namespace}`
+4. Access via `/{namespace}/mcp`

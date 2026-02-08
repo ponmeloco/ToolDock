@@ -59,6 +59,75 @@ def _request(method: str, path: str, payload: Optional[Dict[str, Any]] = None) -
 
 
 @mcp.tool()
+def get_instructions() -> str:
+    """Get usage instructions for all ToolDock installer tools.
+
+    CALL THIS FIRST before using any other tool in this namespace.
+    Returns a guide explaining the available tools, their purpose,
+    required parameters, and the recommended workflow.
+    """
+    return """# ToolDock Installer — Tool Guide
+
+You are connected to the ToolDock Installer, a management interface for
+installing and running external MCP servers inside ToolDock.
+
+## Available Tools
+
+### Discovery
+- **search_registry_servers(query, limit=20)**
+  Search the MCP Registry for installable servers by keyword.
+  Returns a list of servers with id, name, description, and package type (npm/pypi/repo).
+
+- **list_installed_servers()**
+  List all servers currently installed in ToolDock with their id, namespace, status, and config.
+  Use this to find server IDs for start/stop/update operations.
+
+### Safety
+- **assess_server_safety(server_id?, server_name?, repo_url?, command?, args?)**
+  Run a pre-install safety assessment. Returns risk level and a `blocked` flag.
+  ALWAYS call this before installing. If `blocked=true`, do NOT proceed with install.
+  Pass either `server_id`/`server_name` (for registry) or `repo_url` (for repo installs).
+
+### Installation
+- **install_registry_server(server_id?, server_name?, namespace, version?, env?, config_file?)**
+  Install a server from the MCP Registry. Requires `namespace` (unique name for this server).
+  At least one of `server_id` or `server_name` is required.
+  Use `env` to pass API keys (e.g. `{"GITHUB_TOKEN": "ghp_xxx"}`).
+
+- **install_repo_server(repo_url, namespace, entrypoint?, server_name?, auto_start?, env?)**
+  Install a server from a Git repository URL. Requires `repo_url` and `namespace`.
+  Use `entrypoint` if the server script is not at the repo root.
+
+### Lifecycle
+- **update_server_runtime(server_id, command?, args?, env?, auto_start?)**
+  Update startup command, arguments, environment variables, or auto-start setting.
+  Use after install to configure API keys or adjust the startup command.
+
+- **start_server(server_id)**
+  Start an installed server. The server becomes available at `/{namespace}/mcp`.
+
+- **stop_server(server_id)**
+  Stop a running server.
+
+## Recommended Workflow
+
+1. **Search**: `search_registry_servers("github")` to find servers
+2. **Safety check**: `assess_server_safety(server_name="...")` — abort if blocked
+3. **Install**: `install_registry_server(server_name="...", namespace="my-server")`
+4. **Configure** (if needed): `update_server_runtime(server_id=..., env={"API_KEY": "..."})`
+5. **Start**: `start_server(server_id=...)`
+6. The server's tools are now available at `/{namespace}/mcp`
+
+## Important Notes
+- Each server needs a unique `namespace` — this becomes its URL path segment.
+- Namespace names must be lowercase alphanumeric with hyphens (e.g. `github-tools`).
+- Always run safety checks before installing. Never skip this step.
+- Server IDs are integers returned by `list_installed_servers()` or install tools.
+- The `tooldock-installer` namespace itself is protected and cannot be deleted.
+"""
+
+
+@mcp.tool()
 def search_registry_servers(query: str, limit: int = 20) -> Dict[str, Any]:
     """Find installable MCP servers in the registry.
 

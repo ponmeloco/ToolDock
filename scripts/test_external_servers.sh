@@ -108,7 +108,7 @@ fi
 section "Test 4: List Tools via MCP"
 # ==================================================
 
-MCP_TOOLS=$(curl -s -X POST "$MCP_URL/mcp/shared" \
+MCP_TOOLS=$(curl -s -X POST "$MCP_URL/shared/mcp" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -166,7 +166,7 @@ fi
 section "Test 8: Namespace Info"
 # ==================================================
 
-NS_INFO=$(curl -s "$MCP_URL/mcp/shared/info" -H "Authorization: Bearer $TOKEN")
+NS_INFO=$(curl -s "$MCP_URL/shared/mcp/info" -H "Authorization: Bearer $TOKEN")
 if echo "$NS_INFO" | grep -q 'shared'; then
     pass "Namespace info"
     echo "  Response: $NS_INFO"

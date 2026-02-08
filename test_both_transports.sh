@@ -185,7 +185,7 @@ fi
 echo ""
 
 echo ">>> MCP List Tools (namespace: shared):"
-MCP_TOOLS=$(curl -s -X POST "$ADMIN_URL/mcp/shared" \
+MCP_TOOLS=$(curl -s -X POST "$ADMIN_URL/shared/mcp" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
@@ -204,7 +204,7 @@ fi
 echo ""
 
 echo ">>> MCP Call hello_world tool (namespace: shared):"
-MCP_CALL=$(curl -s -X POST "$ADMIN_URL/mcp/shared" \
+MCP_CALL=$(curl -s -X POST "$ADMIN_URL/shared/mcp" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json" \
   -H "Authorization: Bearer $BEARER_TOKEN" \
@@ -312,7 +312,7 @@ echo "  - MCP HTTP:    $ADMIN_URL/mcp"
 echo "  - Backend API: $ADMIN_URL/api"
 echo ""
 echo "MCP Endpoints for LiteLLM:"
-echo "  - $ADMIN_URL/mcp/shared"
+echo "  - $ADMIN_URL/shared/mcp"
 echo ""
 
 if [ "$FAILURES" -gt 0 ]; then

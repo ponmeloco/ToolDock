@@ -135,7 +135,7 @@ async def list_folders(_: str = Depends(verify_token)) -> FolderListResponse:
     """
     List all available tool folders (namespaces).
 
-    Each folder represents a namespace that can be accessed via /mcp/{namespace}.
+    Each folder represents a namespace that can be accessed via /{namespace}/mcp.
     """
     tools_dir = _get_base_tools_dir()
 
@@ -152,7 +152,7 @@ async def list_folders(_: str = Depends(verify_token)) -> FolderListResponse:
             folders.append(
                 FolderInfo(
                     name=ns,
-                    endpoint=f"/mcp/{ns}",
+                    endpoint=f"/{ns}/mcp",
                     tool_count=tool_count,
                     tools=tools,
                 )
@@ -184,7 +184,7 @@ async def get_folder(
 
     return FolderInfo(
         name=namespace,
-        endpoint=f"/mcp/{namespace}",
+        endpoint=f"/{namespace}/mcp",
         tool_count=tool_count,
         tools=tools,
     )
@@ -198,7 +198,7 @@ async def create_folder(
     """
     Create a new tool folder (namespace).
 
-    The folder will be accessible via /mcp/{name} after tools are added.
+    The folder will be accessible via /{name}/mcp after tools are added.
     """
     # Additional validation
     if request.name.lower() in RESERVED_NAMESPACES:
@@ -223,7 +223,7 @@ async def create_folder(
 
         return FolderInfo(
             name=request.name,
-            endpoint=f"/mcp/{request.name}",
+            endpoint=f"/{request.name}/mcp",
             tool_count=0,
             tools=[],
         )

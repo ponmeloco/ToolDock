@@ -132,7 +132,7 @@ export default function Namespaces() {
         type: 'native' as const,
         tool_count: ns.tool_count,
         status: 'active',
-        endpoint: `/mcp/${ns.name}`,
+        endpoint: `/${ns.name}/mcp`,
       }))
 
   const isLoading = viewMode === 'all' ? allNamespacesQuery.isLoading : nativeNamespacesQuery.isLoading

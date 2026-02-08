@@ -199,7 +199,7 @@ async def execute_tool(
         if body.transport == "mcp":
             namespace = body.namespace or "shared"
             mcp_port = int(os.getenv("MCP_PORT", "8007"))
-            url = f"http://localhost:{mcp_port}/mcp/{namespace}"
+            url = f"http://localhost:{mcp_port}/{namespace}/mcp"
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,

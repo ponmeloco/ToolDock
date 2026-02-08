@@ -145,7 +145,7 @@ class TestPlaygroundExecute:
                         200,
                         {"result": {"echo": (json or {}).get("value", ""), "status": "ok"}},
                     )
-                if "/mcp/" in url:
+                if "/mcp" in url:
                     return FakeResponse(
                         200,
                         {"result": {"content": [{"type": "text", "text": "ok"}], "isError": False}},

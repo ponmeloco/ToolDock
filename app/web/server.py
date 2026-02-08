@@ -271,7 +271,7 @@ def create_web_app(
             },
             "endpoints": {
                 "mcp_base": "/mcp",
-                "namespace_endpoints": [f"/mcp/{ns}" for ns in namespaces],
+                "namespace_endpoints": [f"/{ns}/mcp" for ns in namespaces],
             },
         }
 

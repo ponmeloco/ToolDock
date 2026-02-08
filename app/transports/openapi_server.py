@@ -5,6 +5,12 @@ This module provides the REST/OpenAPI transport layer for OpenWebUI
 and other REST clients. It exposes tools as POST endpoints with
 full OpenAPI documentation.
 
+Supports namespace-scoped routes:
+- /{namespace}/openapi/tools - List tools in a specific namespace
+- /{namespace}/openapi/tools/{tool_name} - Execute a tool in a namespace
+- /{namespace}/openapi/health - Health for a specific namespace
+- /tools, /health - Global routes (all tools, backward compat)
+
 Usage:
     from app.transports.openapi_server import create_openapi_app
     from app.registry import get_registry
@@ -18,7 +24,7 @@ import os
 import logging
 import asyncio
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +43,11 @@ logger = logging.getLogger("openapi")
 SERVER_NAME = os.getenv("OPENAPI_SERVER_NAME", "tooldock-openapi")
 REGISTRY_NAMESPACE = os.getenv("REGISTRY_NAMESPACE", "default")
 
+# Reserved prefixes that cannot be used as namespace names in /{namespace}/openapi routes.
+RESERVED_PREFIXES = {
+    "api", "mcp", "openapi", "docs", "assets", "health", "tools", "static",
+}
+
 
 async def bearer_auth_dependency(request: Request) -> None:
     """Validate Bearer token authentication."""
@@ -49,6 +60,31 @@ async def bearer_auth_dependency(request: Request) -> None:
     provided = header.split(" ", 1)[1].strip()
     if not token or not _constant_time_compare(provided, token):
         raise ToolUnauthorizedError("Bearer Token ist ungültig")
+
+
+def _resolve_tool_name(registry: ToolRegistry, name: str) -> Optional[str]:
+    """Try to resolve a tool name that may be prefixed or stripped.
+
+    Resolution order:
+    1. Exact match
+    2. Strip client prefix (``default__hello`` → ``hello``)
+    3. Suffix match (``install_x`` → ``ns:install_x``) for when LLMs
+       drop the namespace prefix from namespaced tool names.
+    """
+    if registry.has_tool(name):
+        return name
+    # Strip OpenWebUI-style client prefix
+    if "__" in name:
+        stripped = name.rsplit("__", 1)[-1]
+        if registry.has_tool(stripped):
+            return stripped
+        name = stripped  # continue suffix search with stripped name
+    # LLM dropped the namespace: look for a tool ending with `:name`
+    suffix = f":{name}"
+    for tool in registry.list_all():
+        if tool["name"].endswith(suffix):
+            return tool["name"]
+    return None
 
 
 def create_openapi_app(
@@ -214,6 +250,8 @@ def create_openapi_app(
         logger.exception("Unhandled exception")
         return JSONResponse({"error": {"code": "internal_error", "message": str(exc)}}, status_code=500)
 
+    # ==================== Global Routes (registered FIRST) ====================
+
     @app.get("/health", tags=["Health"], responses={200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}}})
     async def health():
         stats = registry.get_stats()
@@ -301,11 +339,116 @@ def create_openapi_app(
         tool_name: str,
         payload: Dict[str, Any] = Body(default={}),
     ):
-        """Execute any tool by name (supports external tools with prefixed names)."""
-        if not registry.has_tool(tool_name):
+        """Execute any tool by name (supports external tools with prefixed names).
+
+        Resolution order when the exact name isn't found:
+        1. Strip client prefix (``default__tool`` → ``tool``)
+        2. Match by suffix (``install_x`` → ``ns:install_x``) for when
+           LLMs drop the namespace prefix from namespaced tool names.
+        """
+        resolved = _resolve_tool_name(registry, tool_name)
+        if not resolved:
             raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
-        result = await registry.call(tool_name, payload or {})
-        return {"tool": tool_name, "result": result}
+        result = await registry.call(resolved, payload or {})
+        return {"tool": resolved, "result": result}
+
+    # ==================== Namespace-Scoped Routes: /{namespace}/openapi/* ====================
+
+    def _validate_ns_param(namespace: str) -> None:
+        """Raise 404 if namespace is a reserved prefix or doesn't exist."""
+        if namespace in RESERVED_PREFIXES:
+            raise HTTPException(status_code=404, detail=f"Reserved prefix: {namespace}")
+
+    @app.get(
+        "/{namespace}/openapi/health",
+        tags=["Health"],
+        responses={200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}}},
+    )
+    async def ns_openapi_health(namespace: str):
+        """Health check for a specific namespace."""
+        _validate_ns_param(namespace)
+        if not registry.has_namespace(namespace):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown namespace: {namespace}",
+            )
+        tools = registry.list_tools_for_namespace(namespace)
+        return {
+            "status": "healthy",
+            "namespace": namespace,
+            "transport": "openapi",
+            "tools": {
+                "total": len(tools),
+            },
+        }
+
+    @app.get(
+        "/{namespace}/openapi/tools",
+        dependencies=[Depends(bearer_auth_dependency)],
+        tags=["Tools"],
+        responses={
+            200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolList"}}}},
+            401: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+            404: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+        },
+    )
+    async def ns_openapi_list_tools(namespace: str):
+        """List tools in a specific namespace."""
+        _validate_ns_param(namespace)
+        if not registry.has_namespace(namespace):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown namespace: {namespace}",
+            )
+        tools = registry.list_tools_for_namespace(namespace)
+        return {
+            "namespace": namespace,
+            "tools": [
+                {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "input_schema": t["inputSchema"],
+                }
+                for t in tools
+            ],
+        }
+
+    @app.post(
+        "/{namespace}/openapi/tools/{tool_name}",
+        dependencies=[Depends(bearer_auth_dependency)],
+        tags=["Tools"],
+        responses={
+            200: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolResult"}}}},
+            401: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+            404: {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolError"}}}},
+        },
+    )
+    async def ns_openapi_call_tool(
+        namespace: str,
+        tool_name: str,
+        payload: Dict[str, Any] = Body(default={}),
+    ):
+        """Execute a tool within a specific namespace."""
+        _validate_ns_param(namespace)
+        if not registry.has_namespace(namespace):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown namespace: {namespace}",
+            )
+        # Resolve tool name
+        resolved = _resolve_tool_name(registry, tool_name)
+        if not resolved:
+            raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
+        # Validate tool belongs to the namespace
+        if not registry.tool_in_namespace(resolved, namespace):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tool '{resolved}' not found in namespace '{namespace}'",
+            )
+        result = await registry.call(resolved, payload or {})
+        return {"tool": resolved, "result": result}
+
+    # ==================== Admin + Reloader ====================
 
     # Initialize reloader for this registry
     data_dir = os.getenv("DATA_DIR", "tooldock_data")

@@ -815,7 +815,7 @@ async def list_namespaces(_: str = Depends(verify_token)) -> NamespacesResponse:
                         type="native",
                         tool_count=tool_count,
                         status="active",
-                        endpoint=f"/mcp/{d.name}",
+                        endpoint=f"/{d.name}/mcp",
                     ))
 
     # FastMCP namespaces - only show if has tools OR is explicitly stopped
@@ -831,7 +831,7 @@ async def list_namespaces(_: str = Depends(verify_token)) -> NamespacesResponse:
                 type="fastmcp",
                 tool_count=tool_count,
                 status=row.status,
-                endpoint=f"/mcp/{row.namespace}",
+                endpoint=f"/{row.namespace}/mcp",
             ))
 
     return NamespacesResponse(

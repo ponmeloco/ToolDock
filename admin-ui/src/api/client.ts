@@ -3,6 +3,15 @@
 const API_BASE = '/api'
 const TOOLS_BASE = '/openapi/tools'
 
+// Build namespace-scoped transport URLs
+export function mcpUrl(namespace: string): string {
+  return `/${namespace}/mcp`
+}
+
+export function openapiToolsUrl(namespace: string): string {
+  return `/${namespace}/openapi/tools`
+}
+
 // Get auth token from localStorage or prompt
 function getAuthToken(): string {
   let token = localStorage.getItem('tooldock_token')

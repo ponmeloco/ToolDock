@@ -64,8 +64,8 @@ Uses JSON-RPC 2.0 protocol with namespace-based routing.
 | `/mcp/namespaces` | GET | List all namespaces |
 | `/mcp` | GET | SSE stream (requires `Accept: text/event-stream`) |
 | `/mcp` | POST | Global endpoint (all tools) |
-| `/mcp/{namespace}` | GET | SSE stream (requires `Accept: text/event-stream`) |
-| `/mcp/{namespace}` | POST | Namespace-specific endpoint |
+| `/{namespace}/mcp` | GET | SSE stream (requires `Accept: text/event-stream`) |
+| `/{namespace}/mcp` | POST | Namespace-specific endpoint |
 
 **Example - List Namespaces:**
 ```bash
@@ -82,7 +82,7 @@ curl http://localhost:13000/mcp \
 
 **Example - List Tools (shared namespace):**
 ```bash
-curl -X POST http://localhost:13000/mcp/shared \
+curl -X POST http://localhost:13000/shared/mcp \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -95,7 +95,7 @@ curl -X POST http://localhost:13000/mcp/shared \
 
 **Example - Execute Tool:**
 ```bash
-curl -X POST http://localhost:13000/mcp/shared \
+curl -X POST http://localhost:13000/shared/mcp \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -115,13 +115,13 @@ Tools are organized in namespaces (folders):
 
 | Folder | MCP Endpoint | Description |
 |--------|--------------|-------------|
-| `tools/shared/` | `/mcp/shared` | Default shared tools |
-| `tools/team1/` | `/mcp/team1` | Team-specific tools |
-| `tools/finance/` | `/mcp/finance` | Department tools |
+| `tools/shared/` | `/shared/mcp` | Default shared tools |
+| `tools/team1/` | `/team1/mcp` | Team-specific tools |
+| `tools/finance/` | `/finance/mcp` | Department tools |
 
 When connecting via MCP, you can either:
 - Use `/mcp` to access ALL tools from all namespaces
-- Use `/mcp/{namespace}` to access only tools from that namespace
+- Use `/{namespace}/mcp` to access only tools from that namespace
 
 ## Tool Execution
 
@@ -179,7 +179,7 @@ See [how-to-add-a-tool-with-a-llm.md](how-to-add-a-tool-with-a-llm.md) for detai
 ```yaml
 mcp_servers:
   - server_name: "tooldock-shared"
-    url: "http://localhost:13000/mcp/shared"
+    url: "http://localhost:13000/shared/mcp"
     api_key_header: "Authorization"
     api_key_value: "Bearer <token>"
 ```
@@ -190,7 +190,7 @@ mcp_servers:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:13000/mcp/shared",
+      "url": "http://localhost:13000/shared/mcp",
       "headers": {
         "Authorization": "Bearer <token>"
       }
@@ -205,7 +205,7 @@ mcp_servers:
 {
   "mcpServers": {
     "tooldock": {
-      "url": "http://localhost:13000/mcp/shared",
+      "url": "http://localhost:13000/shared/mcp",
       "headers": {
         "Authorization": "Bearer <token>"
       }

@@ -106,7 +106,7 @@ tooldock_data/tools/shared/hello_user.py
 
 This tool will be available at:
 - OpenAPI: POST /tools/hello_user
-- MCP: POST /mcp/shared with tools/call
+- MCP: POST /shared/mcp with tools/call
 
 ========================================
 CRITICAL: SPEC COMPLIANCE (MUST ENFORCE)
