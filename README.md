@@ -133,6 +133,52 @@ Recommended setup:
 
 If OpenWebUI itself runs in Docker and cannot reach `localhost`, use host networking access from that container (for example `host.docker.internal`) or put both stacks on a shared Docker network.
 
+LiteLLM `config.yaml` example with ToolDock MCP servers:
+
+```yaml
+model_list:
+  - model_name: qwen2.5-7b
+    litellm_params:
+      model: ollama/qwen2.5:7b
+      api_base: http://ollama:11434
+  - model_name: ministral-14b
+    litellm_params:
+      model: ollama/ministral3:14b
+      api_base: http://ollama:11434
+
+general_settings:
+  master_key: sk-change-me-to-something-secure
+  store_model_in_db: true
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  mcp_aliases:
+    manager: tooldock_manager
+    core: tooldock_core
+
+mcp_servers:
+  tooldock_manager:
+    url: "http://host.docker.internal:8001/mcp"
+    transport: "http"
+    auth_type: "bearer_token"
+    auth_value: os.environ/TOOLDOCK_BEARER_TOKEN
+    spec_version: "2025-11-25"
+    description: "ToolDock manager MCP"
+
+  tooldock_core:
+    url: "http://host.docker.internal:8000/mcp"
+    transport: "http"
+    auth_type: "bearer_token"
+    auth_value: os.environ/TOOLDOCK_BEARER_TOKEN
+    spec_version: "2025-11-25"
+    static_headers:
+      X-Namespace: "demo"
+    description: "ToolDock core MCP (demo namespace)"
+```
+
+Set `TOOLDOCK_BEARER_TOKEN` in the LiteLLM environment. If LiteLLM runs on the same host (not in Docker), replace `host.docker.internal` with `localhost` or your host IP.
+
 ## Notes
 
 - Namespace names must be lowercase alphanumeric with optional hyphens (for example `github-tools`).

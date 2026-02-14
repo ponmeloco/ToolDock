@@ -100,7 +100,8 @@ class McpMethods:
         payload: dict[str, Any] = {
             "content": [{"type": "text", "text": _safe_json(result)}],
         }
-        if isinstance(result, (dict, list)):
+        # MCP structuredContent must be an object for broad client compatibility.
+        if isinstance(result, dict):
             payload["structuredContent"] = result
         return payload
 

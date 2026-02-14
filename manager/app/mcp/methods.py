@@ -57,9 +57,43 @@ class ManagerMcpMethods:
         if not isinstance(arguments, dict):
             raise ValueError("arguments must be an object")
 
+        descriptor = _descriptor_by_name(self._service.list_tool_descriptors(), name)
+        if descriptor is None:
+            return {
+                "isError": True,
+                "content": [{"type": "text", "text": f"Unknown manager tool: {name}"}],
+            }
+
+        missing = _missing_required_arguments(descriptor, arguments)
+        if missing:
+            required = _required_arguments(descriptor)
+            return {
+                "isError": True,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Missing required arguments for {name}: {', '.join(missing)}. "
+                            f"Required: {', '.join(required)}"
+                        ),
+                    }
+                ],
+            }
+
         try:
             result = await self._service.call_tool(name, arguments)
-        except KeyError:
+        except KeyError as exc:
+            missing_key = str(exc.args[0]) if exc.args else ""
+            if missing_key and missing_key != name:
+                return {
+                    "isError": True,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Missing required argument for {name}: {missing_key}",
+                        }
+                    ],
+                }
             return {
                 "isError": True,
                 "content": [{"type": "text", "text": f"Unknown manager tool: {name}"}],
@@ -72,7 +106,8 @@ class ManagerMcpMethods:
             }
 
         payload = {"content": [{"type": "text", "text": _safe_json(result)}]}
-        if isinstance(result, (dict, list)):
+        # MCP structuredContent must be an object for broad client compatibility.
+        if isinstance(result, dict):
             payload["structuredContent"] = result
         return payload
 
@@ -97,3 +132,25 @@ def _safe_json(value: Any) -> str:
         return json.dumps(value, separators=(",", ":"))
     except Exception:  # noqa: BLE001
         return str(value)
+
+
+def _descriptor_by_name(descriptors: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    for descriptor in descriptors:
+        if descriptor.get("name") == name:
+            return descriptor
+    return None
+
+
+def _required_arguments(descriptor: dict[str, Any]) -> list[str]:
+    schema = descriptor.get("input_schema")
+    if not isinstance(schema, dict):
+        return []
+    required = schema.get("required")
+    if not isinstance(required, list):
+        return []
+    return [str(item) for item in required]
+
+
+def _missing_required_arguments(descriptor: dict[str, Any], arguments: dict[str, Any]) -> list[str]:
+    required = _required_arguments(descriptor)
+    return [field for field in required if field not in arguments]

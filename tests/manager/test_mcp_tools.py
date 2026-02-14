@@ -26,6 +26,16 @@ def _service(tmp_path, monkeypatch):
     return service_mod.ManagerToolService(settings, started_at=0.0)
 
 
+def _methods(service):
+    _, methods_mod, session_mod, stream_mod, _ = _manager_modules()
+    sessions = session_mod.SessionManager(ttl_seconds=60, supported_versions=["2025-11-25"])
+    streams = stream_mod.StreamManager()
+    methods = methods_mod.ManagerMcpMethods(service, sessions, streams)
+    session = sessions.create("2025-11-25")
+    sessions.mark_initialized(session.session_id)
+    return methods, session
+
+
 def test_first_call_tool_is_first_and_returns_usage(tmp_path, monkeypatch):
     service = _service(tmp_path, monkeypatch)
     descriptors = service.list_tool_descriptors()
@@ -44,14 +54,7 @@ def test_first_call_tool_is_first_and_returns_usage(tmp_path, monkeypatch):
 
 def test_tools_list_uses_descriptor_input_schema(tmp_path, monkeypatch):
     service = _service(tmp_path, monkeypatch)
-    _, methods_mod, session_mod, stream_mod, _ = _manager_modules()
-
-    sessions = session_mod.SessionManager(ttl_seconds=60, supported_versions=["2025-11-25"])
-    streams = stream_mod.StreamManager()
-    methods = methods_mod.ManagerMcpMethods(service, sessions, streams)
-
-    session = sessions.create("2025-11-25")
-    sessions.mark_initialized(session.session_id)
+    methods, session = _methods(service)
 
     payload = asyncio.run(methods.dispatch("tools/list", {}, session))
     assert payload is not None
@@ -61,3 +64,28 @@ def test_tools_list_uses_descriptor_input_schema(tmp_path, monkeypatch):
     assert tools["create_namespace"]["inputSchema"]["required"] == ["name"]
     assert tools["write_tool"]["inputSchema"]["required"] == ["namespace", "filename", "code"]
     assert "required" not in tools["list_namespaces"]["inputSchema"]
+
+
+def test_tools_call_list_result_has_no_structured_content(tmp_path, monkeypatch):
+    service = _service(tmp_path, monkeypatch)
+    methods, session = _methods(service)
+
+    payload = asyncio.run(
+        methods.dispatch("tools/call", {"name": "list_namespaces", "arguments": {}}, session)
+    )
+    assert payload is not None
+    assert payload.get("isError") is not True
+    assert "structuredContent" not in payload
+    assert payload["content"][0]["text"] == "[]"
+
+
+def test_tools_call_missing_required_argument_returns_explicit_error(tmp_path, monkeypatch):
+    service = _service(tmp_path, monkeypatch)
+    methods, session = _methods(service)
+
+    payload = asyncio.run(
+        methods.dispatch("tools/call", {"name": "list_tools", "arguments": {}}, session)
+    )
+    assert payload is not None
+    assert payload.get("isError") is True
+    assert "Missing required arguments for list_tools: namespace" in payload["content"][0]["text"]
