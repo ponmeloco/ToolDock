@@ -1,0 +1,6 @@
+description: "Weather API tools"
+version: "1.0.0"
+secrets:
+  - WEATHER_API_KEY
+env:
+  WEATHER_BASE_URL: "https://api.openweathermap.org"
