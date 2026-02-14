@@ -183,6 +183,6 @@ Set `TOOLDOCK_BEARER_TOKEN` in the LiteLLM environment. If LiteLLM runs on the s
 
 - Namespace names must be lowercase alphanumeric with optional hyphens (for example `github-tools`).
 - Runtime tool files are loaded from `./.tooldock-data/tools/<namespace>/*.py`.
-- Manager exposes many MCP tools such as `create_namespace`, `write_tool`, `install_requirements`, `reload_core`, and `test_tool`.
+- Manager exposes many MCP tools such as `create_namespace`, `get_tool_template`, `write_tool`, `install_requirements`, `reload_core`, and `test_tool`.
 - Ready-to-use assistant system prompt: `SYSTEM_PROMPT_ASSISTANT.md`.
 - Full ToolDock -> LiteLLM -> OpenWebUI workflow: `LITELLM_OPENWEBUI_E2E_WORKFLOW.md`.

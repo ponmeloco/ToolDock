@@ -40,6 +40,24 @@ class ToolFileTools:
         file_path = self._resolve_py_file(namespace, filename)
         return {"filename": file_path.name, "source": file_path.read_text(encoding="utf-8")}
 
+    def get_tool_template(self, template_name: str = "fastmcp-basic") -> dict[str, Any]:
+        normalized = template_name.strip().lower() or "fastmcp-basic"
+        templates = _tool_templates()
+        template = templates.get(normalized)
+        if template is None:
+            return {
+                "ok": False,
+                "error": f"Unknown template: {template_name}",
+                "available_templates": sorted(templates.keys()),
+            }
+
+        return {
+            "ok": True,
+            "template_name": normalized,
+            "available_templates": sorted(templates.keys()),
+            **template,
+        }
+
     def write_tool(self, namespace: str, filename: str, code: str) -> dict[str, Any]:
         validate_namespace_name(namespace)
         if not filename.endswith(".py"):
@@ -89,6 +107,7 @@ class ToolFileTools:
 
 def _validate_tool_file(tree: ast.Module) -> dict[str, Any]:
     tools: list[str] = []
+    uses_bare_tool_decorator = False
 
     for node in tree.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -97,6 +116,8 @@ def _validate_tool_file(tree: ast.Module) -> dict[str, Any]:
             continue
 
         tools.append(node.name)
+        if _has_bare_tool_decorator(node):
+            uses_bare_tool_decorator = True
 
         if not ast.get_docstring(node):
             return {"ok": False, "error": f"Tool '{node.name}' must have a docstring"}
@@ -114,6 +135,13 @@ def _validate_tool_file(tree: ast.Module) -> dict[str, Any]:
     if not tools:
         return {"ok": False, "error": "No @tool decorator found"}
 
+    if uses_bare_tool_decorator and not _has_tool_symbol_binding(tree):
+        return {
+            "ok": False,
+            "error": "Bare @tool decorator is not defined in this file",
+            "details": "Add 'from fastmcp.tools import tool' or use FastMCP + @mcp.tool().",
+        }
+
     return {"ok": True, "tools": tools}
 
 
@@ -125,3 +153,62 @@ def _has_tool_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         if isinstance(target, ast.Attribute) and target.attr == "tool":
             return True
     return False
+
+
+def _has_bare_tool_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for dec in node.decorator_list:
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(target, ast.Name) and target.id == "tool":
+            return True
+    return False
+
+
+def _has_tool_symbol_binding(tree: ast.Module) -> bool:
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bound_name = alias.asname or alias.name.split(".", 1)[0]
+                if bound_name == "tool":
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bound_name = alias.asname or alias.name
+                if bound_name == "tool":
+                    return True
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == "tool":
+                return True
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "tool":
+                    return True
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "tool":
+                return True
+    return False
+
+
+def _tool_templates() -> dict[str, dict[str, Any]]:
+    code = (
+        "from mcp.server.fastmcp import FastMCP\n"
+        "\n"
+        "mcp = FastMCP(\"my_tools\")\n"
+        "\n"
+        "\n"
+        "@mcp.tool()\n"
+        "def ping(name: str = \"world\") -> str:\n"
+        "    \"\"\"Return a simple greeting.\"\"\"\n"
+        "    return f\"hello {name}\"\n"
+    )
+    return {
+        "fastmcp-basic": {
+            "description": "Recommended template using FastMCP instance decorators.",
+            "filename_hint": "my_tool.py",
+            "code": code,
+            "notes": [
+                "Keep one FastMCP instance per file.",
+                "Decorate tools with @mcp.tool().",
+                "Add type hints and docstrings for every tool function.",
+            ],
+        }
+    }

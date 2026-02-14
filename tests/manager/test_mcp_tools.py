@@ -48,8 +48,11 @@ def test_first_call_tool_is_first_and_returns_usage(tmp_path, monkeypatch):
     tools = {item["name"]: item for item in guide["tools"]}
 
     assert "create_namespace" in tools
+    assert "get_tool_template" in tools
     assert tools["create_namespace"]["required_parameters"] == ["name"]
+    assert tools["get_tool_template"]["required_parameters"] == []
     assert tools["write_tool"]["required_parameters"] == ["namespace", "filename", "code"]
+    assert "get_tool_template and mirror its structure." in guide["workflow"][2]
 
 
 def test_tools_list_uses_descriptor_input_schema(tmp_path, monkeypatch):
@@ -62,8 +65,41 @@ def test_tools_list_uses_descriptor_input_schema(tmp_path, monkeypatch):
     tools = {item["name"]: item for item in payload["tools"]}
     assert payload["tools"][0]["name"] == "a_first_call_instructions"
     assert tools["create_namespace"]["inputSchema"]["required"] == ["name"]
+    assert "required" not in tools["get_tool_template"]["inputSchema"]
     assert tools["write_tool"]["inputSchema"]["required"] == ["namespace", "filename", "code"]
     assert "required" not in tools["list_namespaces"]["inputSchema"]
+
+
+def test_get_tool_template_returns_fastmcp_example(tmp_path, monkeypatch):
+    service = _service(tmp_path, monkeypatch)
+
+    template = asyncio.run(service.call_tool("get_tool_template", {}))
+    assert template["ok"] is True
+    assert template["template_name"] == "fastmcp-basic"
+    assert "FastMCP" in template["code"]
+    assert "@mcp.tool()" in template["code"]
+
+
+def test_write_tool_rejects_unbound_bare_tool_decorator(tmp_path, monkeypatch):
+    service = _service(tmp_path, monkeypatch)
+    asyncio.run(service.call_tool("create_namespace", {"name": "demo"}))
+    code = """@tool
+def ping(name: str) -> str:
+    \"\"\"Test.\"\"\"
+    return name
+"""
+    result = asyncio.run(
+        service.call_tool(
+            "write_tool",
+            {
+                "namespace": "demo",
+                "filename": "bad_tool.py",
+                "code": code,
+            },
+        )
+    )
+    assert result["written"] is False
+    assert result["error"] == "Bare @tool decorator is not defined in this file"
 
 
 def test_tools_call_list_result_has_no_structured_content(tmp_path, monkeypatch):

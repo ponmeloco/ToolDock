@@ -70,6 +70,17 @@ class ManagerToolService:
                 "input_schema": _object_schema(required={"namespace": namespace, "filename": filename}),
             },
             {
+                "name": "get_tool_template",
+                "description": "Get recommended starter template for writing tool code.",
+                "input_schema": _object_schema(
+                    optional={
+                        "template_name": _string_schema(
+                            description="Template variant, default fastmcp-basic.",
+                        )
+                    },
+                ),
+            },
+            {
                 "name": "write_tool",
                 "description": "Write and validate a Python tool file.",
                 "input_schema": _object_schema(
@@ -245,6 +256,8 @@ class ManagerToolService:
             return self._tool_files.list_tools(namespace=str(arguments["namespace"]))
         if name == "get_tool_source":
             return self._tool_files.get_tool_source(namespace=str(arguments["namespace"]), filename=str(arguments["filename"]))
+        if name == "get_tool_template":
+            return self._tool_files.get_tool_template(template_name=str(arguments.get("template_name") or "fastmcp-basic"))
         if name == "write_tool":
             return self._tool_files.write_tool(
                 namespace=str(arguments["namespace"]),
@@ -323,12 +336,14 @@ class ManagerToolService:
             "workflow": [
                 "1) Call list_namespaces.",
                 "2) Create or choose a namespace.",
-                "3) Write or update tool files.",
-                "4) Install requirements and prepare secrets.",
-                "5) Reload core and run test_tool.",
+                "3) Call get_tool_template and mirror its structure.",
+                "4) Write or update tool files.",
+                "5) Install requirements and prepare secrets.",
+                "6) Reload core and run test_tool.",
             ],
             "rules": [
                 "Always provide every required parameter exactly as listed.",
+                "Use get_tool_template before first write in a new namespace.",
                 "Use namespace-scoped operations unless a tool is explicitly global.",
                 "Use health and server_config for diagnostics.",
             ],
