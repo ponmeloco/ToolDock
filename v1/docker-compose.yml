@@ -1,64 +1,96 @@
-name: tooldock-local
+# ==================================================
+# ToolDock Docker Compose
+# ==================================================
+#
+# Zwei separate Container - immer getrennt:
+#   - tooldock-backend: Python Backend (OpenAPI, MCP, API)
+#   - tooldock-gateway: React Frontend + reverse proxy gateway
+#
+# Ports (konfigurierbar in .env):
+#   - 13000: Admin UI gateway (single exposed port)
+# Internal-only ports in backend container:
+#   - 8006: Tool API (OpenAPI transport)
+#   - 8007: MCP HTTP transport
+#   - 8080: Backend API
+#
+# Nutzung:
+#   docker compose up -d
+#   docker compose logs -f
+#
+# ==================================================
 
 services:
-  tooldock-core:
-    container_name: tooldock-core
-    image: tooldock-core
+  # ============================================
+  # Backend: Python (FastAPI)
+  # Separate Image: tooldock-backend:latest
+  # ============================================
+  tooldock-backend:
     build:
       context: .
-      dockerfile: core/Dockerfile
-    ports:
-      - "${CORE_PORT:-8000}:8000"
-    volumes:
-      - ./.tooldock-data:/data
-    env_file: .env
+      dockerfile: Dockerfile
+    image: tooldock-backend:latest
+    container_name: tooldock-backend
+    env_file:
+      - .env
     environment:
-      - MANAGER_INTERNAL_TOKEN=${MANAGER_INTERNAL_TOKEN}
-      - ENABLE_LEGACY_MCP=${ENABLE_LEGACY_MCP:-true}
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - SERVER_MODE=all
+      - DATA_DIR=/data
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////data/db/tooldock.db}
+      - HOST=0.0.0.0
+      - CORS_ORIGINS=*
+      # Internal container ports are fixed - only host ports are configurable
+      - OPENAPI_PORT=8006
+      - MCP_PORT=8007
+      - WEB_PORT=8080
+      # Public port is the Admin UI gateway
+      - OPENAPI_PUBLIC_PORT=${ADMIN_PORT:-13000}
+      - MCP_PUBLIC_PORT=${ADMIN_PORT:-13000}
+      - WEB_PUBLIC_PORT=${ADMIN_PORT:-13000}
+      - HOST_DATA_DIR=${HOST_DATA_DIR:-./tooldock_data}
+    expose:
+      - "8006"
+      - "8007"
+      - "8080"
+    volumes:
+      - ./tooldock_data:/data:rw
     restart: unless-stopped
+    networks:
+      - tooldock-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      # Uses fixed internal port (8007)
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
-  tooldock-manager:
-    container_name: tooldock-manager
-    image: tooldock-manager
+  # ============================================
+  # Gateway UI: React (Nginx)
+  # Separate Image: tooldock-gateway:latest
+  # ============================================
+  tooldock-gateway:
     build:
-      context: .
-      dockerfile: manager/Dockerfile
+      context: ./admin-ui
+      dockerfile: Dockerfile
+    image: tooldock-gateway:latest
+    container_name: tooldock-gateway
     ports:
-      - "${MANAGER_PORT:-8001}:8001"
-    volumes:
-      - ./.tooldock-data:/data
-    tmpfs:
-      - /dev/shm
-    env_file: .env
-    environment:
-      - CORE_URL=http://tooldock-core:8000
-      - MANAGER_INTERNAL_TOKEN=${MANAGER_INTERNAL_TOKEN}
-      - ENABLE_LEGACY_MCP=${ENABLE_LEGACY_MCP:-true}
-      - ENABLE_FS_WATCHER=${ENABLE_FS_WATCHER:-false}
-      - FS_WATCHER_DEBOUNCE_MS=${FS_WATCHER_DEBOUNCE_MS:-1500}
+      - "${ADMIN_PORT:-13000}:80"
+    restart: unless-stopped
+    networks:
+      - tooldock-network
     depends_on:
-      tooldock-core:
+      tooldock-backend:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)",
-        ]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "curl", "-sf", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-    restart: unless-stopped
+      start_period: 5s
+
+networks:
+  tooldock-network:
+    driver: bridge

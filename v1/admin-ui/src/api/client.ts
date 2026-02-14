@@ -1,0 +1,783 @@
+// API Client for ToolDock Backend
+
+const API_BASE = '/api'
+const TOOLS_BASE = '/openapi/tools'
+
+// Build namespace-scoped transport URLs
+export function mcpUrl(namespace: string): string {
+  return `/${namespace}/mcp`
+}
+
+export function openapiToolsUrl(namespace: string): string {
+  return `/${namespace}/openapi/tools`
+}
+
+// Get auth token from localStorage or prompt
+function getAuthToken(): string {
+  let token = localStorage.getItem('tooldock_token')
+  if (!token) {
+    token = prompt('Enter your Bearer Token:') || ''
+    if (token) {
+      localStorage.setItem('tooldock_token', token)
+    }
+  }
+  return token
+}
+
+// Clear auth token (for logout)
+export function clearAuthToken(): void {
+  localStorage.removeItem('tooldock_token')
+}
+
+// Fetch wrapper with auth
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAuthToken()
+
+  const headers = new Headers(options.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+
+  if (options.body && typeof options.body === 'string') {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  })
+
+  if (response.status === 401) {
+    clearAuthToken()
+    throw new Error('Unauthorized - please refresh and enter a valid token')
+  }
+
+  return response
+}
+
+// Types
+export interface Namespace {
+  name: string
+  tool_count: number
+  path: string
+}
+
+export interface Tool {
+  filename: string
+  namespace: string
+  path: string
+  size: number
+}
+
+export interface FastMCPRegistryResult {
+  servers: Array<Record<string, unknown>>
+  metadata?: Record<string, unknown>
+}
+
+export interface FastMCPServer {
+  id: number
+  server_name: string
+  namespace: string
+  version: string | null
+  install_method: string
+  repo_url: string | null
+  entrypoint: string | null
+  port: number | null
+  status: string
+  pid: number | null
+  last_error: string | null
+  // MCP config fields
+  command: string | null
+  args: string[] | null
+  env: Record<string, string> | null
+  auto_start: boolean
+  config_path: string | null
+  // Provenance
+  package_type?: string
+  source_url?: string
+  is_system?: boolean
+}
+
+export interface FastMCPSafetyCheck {
+  id: string
+  status: 'pass' | 'warn' | 'fail' | 'info'
+  severity: 'low' | 'medium' | 'high'
+  message: string
+  detail?: string | null
+}
+
+export interface FastMCPSafetyResult {
+  risk_level: 'low' | 'medium' | 'high'
+  risk_score: number
+  blocked: boolean
+  summary: string
+  checks: FastMCPSafetyCheck[]
+  resolved_server?: Record<string, unknown>
+  required_env?: Array<Record<string, unknown>>
+  suggested_namespace?: string
+}
+
+export interface FastMCPConfigFile {
+  namespace: string
+  filename: string
+  content: string
+  path: string
+}
+
+export interface FastMCPConfigFileInfo {
+  filename: string
+  path: string
+  size: number
+}
+
+export interface AllNamespace {
+  name: string
+  type: 'native' | 'fastmcp' | 'external'
+  tool_count: number
+  status: string | null
+  endpoint: string | null
+}
+
+export interface ToolContent {
+  filename: string
+  namespace: string
+  size: number
+  content: string
+  validation: ValidationResult
+}
+
+export interface NamespaceDeps {
+  namespace: string
+  venv_path: string
+  requirements: string | null
+  packages: { name: string; version: string }[]
+  exists: boolean
+}
+
+export interface InstallDepsResponse {
+  success: boolean
+  stdout: string
+  stderr: string
+}
+
+export interface ValidationResult {
+  is_valid: boolean
+  errors: string[]
+  warnings: string[]
+  info: Record<string, unknown>
+}
+
+export interface ServiceHealth {
+  name: string
+  status: string
+  port: number
+  details: Record<string, unknown> | null
+}
+
+export interface SystemHealth {
+  status: string
+  timestamp: string
+  services: ServiceHealth[]
+  environment: Record<string, string>
+}
+
+export interface ErrorRateWindow {
+  requests: number
+  errors: number
+  error_rate: number
+}
+
+export interface ServiceErrorRates {
+  last_5m: ErrorRateWindow
+  last_1h: ErrorRateWindow
+  last_24h: ErrorRateWindow
+  last_7d: ErrorRateWindow
+}
+
+export interface ToolCallCounts {
+  total: number
+  success: number
+  error: number
+}
+
+export interface ToolCallStats {
+  last_5m: ToolCallCounts
+  last_1h: ToolCallCounts
+  last_24h: ToolCallCounts
+  last_7d: ToolCallCounts
+}
+
+export interface SystemMetrics {
+  timestamp: string
+  services: Record<string, ServiceErrorRates>
+  tool_calls: ToolCallStats
+}
+
+export interface LogEntry {
+  timestamp: string
+  level: string
+  logger: string
+  message: string
+  // Optional HTTP request fields
+  http_method?: string
+  http_path?: string
+  http_status?: number
+  http_duration_ms?: number
+  tool_name?: string
+  service_name?: string
+  request_id?: string
+  error_detail?: string
+}
+
+export interface ToolExecutionResult {
+  tool: string
+  result: unknown
+}
+
+// API Functions
+
+// Namespaces
+export async function getNamespaces(): Promise<Namespace[]> {
+  const res = await fetchWithAuth(`${API_BASE}/folders`)
+  const data = await res.json()
+  return data.folders || []
+}
+
+export async function createNamespace(name: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE}/folders`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to create namespace')
+  }
+}
+
+export async function deleteNamespace(name: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${name}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to delete namespace')
+  }
+}
+
+// Tools
+export async function getTools(namespace: string): Promise<Tool[]> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files`)
+  const data = await res.json()
+  return data.tools || []
+}
+
+export async function searchRegistryServers(query: string, limit = 20): Promise<FastMCPRegistryResult> {
+  const url = new URL(`${API_BASE}/fastmcp/registry/servers`, window.location.origin)
+  url.searchParams.set('search', query)
+  url.searchParams.set('limit', String(limit))
+  const res = await fetchWithAuth(url.toString())
+  return res.json()
+}
+
+export async function checkRegistryHealth(): Promise<{ status: string; reason?: string }> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/registry/health`)
+  return res.json()
+}
+
+export async function listFastMcpServers(): Promise<FastMCPServer[]> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers`)
+  return res.json()
+}
+
+export async function addFastMcpServer(
+  server_id: string | null,
+  server_name: string | null,
+  namespace: string,
+  version?: string,
+): Promise<FastMCPServer> {
+  const payload: Record<string, unknown> = { namespace }
+  if (server_id) payload.server_id = server_id
+  if (server_name) payload.server_name = server_name
+  if (version) payload.version = version
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to add server')
+  }
+  return res.json()
+}
+
+export async function addRepoFastMcpServer(data: {
+  namespace: string
+  repo_url: string
+  server_name?: string
+  entrypoint?: string
+  auto_start?: boolean
+  env?: Record<string, string>
+  config_file?: string
+  config_filename?: string
+}): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/repo`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to install repo server')
+  }
+  return res.json()
+}
+
+export async function checkFastMcpServerSafety(data: {
+  server_id?: string
+  server_name?: string
+  repo_url?: string
+  command?: string
+  args?: string[]
+}): Promise<FastMCPSafetyResult> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/safety/check`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to check server safety')
+  }
+  return res.json()
+}
+
+export async function startFastMcpServer(id: number): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/start`, { method: 'POST' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to start server')
+  }
+  return res.json()
+}
+
+export async function stopFastMcpServer(id: number): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/stop`, { method: 'POST' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to stop server')
+  }
+  return res.json()
+}
+
+export async function syncFastMcpServers(): Promise<{ success: boolean; external_tools: number }> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/sync`, { method: 'POST' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to sync servers')
+  }
+  return res.json()
+}
+
+export async function deleteFastMcpServer(id: number): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to delete server')
+  }
+}
+
+export async function getFastMcpServer(id: number): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get server')
+  }
+  return res.json()
+}
+
+export async function updateFastMcpServer(
+  id: number,
+  data: {
+    server_name?: string
+    command?: string
+    args?: string[]
+    env?: Record<string, string>
+    auto_start?: boolean
+  }
+): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to update server')
+  }
+  return res.json()
+}
+
+export async function getFastMcpServerConfig(
+  id: number,
+  filename = 'config.yaml'
+): Promise<FastMCPConfigFile> {
+  const url = new URL(`${API_BASE}/fastmcp/servers/${id}/config`, window.location.origin)
+  url.searchParams.set('filename', filename)
+  const res = await fetchWithAuth(url.toString())
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get config')
+  }
+  return res.json()
+}
+
+export async function updateFastMcpServerConfig(
+  id: number,
+  content: string,
+  filename = 'config.yaml'
+): Promise<FastMCPConfigFile> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/config`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, filename }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to update config')
+  }
+  return res.json()
+}
+
+export async function listFastMcpServerConfigFiles(
+  id: number
+): Promise<{ namespace: string; directory: string; files: FastMCPConfigFileInfo[] }> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/${id}/config/files`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to list config files')
+  }
+  return res.json()
+}
+
+export async function addManualFastMcpServer(data: {
+  namespace: string
+  server_name: string
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+  config_file?: string
+  config_filename?: string
+  auto_start?: boolean
+}): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/manual`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to add manual server')
+  }
+  return res.json()
+}
+
+export async function addFromConfigServer(data: {
+  namespace: string
+  config: Record<string, unknown>
+  pip_package?: string
+  auto_start?: boolean
+}): Promise<FastMCPServer> {
+  const res = await fetchWithAuth(`${API_BASE}/fastmcp/servers/from-config`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to add server from config')
+  }
+  return res.json()
+}
+
+export async function getAllNamespaces(): Promise<{ namespaces: AllNamespace[]; total: number }> {
+  const res = await fetchWithAuth(`${API_BASE}/admin/namespaces`)
+  return res.json()
+}
+
+export async function getTool(namespace: string, filename: string): Promise<ToolContent> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/${filename}`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get tool')
+  }
+  return res.json()
+}
+
+export async function updateTool(
+  namespace: string,
+  filename: string,
+  content: string,
+  skipValidation = false
+): Promise<{ success: boolean; message: string; validation: ValidationResult }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/${filename}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, skip_validation: skipValidation }),
+  })
+  return res.json()
+}
+
+export async function uploadTool(
+  namespace: string,
+  file: File,
+  skipValidation = false
+): Promise<{ success: boolean; message: string; validation: ValidationResult }> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const token = getAuthToken()
+  const res = await fetch(
+    `${API_BASE}/folders/${namespace}/files?skip_validation=${skipValidation}`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    }
+  )
+  return res.json()
+}
+
+export async function deleteTool(namespace: string, filename: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/${filename}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to delete tool')
+  }
+}
+
+export async function getNamespaceDeps(namespace: string): Promise<NamespaceDeps> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps`)
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to get dependencies')
+  }
+  return res.json()
+}
+
+export async function installNamespaceDeps(
+  namespace: string,
+  payload: { requirements: string }
+): Promise<InstallDepsResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/install`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to install dependencies')
+  }
+  return res.json()
+}
+
+export async function uninstallNamespaceDeps(
+  namespace: string,
+  payload: { packages: string[] }
+): Promise<InstallDepsResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/uninstall`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to uninstall dependencies')
+  }
+  return res.json()
+}
+
+export async function createNamespaceVenv(namespace: string): Promise<{ success: boolean; venv_path: string }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/create`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to create venv')
+  }
+  return res.json()
+}
+
+export async function deleteNamespaceVenv(namespace: string): Promise<{ success: boolean; deleted: boolean }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/deps/delete`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to delete venv')
+  }
+  return res.json()
+}
+
+export async function createToolFromTemplate(
+  namespace: string,
+  name: string
+): Promise<{ success: boolean; message: string; filename: string; path: string }> {
+  const res = await fetchWithAuth(`${API_BASE}/folders/${namespace}/files/create-from-template`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Failed to create tool')
+  }
+  return res.json()
+}
+
+export async function validateTool(
+  namespace: string,
+  content: string,
+  filename: string
+): Promise<ValidationResult> {
+  const blob = new Blob([content], { type: 'text/plain' })
+  const file = new File([blob], filename)
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const token = getAuthToken()
+  const res = await fetch(`${API_BASE}/folders/${namespace}/files/validate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  })
+  return res.json()
+}
+
+// Admin
+export async function getSystemHealth(): Promise<SystemHealth> {
+  const res = await fetchWithAuth(`${API_BASE}/admin/health`)
+  return res.json()
+}
+
+export async function getLogs(
+  limit = 100,
+  level?: string,
+  loggerName?: string
+): Promise<{ logs: LogEntry[]; total: number; has_more: boolean }> {
+  const params = new URLSearchParams({ limit: limit.toString() })
+  if (level) params.set('level', level)
+  if (loggerName) params.set('logger_name', loggerName)
+
+  const res = await fetchWithAuth(`${API_BASE}/admin/logs?${params}`)
+  return res.json()
+}
+
+export async function getSystemInfo(): Promise<{
+  version: string
+  python_version: string
+  data_dir: string
+  namespaces: string[]
+  environment: Record<string, string>
+}> {
+  const res = await fetchWithAuth(`${API_BASE}/admin/info`)
+  return res.json()
+}
+
+export async function getSystemMetrics(): Promise<SystemMetrics> {
+  const res = await fetchWithAuth(`${API_BASE}/admin/metrics`)
+  return res.json()
+}
+
+// Reload
+export async function reloadAll(): Promise<{ success: boolean; results: unknown[] }> {
+  const res = await fetchWithAuth(`${API_BASE}/reload`, { method: 'POST' })
+  return res.json()
+}
+
+export async function reloadNamespace(namespace: string): Promise<{ success: boolean; result: unknown }> {
+  const res = await fetchWithAuth(`${API_BASE}/reload/${namespace}`, { method: 'POST' })
+  return res.json()
+}
+
+// Tool Execution (via OpenAPI)
+export async function executeTool(
+  toolName: string,
+  payload: Record<string, unknown>
+): Promise<ToolExecutionResult> {
+  const res = await fetchWithAuth(`${TOOLS_BASE}/${toolName}`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || error.error?.message || 'Tool execution failed')
+  }
+  return res.json()
+}
+
+// Tool info returned by getAllTools
+export interface PlaygroundTool {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  type: string
+  namespace: string
+}
+
+// Tool execution response
+export interface PlaygroundExecuteResponse {
+  tool: string
+  transport: string
+  result: unknown
+  success: boolean
+  error?: string
+  error_type?: string
+  status_code?: number
+}
+
+// MCP response format
+export interface MCPResponse {
+  jsonrpc: string
+  id: number
+  result?: unknown
+  error?: { code: number; message: string }
+}
+
+// Get all tools (for playground) - via Backend API for proper logging
+export async function getAllTools(): Promise<{
+  tools: PlaygroundTool[]
+  total: number
+}> {
+  const res = await fetchWithAuth(`${API_BASE}/playground/tools`)
+  return res.json()
+}
+
+// Execute tool via playground API (logs locally)
+export async function executePlaygroundTool(
+  toolName: string,
+  payload: Record<string, unknown>,
+  transport: 'openapi' | 'mcp' = 'openapi',
+  namespace?: string
+): Promise<PlaygroundExecuteResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/playground/execute`, {
+    method: 'POST',
+    body: JSON.stringify({
+      tool_name: toolName,
+      arguments: payload,
+      transport,
+      namespace,
+    }),
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.detail || 'Tool execution failed')
+  }
+  return res.json()
+}
+
+// Test MCP JSON-RPC format
+export async function testMCP(
+  method: string,
+  params?: Record<string, unknown>
+): Promise<MCPResponse> {
+  const res = await fetchWithAuth(`${API_BASE}/playground/mcp`, {
+    method: 'POST',
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method,
+      params,
+    }),
+  })
+  return res.json()
+}
